@@ -63,6 +63,7 @@
   let getState = () => null;
   let setState = () => {};
   let getWorldDay = () => 1;
+  let getWorldSeed = () => "legacy-world";
   let getSettlements = () => [];
   let getRoutes = () => [];
   let getCityEvents = () => [];
@@ -96,6 +97,7 @@
     getState = typeof options.getState === "function" ? options.getState : getState;
     setState = typeof options.setState === "function" ? options.setState : setState;
     getWorldDay = typeof options.getWorldDay === "function" ? options.getWorldDay : getWorldDay;
+    getWorldSeed = typeof options.getWorldSeed === "function" ? options.getWorldSeed : getWorldSeed;
     getSettlements = typeof options.getSettlements === "function" ? options.getSettlements : getSettlements;
     getRoutes = typeof options.getRoutes === "function" ? options.getRoutes : getRoutes;
     getCityEvents = typeof options.getCityEvents === "function" ? options.getCityEvents : getCityEvents;
@@ -1263,7 +1265,7 @@
 
   function seededRandom(seedText) {
     let seed = 2166136261;
-    for (const character of String(seedText)) {
+    for (const character of `${String(getWorldSeed() || "legacy-world")}|${String(seedText)}`) {
       seed ^= character.charCodeAt(0);
       seed = Math.imul(seed, 16777619);
     }

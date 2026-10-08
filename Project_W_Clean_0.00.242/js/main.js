@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.247";
-const ACCOUNT_SCHEMA_VERSION = 40;
+const GAME_VERSION = "0.00.248";
+const ACCOUNT_SCHEMA_VERSION = 41;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -1163,6 +1163,7 @@ window.ProjectWInformation.init({
     account.informationState = state;
   },
   getWorldDay: () => normalizeWorldTime(account?.worldTime).day,
+  getWorldSeed: () => String(account?.worldSeed || "title"),
   getSettlements: () => window.ProjectWMapView.getTradeWorldData?.().nodes || [],
   getRoutes: () => window.ProjectWMapView.getTradeWorldData?.().routes || [],
   getCityEvents: placement => window.ProjectWCityEvents.getSettlementEvents(placement),
@@ -1189,6 +1190,7 @@ window.ProjectWTrade.init({
     window.ProjectWWallet.refresh();
   },
   getWorldTime: () => account?.worldTime ?? { day: 1, phaseIndex: 0 },
+  getWorldSeed: () => String(account?.worldSeed || "title"),
   getFoodUsage: () => account?.foodUsage ?? createInitialFoodUsage(),
   getPartnerMood: () => normalizePartnerState(account?.partner, account?.partnerMoodAdjustment).mood,
   getMerchantCommentBonus: () => activePartnerBuffValue(["N_Buff_021"], 2)
@@ -1313,6 +1315,7 @@ window.ProjectWInn.init({
     window.ProjectWWallet.refresh();
   },
   getWorldTime: () => account?.worldTime ?? { day: 1, phaseIndex: 0 },
+  getWorldSeed: () => String(account?.worldSeed || "title"),
   getFoodUsage: () => account?.foodUsage ?? createInitialFoodUsage(),
   getPartnerMood: () => normalizePartnerState(account?.partner, account?.partnerMoodAdjustment).mood,
   getCityEventModifiers: settlement => window.ProjectWCityEvents.getModifiers(settlement),
@@ -1921,6 +1924,7 @@ function chooseAnonymousName() {
   account = {
     schemaVersion: ACCOUNT_SCHEMA_VERSION,
     gameVersion: GAME_VERSION,
+    worldSeed: createWorldSeed(),
     userName: "당신",
     namingChoice: "anonymous",
     nameLocked: false,
@@ -2019,6 +2023,7 @@ function confirmName() {
     account = {
       schemaVersion: ACCOUNT_SCHEMA_VERSION,
       gameVersion: GAME_VERSION,
+      worldSeed: createWorldSeed(),
       userName: pendingName,
       namingChoice: "named",
       nameLocked: true,
@@ -2557,7 +2562,7 @@ function openDialog({
 }) {
   pauseTravelClock("dialog");
   dialogModal.hidden = false;
-  dialogCard.classList.remove("is-options-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open");
+  dialogCard.classList.remove("is-options-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm");
   if (optionsTabs) optionsTabs.hidden = true;
   optionsSoundPanel.hidden = true;
   if (optionsCodePanel) optionsCodePanel.hidden = true;
@@ -2703,7 +2708,7 @@ function createDialogButton(action) {
 
 function closeDialog() {
   dialogModal.hidden = true;
-  dialogCard.classList.remove("is-options-dialog", "is-player-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "without-character");
+  dialogCard.classList.remove("is-options-dialog", "is-player-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "without-character");
   dialogCard.removeAttribute("tabindex");
   activeDialogueAdvance = null;
   dialogueAdvanceLocked = false;
@@ -2761,6 +2766,8 @@ function loadAccount() {
     if (!parsed || typeof parsed.userName !== "string" || !parsed.userName.trim()) return null;
     const storedSchemaVersion = Number(parsed.schemaVersion) || 1;
     let migrated = storedSchemaVersion < ACCOUNT_SCHEMA_VERSION;
+    if (!String(parsed.worldSeed || "").trim()) migrated = true;
+    parsed.worldSeed = normalizeWorldSeed(parsed.worldSeed);
     if (storedSchemaVersion < 7 && (!parsed.wallet || !Object.keys(parsed.wallet).length)) {
       parsed.wallet = createInitialWallet();
       migrated = true;
@@ -6374,6 +6381,24 @@ function createInitialWorldTime() {
   return { day: 1, phaseIndex: 0 };
 }
 
+function createWorldSeed() {
+  const timestamp = Date.now().toString(36);
+  let randomPart = "";
+  try {
+    const values = new Uint32Array(2);
+    crypto.getRandomValues(values);
+    randomPart = [...values].map(value => value.toString(36)).join("");
+  } catch (error) {
+    randomPart = `${Math.random().toString(36).slice(2)}${performance.now().toString(36)}`;
+  }
+  const letters = Array.from({ length: 8 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("");
+  return `${timestamp}-${randomPart}-${letters}`;
+}
+
+function normalizeWorldSeed(value) {
+  return String(value || "").trim() || createWorldSeed();
+}
+
 function createInitialHorseState() {
   return { health: 100, maxHealth: 100, hunger: 90, maxHunger: 100 };
 }
@@ -7355,6 +7380,7 @@ function normalizeTravelState(value) {
 
 function ensureTravelState() {
   if (!account) return null;
+  account.worldSeed = normalizeWorldSeed(account.worldSeed);
   account.travel = normalizeTravelState(account.travel);
   account.worldTime = normalizeWorldTime(account.worldTime);
   account.weatherSystem = window.ProjectWWeather.normalizeState(account.weatherSystem);
@@ -9771,13 +9797,14 @@ function handleRoadTurnBack() {
   if (!account?.travel?.moving) return;
   openDialog({
     speaker: "되돌아가기",
-    message: "지금 지나온 방향으로 짐마차를 돌립니다.\n회차에는 10초가 걸리며, 그동안 취소할 수 있습니다.",
+    message: "지금 지나온 방향으로 짐마차를 돌립니다.\n회차에는 10초가 걸리며, 도중에 취소할 수 있습니다.",
     showCharacter: false,
     actions: [
       { label: "계속 이동", onClick: closeDialog },
       { label: "되돌아가기", primary: true, onClick: beginTurnBack }
     ]
   });
+  dialogCard.classList.add("is-turn-back-confirm");
 }
 
 function beginTurnBack() {

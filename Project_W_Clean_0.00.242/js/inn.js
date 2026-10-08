@@ -63,6 +63,7 @@
   let getPlayerWallet = () => ({});
   let setPlayerWallet = () => {};
   let getWorldTime = () => ({ day: 1, phaseIndex: 0 });
+  let getWorldSeed = () => "legacy-world";
   let getFoodUsage = () => ({ day: 1, mealUsed: false, snackUsed: false });
   let getPartnerMood = () => 50;
   let getCityEventModifiers = () => ({ lodgingMoodBonus: 0, lodgingFeePercent: 0, maintenanceFeePercent: 0 });
@@ -83,6 +84,7 @@
     getPlayerWallet = typeof options.getPlayerWallet === "function" ? options.getPlayerWallet : getPlayerWallet;
     setPlayerWallet = typeof options.setPlayerWallet === "function" ? options.setPlayerWallet : setPlayerWallet;
     getWorldTime = typeof options.getWorldTime === "function" ? options.getWorldTime : getWorldTime;
+    getWorldSeed = typeof options.getWorldSeed === "function" ? options.getWorldSeed : getWorldSeed;
     getFoodUsage = typeof options.getFoodUsage === "function" ? options.getFoodUsage : getFoodUsage;
     getPartnerMood = typeof options.getPartnerMood === "function" ? options.getPartnerMood : getPartnerMood;
     getCityEventModifiers = typeof options.getCityEventModifiers === "function" ? options.getCityEventModifiers : getCityEventModifiers;
@@ -1168,7 +1170,7 @@
 
   function hashString(value) {
     let hash = 2166136261;
-    for (const character of String(value)) {
+    for (const character of `${String(getWorldSeed() || "legacy-world")}|${String(value)}`) {
       hash ^= character.codePointAt(0);
       hash = Math.imul(hash, 16777619);
     }

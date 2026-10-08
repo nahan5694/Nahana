@@ -113,6 +113,7 @@
   let setPlayerBillNotes = () => {};
   let getAssetUrl = () => "";
   let getWorldTime = () => ({ day: 1, phaseIndex: 0 });
+  let getWorldSeed = () => "legacy-world";
   let getFoodUsage = () => ({ day: 1, snackUsed: false });
   let getPartnerMood = () => 50;
   let getMerchantCommentBonus = () => 0;
@@ -147,6 +148,7 @@
     setPlayerBillNotes = typeof options.setPlayerBillNotes === "function" ? options.setPlayerBillNotes : setPlayerBillNotes;
     getAssetUrl = typeof options.getAssetUrl === "function" ? options.getAssetUrl : getAssetUrl;
     getWorldTime = typeof options.getWorldTime === "function" ? options.getWorldTime : getWorldTime;
+    getWorldSeed = typeof options.getWorldSeed === "function" ? options.getWorldSeed : getWorldSeed;
     getFoodUsage = typeof options.getFoodUsage === "function" ? options.getFoodUsage : getFoodUsage;
     getPartnerMood = typeof options.getPartnerMood === "function" ? options.getPartnerMood : getPartnerMood;
     getMerchantCommentBonus = typeof options.getMerchantCommentBonus === "function" ? options.getMerchantCommentBonus : getMerchantCommentBonus;
@@ -3805,7 +3807,7 @@
 
   function seededRandom(seedText) {
     let seed = 2166136261;
-    for (const character of String(seedText)) {
+    for (const character of `${String(getWorldSeed() || "legacy-world")}|${String(seedText)}`) {
       seed ^= character.charCodeAt(0);
       seed = Math.imul(seed, 16777619);
     }
