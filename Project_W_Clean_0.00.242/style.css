@@ -1975,7 +1975,14 @@ h1, p { margin-top: 0; }
   background: linear-gradient(#8b8375, #625c52);
   color: #fff8e9;
 }
-.road-control .road-action-group > .road-pass-through:hover { background: linear-gradient(#9a9283, #746c60); }
+.road-control .road-action-group > .road-turn-back {
+  min-width: 108px;
+  border-color: #6e6659;
+  background: linear-gradient(#8b8375, #625c52);
+  color: #fff8e9;
+}
+.road-control .road-action-group > .road-pass-through:hover,
+.road-control .road-action-group > .road-turn-back:hover { background: linear-gradient(#9a9283, #746c60); }
 .road-control button:hover { background: linear-gradient(#987049, #79512e); }
 .road-control button:disabled { opacity: .72; cursor: default; }
 .road-control button span {

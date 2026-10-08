@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.245";
+const GAME_VERSION = "0.00.247";
 const ACCOUNT_SCHEMA_VERSION = 40;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -17,6 +17,7 @@ const PARTNER_APPETITE_STATUS_IDS = new Set([
   "N_S_005", "N_S_017", "N_S_018", "N_S_019", "N_S_020", "N_S_021", "N_S_022"
 ]);
 const TRAVEL_STEP_MS = 30_000;
+const TURN_BACK_DURATION_MS = 10_000;
 const MAX_TRAVEL_SEGMENT_MS = 180_000;
 const MAX_TRAVEL_RATE = 4;
 const START_POSITION_ID = "MAP_DOT_0094";
@@ -555,9 +556,13 @@ const INITIAL_WALLET = Object.freeze({
 });
 const CAMP_ENVIRONMENT_COMFORT = new Map([
   ["온난", 0],
-  ["추위", -3],
-  ["혹한", -5],
-  ["다습", -3]
+  ["추위", -10],
+  ["혹한", -15],
+  ["다습", -10]
+]);
+const CAMP_WEATHER_COMFORT = new Map([
+  ["비", -10],
+  ["폭우", -15]
 ]);
 const TERRAIN_DURATION_MULTIPLIERS = new Map([
   ["평지", 1],
@@ -800,6 +805,7 @@ const roadLocation = document.querySelector("#road-location");
 const roadStatus = document.querySelector("#road-status");
 const roadAction = document.querySelector("#road-action");
 const roadPassThrough = document.querySelector("#road-pass-through");
+const roadTurnBack = document.querySelector("#road-turn-back");
 const settlementMealStatus = document.querySelector("#settlement-meal-status");
 const settlementDailyStatus = document.querySelector("#settlement-daily-status");
 const settlementExitTooltip = document.querySelector("#settlement-exit-tooltip");
@@ -1626,6 +1632,7 @@ document.querySelector("#inn-next-scene")?.addEventListener("click", () => moveS
 document.querySelector("#inn-previous-scene")?.addEventListener("click", () => moveScene(-1));
 roadAction.addEventListener("click", handleRoadAction);
 roadPassThrough.addEventListener("click", handleRoadPassThrough);
+roadTurnBack?.addEventListener("click", handleRoadTurnBack);
 roadAction.addEventListener("pointerenter", showSettlementExitTooltip);
 roadAction.addEventListener("pointerleave", hideSettlementExitTooltip);
 roadAction.addEventListener("focus", showSettlementExitTooltip);
@@ -6103,6 +6110,7 @@ async function playRouteEventSpiritProtectionFlash() {
 
 function acquirePartnerBlessing(blessingId) {
   if (!account) return;
+  const blessingScrollTop = partnerFeatureContent?.querySelector(".is-blessing-list")?.scrollTop || 0;
   const definition = nahanaBlessDefinitions.get(String(blessingId || ""));
   if (!definition) return;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
@@ -6130,6 +6138,8 @@ function acquirePartnerBlessing(blessingId) {
   }
   renderPartnerFeature();
   updatePartnerUi();
+  const refreshedBlessingList = partnerFeatureContent?.querySelector(".is-blessing-list");
+  if (refreshedBlessingList) refreshedBlessingList.scrollTop = blessingScrollTop;
   showGameNotice(`${definition.name}${definition.grade ? ` ${definition.grade}` : ""} 축복을 획득했습니다.`);
 }
 
@@ -7263,6 +7273,8 @@ function createInitialTravelState() {
     routePath: [...START_ROUTE],
     routeIndex: 0,
     moving: false,
+    turningBack: false,
+    turnBackEndsAt: 0,
     segmentRemainingMs: TRAVEL_STEP_MS,
     progressUpdatedAt: null,
     progressRate: 1,
@@ -7298,7 +7310,9 @@ function normalizeTravelState(value) {
 
   const mode = value.mode === "settlement" || value.mode === "camp" ? value.mode : "road";
   const canMove = mode === "road" && routeIndex < routePath.length - 1;
-  const moving = Boolean(value.moving) && canMove;
+  const savedTurnBackEndsAt = Math.max(0, Number(value.turnBackEndsAt) || 0);
+  const turningBack = mode === "road" && Boolean(value.turningBack) && savedTurnBackEndsAt > 0;
+  const moving = Boolean(value.moving) && canMove && !turningBack;
   const savedRate = clampNumber(Number(value.progressRate), 0.1, MAX_TRAVEL_RATE, 1);
   const savedRemaining = value.segmentRemainingMs == null ? Number.NaN : Number(value.segmentRemainingMs);
   const legacyNextStepAt = value.nextStepAt == null ? Number.NaN : Number(value.nextStepAt);
@@ -7324,6 +7338,8 @@ function normalizeTravelState(value) {
     routePath,
     routeIndex,
     moving,
+    turningBack,
+    turnBackEndsAt: turningBack ? savedTurnBackEndsAt : 0,
     segmentRemainingMs,
     progressUpdatedAt: moving && Number.isFinite(savedUpdatedAt) ? savedUpdatedAt : moving ? Date.now() : null,
     progressRate: savedRate,
@@ -7408,6 +7424,9 @@ function resumeTravelClock(reason) {
     persistAccount();
     syncTravelExperience();
     scheduleTravelStep();
+  } else if (account?.travel?.turningBack) {
+    syncTravelExperience();
+    scheduleTravelStep();
   }
 }
 
@@ -7443,6 +7462,15 @@ function reconcileTravelProgress(reschedule = true) {
   }
   const now = Date.now();
   let changed = false;
+
+  if (travel.turningBack) {
+    if (now >= travel.turnBackEndsAt) completeTurnBack(travel);
+    else {
+      syncTravelExperience();
+      if (reschedule) scheduleTravelStep();
+    }
+    return;
+  }
 
   if (travel.moving && isTravelClockPaused()) {
     travel.progressUpdatedAt = now;
@@ -7496,6 +7524,8 @@ function reconcileTravelProgress(reschedule = true) {
 
 function stopTravelAtCurrentPosition(travel) {
   travel.moving = false;
+  travel.turningBack = false;
+  travel.turnBackEndsAt = 0;
   travel.pendingRoadArrivalContinuation = false;
   travel.segmentRemainingMs = TRAVEL_STEP_MS;
   travel.progressUpdatedAt = null;
@@ -8156,6 +8186,12 @@ function getCurrentRouteConnection(travel = account?.travel) {
 function scheduleTravelStep() {
   clearTravelTimers();
   const travel = account?.travel;
+  if (travel?.turningBack) {
+    const delay = Math.max(16, travel.turnBackEndsAt - Date.now());
+    travelStepTimer = window.setTimeout(reconcileTravelProgress, delay + 8);
+    travelCountdownTimer = window.setInterval(updateTravelDisplays, 250);
+    return;
+  }
   if (!travel?.moving || isTravelClockPaused()) return;
   if (travel.pendingRoadArrivalContinuation) {
     resumePendingRoadArrivalContinuation(travel);
@@ -8286,10 +8322,12 @@ function updateTravelPinPositions(travel = account?.travel) {
 
 function updateTravelToolbar() {
   const travel = account?.travel;
-  const active = Boolean(travel?.moving);
+  const active = Boolean(travel?.moving || travel?.turningBack);
   travelToolbarStatus.hidden = !active;
   if (!active) return;
-  travelToolbarTime.textContent = `다음 지점 ${nextPointSeconds(travel)}초`;
+  travelToolbarTime.textContent = travel.turningBack
+    ? `회차 ${turnBackSeconds(travel)}초`
+    : `다음 지점 ${nextPointSeconds(travel)}초`;
   travelToolbarStatus.classList.toggle("is-half-speed", travel.progressRate < 1);
 }
 
@@ -9579,6 +9617,7 @@ function nahanaEventDepartureLockMessage() {
 function updateRoadControls() {
   const travel = account?.travel;
   if (roadPassThrough) roadPassThrough.hidden = true;
+  if (roadTurnBack) roadTurnBack.hidden = true;
   if (travel?.mode !== "settlement") hideSettlementExitTooltip();
   if (!travel) {
     roadLocation.textContent = "여행 준비 중";
@@ -9609,10 +9648,24 @@ function updateRoadControls() {
   }
 
   const destinationName = getPlacementName(travel.destinationNodeId);
+  if (travel.turningBack) {
+    roadLocation.textContent = `${destinationName} 방면`;
+    roadStatus.textContent = `짐마차를 돌리는 중 · ${turnBackSeconds(travel)}초`;
+    setRoadAction("회차 중", "", true);
+    if (roadTurnBack) {
+      roadTurnBack.hidden = false;
+      roadTurnBack.textContent = "회차 취소";
+    }
+    return;
+  }
   if (travel.moving) {
     roadLocation.textContent = `${destinationName} 방면`;
     roadStatus.textContent = `이동 중 · 다음 지점까지 ${nextPointSeconds(travel)}초`;
     setRoadAction("이동 중", "", true);
+    if (roadTurnBack) {
+      roadTurnBack.hidden = false;
+      roadTurnBack.textContent = "되돌아가기";
+    }
     return;
   }
 
@@ -9663,7 +9716,7 @@ function setRoadAction(label, shortcut, disabled) {
 
 function handleRoadAction() {
   const travel = ensureTravelState();
-  if (!travel || travel.moving) return;
+  if (!travel || travel.moving || travel.turningBack) return;
   if (travel.mode === "settlement") {
     openExitDirectionDialog();
     return;
@@ -9702,9 +9755,88 @@ function handleRoadPassThrough() {
   openExitDirectionDialog();
 }
 
+function turnBackSeconds(travel = account?.travel) {
+  return Math.max(0, Math.ceil((Number(travel?.turnBackEndsAt) - Date.now()) / 1000));
+}
+
+function handleRoadTurnBack() {
+  const travel = ensureTravelState();
+  if (!travel || travel.mode !== "road") return;
+  if (travel.turningBack) {
+    cancelTurnBack(travel);
+    return;
+  }
+  if (!travel.moving) return;
+  reconcileTravelProgress(false);
+  if (!account?.travel?.moving) return;
+  openDialog({
+    speaker: "되돌아가기",
+    message: "지금 지나온 방향으로 짐마차를 돌립니다.\n회차에는 10초가 걸리며, 그동안 취소할 수 있습니다.",
+    showCharacter: false,
+    actions: [
+      { label: "계속 이동", onClick: closeDialog },
+      { label: "되돌아가기", primary: true, onClick: beginTurnBack }
+    ]
+  });
+}
+
+function beginTurnBack() {
+  const travel = ensureTravelState();
+  if (!travel || travel.mode !== "road" || !travel.moving) {
+    closeDialog();
+    return;
+  }
+  travel.moving = false;
+  travel.turningBack = true;
+  travel.turnBackEndsAt = Date.now() + TURN_BACK_DURATION_MS;
+  travel.progressUpdatedAt = null;
+  persistAccount();
+  closeDialog();
+  syncTravelExperience();
+  scheduleTravelStep();
+}
+
+function cancelTurnBack(travel = ensureTravelState()) {
+  if (!travel?.turningBack) return;
+  travel.turningBack = false;
+  travel.turnBackEndsAt = 0;
+  travel.moving = hasRemainingRoute(travel);
+  travel.progressUpdatedAt = travel.moving ? Date.now() : null;
+  travel.progressRate = travel.moving ? calculateTravelRate(currentScene, travel) : 1;
+  persistAccount();
+  syncTravelExperience();
+  scheduleTravelStep();
+  showGameNotice("회차를 취소하고 이동을 계속합니다.");
+}
+
+function completeTurnBack(travel = ensureTravelState()) {
+  if (!travel?.turningBack) return;
+  const reachedPath = travel.routePath.slice(0, travel.routeIndex + 1).reverse();
+  const previousDestinationId = travel.destinationNodeId;
+  travel.turningBack = false;
+  travel.turnBackEndsAt = 0;
+  travel.routePath = reachedPath.length ? reachedPath : [travel.positionId];
+  travel.routeIndex = 0;
+  travel.positionId = travel.routePath[0];
+  travel.destinationNodeId = travel.routePath.at(-1) || travel.positionId;
+  travel.departureNodeId = previousDestinationId;
+  travel.segmentRemainingMs = TRAVEL_STEP_MS;
+  travel.moving = travel.routePath.length > 1;
+  travel.progressUpdatedAt = travel.moving ? Date.now() : null;
+  travel.progressRate = travel.moving ? calculateTravelRate(currentScene, travel) : 1;
+  travel.pendingRoadArrivalContinuation = false;
+  travel.talkCardAreaRouteKey = "";
+  travel.talkCardAreaRolls = [];
+  if (travel.moving) ensureRoadTalkCardAreaPlan(travel);
+  persistAccount();
+  syncTravelExperience();
+  scheduleTravelStep();
+  showGameNotice(travel.moving ? "짐마차를 돌려 출발지 방향으로 이동합니다." : "출발 지점으로 되돌아왔습니다.");
+}
+
 function startTravel() {
   const travel = ensureTravelState();
-  if (!travel || travel.routeIndex >= travel.routePath.length - 1) {
+  if (!travel || travel.turningBack || travel.routeIndex >= travel.routePath.length - 1) {
     showGameNotice("선택된 이동 경로가 없습니다.");
     return;
   }
@@ -9923,6 +10055,7 @@ function normalizeEffectText(value) {
 
 function campItemEnvironments(item) {
   // 사용 가능 환경과 효과량은 Goods의 야영 효과에서 읽는다.
+  if (item?.itemId === "G_0280") return ["비", "폭우"];
   const effect = String(item?.definition?.campEffect || "").replace(/<br\s*\/?\s*>/gi, "\n");
   const match = effect.match(/(?:^|[.\n])\s*([^!.\n]+?)에서만\s*사용\s*가능/);
   return match ? match[1].split(/[,·/、]|\s+또는\s+/).map(value => value.trim()).filter(Boolean) : [];
@@ -9931,7 +10064,8 @@ function campItemEnvironments(item) {
 function campItemAvailability(item, conditions = getCurrentRoadConditions()) {
   if (!item || !(item.quantity > 0)) return { usable: false, reason: "보유한 물품이 없습니다." };
   const requiredEnvironments = campItemEnvironments(item);
-  if (requiredEnvironments.length && !requiredEnvironments.some(environment => conditions.environments.includes(environment))) {
+  const activeConditions = new Set([...(conditions.environments || []), conditions.weather].filter(Boolean));
+  if (requiredEnvironments.length && !requiredEnvironments.some(environment => activeConditions.has(environment))) {
     return { usable: false, reason: `현재 환경에서는 사용 불가 · ${requiredEnvironments.join("·")}에서만 사용 가능` };
   }
   if (item.definition.category !== "여행 식량"
@@ -9963,6 +10097,9 @@ function campComfortDetails() {
   const environmentEntries = conditions.environments
     .filter(environment => CAMP_ENVIRONMENT_COMFORT.has(environment))
     .map(environment => ({ environment, value: CAMP_ENVIRONMENT_COMFORT.get(environment) }));
+  const weatherEntries = CAMP_WEATHER_COMFORT.has(conditions.weather)
+    ? [{ weather: conditions.weather, value: CAMP_WEATHER_COMFORT.get(conditions.weather) }]
+    : [];
   const selectedIds = [...new Set([...campMealInstanceIds, ...campUtilityInstanceIds])];
   const appliedItemIds = new Set();
   const itemEntries = selectedIds
@@ -9972,20 +10109,25 @@ function campComfortDetails() {
       appliedItemIds.add(item.itemId);
       return true;
     })
-    .map(item => ({ item, value: parseCampComfort(item.definition.campEffect) }));
+    .map(item => ({
+      item,
+      value: item.itemId === "G_0280" ? 10 : parseCampComfort(item.definition.campEffect)
+    }));
   const hasMeal = itemEntries.some(entry => entry.item.definition.category === "여행 식량");
   const noMealComfort = hasMeal ? 0 : CAMP_NO_MEAL_COMFORT;
   const environmentComfort = environmentEntries.reduce((sum, entry) => sum + entry.value, 0);
+  const weatherComfort = weatherEntries.reduce((sum, entry) => sum + entry.value, 0);
   const itemComfort = itemEntries.reduce((sum, entry) => sum + entry.value, 0);
   const buffComfort = partnerCampComfortBonus();
   const routeEventComfort = window.ProjectWRouteEvents.getCampComfortBonus();
   return {
-    total: CAMP_BASE_COMFORT + noMealComfort + environmentComfort + itemComfort + buffComfort + routeEventComfort,
+    total: CAMP_BASE_COMFORT + noMealComfort + environmentComfort + weatherComfort + itemComfort + buffComfort + routeEventComfort,
     hasMeal,
     noMealComfort,
     buffComfort,
     routeEventComfort,
     environmentEntries,
+    weatherEntries,
     itemEntries,
     byInstanceId
   };
@@ -10021,6 +10163,7 @@ function updateCampComfortDisplay() {
   const breakdown = [`기본 ${formatSigned(CAMP_BASE_COMFORT)}`];
   if (!details.hasMeal) breakdown.push(`식사 없음 ${formatSigned(details.noMealComfort)}`);
   details.environmentEntries.forEach(entry => breakdown.push(`${entry.environment} ${formatSigned(entry.value)}`));
+  details.weatherEntries.forEach(entry => breakdown.push(`${entry.weather} ${formatSigned(entry.value)}`));
   details.itemEntries.forEach(entry => breakdown.push(`${entry.item.definition.displayName} ${formatSigned(entry.value)}`));
   if (details.buffComfort) breakdown.push(`정령의 가호 ${formatSigned(details.buffComfort)}`);
   if (details.routeEventComfort) breakdown.push(`경로 사건 ${formatSigned(details.routeEventComfort)}`);
@@ -10070,6 +10213,9 @@ async function performCamp(forceLowComfort = false) {
 
   if (campRiskConfirm) campRiskConfirm.hidden = true;
   campInProgress = true;
+  // 강행을 누른 순간부터 이번 야영을 닫는다. 수면 중 발생하는 상태 변화나
+  // 자동 저장이 이전 야영 준비 화면을 다시 저장하지 못하게 한다.
+  campSetupOpen = false;
   updateCampComfortDisplay();
   window.ProjectWCargo.hideTooltip();
   // 안락도에 실제 반영된 물품만 마모한다. 저장된 선택이 현재 환경과
@@ -10102,7 +10248,7 @@ async function performCamp(forceLowComfort = false) {
   const uncomfortable = !isTutorialActive(2) && uncomfortableChance > 0 && (Math.random() * 100) < uncomfortableChance;
   const fatigueChance = comfort < 0 ? Math.min(100, Math.abs(comfort) * 5) : 0;
   const fatigue = !isTutorialActive(2) && fatigueChance > 0 && (Math.random() * 100) < fatigueChance;
-  const comfortMoodChange = comfort < 0 ? comfort : comfort < 10 ? -(10 - comfort) : comfort - 10;
+  const comfortMoodChange = comfort;
   const appliedComfortMoodChange = changePartnerMood(comfortMoodChange);
   const appliedUncomfortableMoodChange = uncomfortable ? changePartnerMood(-20) : 0;
   let uncomfortableStatusAdded = false;
@@ -10123,6 +10269,17 @@ async function performCamp(forceLowComfort = false) {
   await playSituationTransition("Asset_SIT_02", async () => {
     removePartnerStatus("N_S_006");
     expireCampTalkCards(false);
+    // 시간 경과와 상태이상 처리 중에도 저장이 일어난다. 그보다 먼저 현재
+    // 계정의 travel 객체를 road로 확정해 아침에 같은 야영이 재개되지 않게 한다.
+    const completedTravel = ensureTravelState();
+    if (completedTravel) {
+      completedTravel.mode = "road";
+      completedTravel.moving = false;
+      completedTravel.turningBack = false;
+      completedTravel.turnBackEndsAt = 0;
+      completedTravel.segmentRemainingMs = TRAVEL_STEP_MS;
+      completedTravel.progressUpdatedAt = null;
+    }
     advanceUntilNextMorning();
     if (fatigue) {
       uncomfortableStatusAdded = addPartnerStatus("N_S_012", { expiresAfterDay: normalizeWorldTime(account.worldTime).day });
@@ -10132,11 +10289,8 @@ async function performCamp(forceLowComfort = false) {
     if (campHangover) addPartnerStatus("N_S_006", { expiresAfterDay: normalizeWorldTime(account.worldTime).day });
     addCompanionExperience(2 + (comfort >= 1 ? 1 : 0));
     recoverSpiritAfterSleep();
-    travel.mode = "road";
-    travel.moving = false;
-    travel.segmentRemainingMs = TRAVEL_STEP_MS;
-    travel.progressUpdatedAt = null;
-    travel.progressRate = calculateTravelRate("road", travel);
+    const morningTravel = ensureTravelState();
+    if (morningTravel) morningTravel.progressRate = calculateTravelRate("road", morningTravel);
     persistAccount();
     showScene("road", 1, false);
     syncTravelExperience();
@@ -10395,6 +10549,8 @@ function chooseDepartureRoute(route) {
   travel.routePath = [...route.path];
   travel.routeIndex = 0;
   travel.moving = false;
+  travel.turningBack = false;
+  travel.turnBackEndsAt = 0;
   travel.segmentRemainingMs = TRAVEL_STEP_MS;
   travel.progressUpdatedAt = null;
   travel.progressRate = 1;

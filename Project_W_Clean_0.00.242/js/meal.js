@@ -824,13 +824,17 @@
     return 3;
   }
 
-  function displayedTasteDirection(storedValue) {
+  function displayedTasteDirection(label, storedValue) {
     const value = Number(storedValue) || 0;
-    return value < 0 ? 1 : value > 0 ? -1 : 0;
+    const storedDirection = value < 0 ? -1 : value > 0 ? 1 : 0;
+    // Foods 시트에서 단맛·짠맛·자극은 음수가 맛을 강하게 만들지만,
+    // 무게감은 양수가 기름진 방향이다. 화면에는 무게감을 "기름짐"으로
+    // 표시하므로 이 항목만 시트 부호를 그대로 사용한다.
+    return label === "기름짐" ? storedDirection : -storedDirection;
   }
 
   function tasteEffectPresentation(label, storedValue) {
-    const direction = displayedTasteDirection(storedValue);
+    const direction = displayedTasteDirection(label, storedValue);
     const level = tasteEffectLevel(storedValue);
     const marks = direction === 0
       ? "0"

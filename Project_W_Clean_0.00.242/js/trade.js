@@ -33,6 +33,8 @@
   const DURABILITY_DAMAGE_MAX = new Map([["상회", 20], ["교역소", 40], ["시장", 60], ["좌판", 40]]);
   const INDESTRUCTIBLE_DURABILITY = 9999;
   const INDESTRUCTIBLE_DISTANCE_VALUE_FACTOR = .5;
+  const CAMP_SUPPLY_RARITY_LIMIT = new Map([["마을", 1], ["도시", 3], ["대도시", Number.POSITIVE_INFINITY]]);
+  const REGIONAL_CAMP_SUPPLY_REGIONS = new Map([["G_0278", "북부"], ["G_0279", "남부"]]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
   const MERCHANT_WALLET_SCHEMA_VERSION = 2;
   const MERCHANT_STOCK_SCHEMA_VERSION = 7;
@@ -84,7 +86,7 @@
   };
   const IDENTICAL_STOCK_THRESHOLD = new Map([["대도시", 12], ["도시", 8], ["마을", 4], ["관문", 8]]);
   const MERCHANT_COMMENT_FACILITIES = new Set(["시장", "좌판", "교역소", "상회"]);
-  const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", NAHANA_EVENT_GIFT_ITEM_ID]);
+  const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", "G_0280", NAHANA_EVENT_GIFT_ITEM_ID]);
   const MERCHANT_COMMENT_MISREAD_DIALOGUES = ["DL_G_001", "DL_G_002", "DL_G_003", "DL_G_004", "DL_G_005", "DL_G_006"];
   const NON_COMPANY_TRADE_FACILITIES = {
     대도시: [
@@ -586,7 +588,7 @@
       walletSchemaVersion: MERCHANT_WALLET_SCHEMA_VERSION,
       stockSchemaVersion: MERCHANT_STOCK_SCHEMA_VERSION,
       regionalCampSupplyIds: generated.stockLots
-        .filter(lot => lot.sourceType === "supply" && window.ProjectWCargo.getRegionalCampSupplyIds(settlement).includes(lot.itemId))
+        .filter(lot => lot.sourceType === "supply" && guaranteedCampSupplyIds(settlement, definitions).includes(lot.itemId))
         .map(lot => lot.itemId),
       catalogSource: catalogSource || "fallback",
       refreshSerial,
@@ -677,7 +679,7 @@
     if (!["시장", "교역소", "상회"].includes(facilityType)) return false;
     let changed = false;
     const cityEventStock = getCityEventModifiers(settlement).stockBySubcategory || {};
-    window.ProjectWCargo.getRegionalCampSupplyIds(settlement).forEach(itemId => {
+    guaranteedCampSupplyIds(settlement, definitions).forEach(itemId => {
       if (merchant.regionalCampSupplyIds.includes(itemId)) return;
       const definition = definitions.find(item => item.id === itemId);
       if (!definition) return;
@@ -703,6 +705,19 @@
       changed = true;
     });
     return changed;
+  }
+
+  function guaranteedCampSupplyIds(settlement, definitions) {
+    const rarityLimit = CAMP_SUPPLY_RARITY_LIMIT.get(String(settlement?.category || ""));
+    if (!rarityLimit) return [];
+    return definitions
+      .filter(definition => definition.category === "야영 물품")
+      .filter(definition => Math.max(1, Number(definition.rarity) || 1) <= rarityLimit)
+      .filter(definition => {
+        const requiredRegion = REGIONAL_CAMP_SUPPLY_REGIONS.get(definition.id);
+        return !requiredRegion || requiredRegion === settlement.region;
+      })
+      .map(definition => definition.id);
   }
 
   function generateMerchantStock({ merchantKey, settlement, facilityType, definitions, worldData, refreshSerial, rng }) {
@@ -806,7 +821,7 @@
     });
     const supplyItemIds = isGateStall || isCurrencyExchange ? [] : [
       ...(ADDITIONAL_ITEMS[settlement.category] || []),
-      ...window.ProjectWCargo.getRegionalCampSupplyIds(settlement)
+      ...guaranteedCampSupplyIds(settlement, definitions)
     ];
     supplyItemIds.forEach(itemId => {
       if (stockLots.some(lot => lot.itemId === itemId)) return;
