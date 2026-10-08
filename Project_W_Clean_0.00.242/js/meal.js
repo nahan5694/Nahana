@@ -224,7 +224,6 @@
     elements.title.textContent = consumptionKind === "snack" ? "간식 고르기" : "식사 주문";
     elements.return.hidden = !returnToFacility;
     applyBackground();
-    syncDebugVisibility();
     setView("menu");
     window.dispatchEvent(new CustomEvent("projectw:facilitychange", {
       detail: { open: true, facilityType: vendor }

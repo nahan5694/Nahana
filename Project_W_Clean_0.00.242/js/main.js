@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.242";
-const ACCOUNT_SCHEMA_VERSION = 39;
+const GAME_VERSION = "0.00.244";
+const ACCOUNT_SCHEMA_VERSION = 40;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -734,6 +734,10 @@ const dialogAdvanceHint = document.querySelector("#dialog-advance-hint");
 const optionsTabs = document.querySelector("#options-tabs");
 const optionsTabButtons = [...document.querySelectorAll("[data-options-tab]")];
 const optionsSoundPanel = document.querySelector("#options-sound-panel");
+const optionsCodePanel = document.querySelector("#options-code-panel");
+const optionsCodeForm = document.querySelector("#options-code-form");
+const optionsCodeInput = document.querySelector("#options-code-input");
+const optionsCodeStatus = document.querySelector("#options-code-status");
 const nameForm = document.querySelector("#name-form");
 const nameInput = document.querySelector("#name-input");
 const nameError = document.querySelector("#name-error");
@@ -965,7 +969,6 @@ let activeServiceView = "home";
 let tavernStoryDialogueLock = false;
 let restoringInterfaceState = false;
 let interfacePersistTimer;
-let travelFrozenByVisibility = false;
 let partnerCommonSenseTimer;
 let partnerCommonSenseHideTimer;
 let merchantCommentTimer;
@@ -1546,6 +1549,7 @@ informationButton?.addEventListener("click", () => {
 });
 optionsButton.addEventListener("click", openOptionsDialog);
 optionsTabButtons.forEach(button => button.addEventListener("click", () => setOptionsTab(button.dataset.optionsTab)));
+optionsCodeForm?.addEventListener("submit", handleOptionsCodeSubmit);
 partnerAppetiteToggle?.addEventListener("click", () => {
   partnerAppetiteOpen = !partnerAppetiteOpen;
   if (!partnerAppetiteOpen) hidePartnerStatusTooltip();
@@ -1841,6 +1845,11 @@ window.addEventListener("keydown", event => {
     || (advancedTutorialRuntime && advancedTutorialLayer && !advancedTutorialLayer.hidden)) return;
 
   const key = event.key.toLowerCase();
+  if (key === "z" && hasQuickTravelCode()) {
+    event.preventDefault();
+    advanceTravelSegmentByCode();
+    return;
+  }
   if (event.code === "Space" && currentScene === "road") {
     event.preventDefault();
     handleRoadAction();
@@ -1853,12 +1862,9 @@ window.addEventListener("keydown", event => {
 document.addEventListener("visibilitychange", () => {
   if (!account) return;
   if (document.hidden) {
-    travelFrozenByVisibility = true;
-    freezeTravelProgressForSave();
+    reconcileTravelProgress(false);
     persistAccount();
   } else {
-    if (travelFrozenByVisibility && account.travel?.moving) account.travel.progressUpdatedAt = Date.now();
-    travelFrozenByVisibility = false;
     reconcileTravelProgress();
   }
 });
@@ -1936,6 +1942,7 @@ function chooseAnonymousName() {
     informationState: window.ProjectWInformation.createState(),
     guildContribution: createInitialGuildContribution(),
     featureUnlocks: createInitialFeatureUnlocks(false),
+    codeUnlocks: createInitialCodeUnlocks(),
     bargaining: createInitialBargainingState(1),
     innErrandState: {},
     wagon: createInitialWagonState(),
@@ -2033,6 +2040,7 @@ function confirmName() {
       informationState: window.ProjectWInformation.createState(),
       guildContribution: createInitialGuildContribution(),
       featureUnlocks: createInitialFeatureUnlocks(false),
+      codeUnlocks: createInitialCodeUnlocks(),
       bargaining: createInitialBargainingState(1),
       innErrandState: {},
       wagon: createInitialWagonState(),
@@ -2419,13 +2427,57 @@ function openOptionsDialog() {
   setOptionsTab("sound");
 }
 
-function setOptionsTab() {
+function setOptionsTab(tab) {
+  const activeTab = tab === "code" ? "code" : "sound";
   optionsTabButtons.forEach(button => {
-    const active = button.dataset.optionsTab === "sound";
+    const active = button.dataset.optionsTab === activeTab;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  if (optionsSoundPanel) optionsSoundPanel.hidden = false;
+  if (optionsSoundPanel) optionsSoundPanel.hidden = activeTab !== "sound";
+  if (optionsCodePanel) optionsCodePanel.hidden = activeTab !== "code";
+  if (activeTab === "code") {
+    renderOptionsCodeStatus();
+    window.requestAnimationFrame(() => optionsCodeInput?.focus());
+  }
+}
+
+function createInitialCodeUnlocks() {
+  return { quickTravelStep: false };
+}
+
+function normalizeCodeUnlocks(value) {
+  return { quickTravelStep: Boolean(value?.quickTravelStep) };
+}
+
+function hasQuickTravelCode() {
+  return Boolean(normalizeCodeUnlocks(account?.codeUnlocks).quickTravelStep);
+}
+
+function renderOptionsCodeStatus(message = "", tone = "") {
+  if (!optionsCodeStatus) return;
+  const enabled = hasQuickTravelCode();
+  optionsCodeStatus.textContent = message || (enabled
+    ? "코드 적용됨 · 이동 중 Z 키로 다음 구간까지 이동"
+    : "등록된 코드가 없습니다.");
+  optionsCodeStatus.classList.toggle("is-success", tone === "success" || (enabled && tone !== "error"));
+  optionsCodeStatus.classList.toggle("is-error", tone === "error");
+}
+
+function handleOptionsCodeSubmit(event) {
+  event.preventDefault();
+  if (!account) return;
+  const code = String(optionsCodeInput?.value || "").trim();
+  if (code !== "0782") {
+    renderOptionsCodeStatus("유효하지 않은 코드입니다.", "error");
+    optionsCodeInput?.select();
+    return;
+  }
+  account.codeUnlocks = normalizeCodeUnlocks(account.codeUnlocks);
+  account.codeUnlocks.quickTravelStep = true;
+  persistAccount();
+  if (optionsCodeInput) optionsCodeInput.value = "";
+  renderOptionsCodeStatus("코드가 적용되었습니다. 이동 중 Z 키로 다음 구간까지 이동할 수 있습니다.", "success");
 }
 
 function openResetDialog() {
@@ -2501,6 +2553,7 @@ function openDialog({
   dialogCard.classList.remove("is-options-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open");
   if (optionsTabs) optionsTabs.hidden = true;
   optionsSoundPanel.hidden = true;
+  if (optionsCodePanel) optionsCodePanel.hidden = true;
   dialogCard.classList.toggle("is-player-dialog", playerDialogue);
   dialogCard.classList.toggle("is-narration", narration);
   dialogCard.classList.toggle("without-character", !showCharacter && !playerDialogue && !bottomDialogue);
@@ -2650,6 +2703,7 @@ function closeDialog() {
   dialogSpeaker.hidden = false;
   if (optionsTabs) optionsTabs.hidden = true;
   optionsSoundPanel.hidden = true;
+  if (optionsCodePanel) optionsCodePanel.hidden = true;
   dialogActions.replaceChildren();
   dialogActions.hidden = false;
   if (dialogAdvanceHint) dialogAdvanceHint.hidden = true;
@@ -2778,6 +2832,8 @@ function loadAccount() {
     parsed.guildContribution = normalizeGuildContribution(parsed.guildContribution);
     if (!parsed.featureUnlocks) migrated = true;
     parsed.featureUnlocks = normalizeFeatureUnlocks(parsed.featureUnlocks, false);
+    if (!parsed.codeUnlocks) migrated = true;
+    parsed.codeUnlocks = normalizeCodeUnlocks(parsed.codeUnlocks);
     const firstEventRewardConfirmed = parsed.nahanaEvents.completedIds.includes("N_E_001")
       && parsed.nahanaEvents.pendingRewardId !== "N_E_001";
     if (firstEventRewardConfirmed && !parsed.featureUnlocks.permanentBlessing) {
@@ -7851,10 +7907,14 @@ function enterCampAtCurrentPosition(travel) {
   tutorialCampMealSelections = new Set();
   ensureCampTalkCardSession();
   if (currentScene !== "road") showScene("road", 1, false);
+  // 야영 상태와 진입 버튼을 먼저 화면에 반영한 뒤 첫 야영 튜토리얼을 연다.
+  // 정면뷰에서 바로 야영에 들어간 경우 showScene이 화면을 다시 그리지 않으므로
+  // 여기서 명시적으로 동기화해야 이전의 비활성 이동 버튼이 남지 않는다.
+  syncTravelExperience();
   account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
   persistAccount();
   refreshAdvancedTutorialLaunchers();
-  window.setTimeout(maybeStartFirstCampTutorial, 0);
+  window.requestAnimationFrame(() => window.setTimeout(maybeStartFirstCampTutorial, 0));
 }
 
 function maybeStartFirstCampTutorial() {
@@ -9657,6 +9717,34 @@ function startTravel() {
   syncTravelExperience();
   scheduleTravelStep();
   window.setTimeout(maybeStartEarlyToolbarTutorial, 0);
+}
+
+function advanceTravelSegmentByCode() {
+  let travel = ensureTravelState();
+  if (!hasQuickTravelCode()) return;
+  if (!travel?.moving || travel.mode !== "road" || !hasRemainingRoute(travel)) {
+    showGameNotice("짐마차가 이동 중일 때 사용할 수 있습니다.");
+    return;
+  }
+  if (isTravelClockPaused() || travel.pendingRoadArrivalContinuation) return;
+
+  reconcileTravelProgress(false);
+  travel = account?.travel;
+  if (!travel?.moving || travel.mode !== "road" || !hasRemainingRoute(travel)
+    || isTravelClockPaused() || travel.pendingRoadArrivalContinuation) return;
+
+  clearTravelTimers();
+  const talkCardProgressCursor = storedTravelRoutePosition(travel);
+  const segmentEndPosition = Math.min(travel.routePath.length - 1, travel.routeIndex + 1);
+  resolveRoadTalkCardAreaRolls(travel, talkCardProgressCursor, segmentEndPosition);
+  travel.segmentRemainingMs = TRAVEL_STEP_MS;
+  travel.routeIndex = segmentEndPosition;
+  travel.positionId = travel.routePath[travel.routeIndex];
+  travel.progressUpdatedAt = Date.now();
+  completeTravelStep(travel);
+  persistAccount();
+  syncTravelExperience();
+  if (travel.moving && !isTravelClockPaused()) scheduleTravelStep();
 }
 
 function renderCampSetup() {
