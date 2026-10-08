@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.244";
+const GAME_VERSION = "0.00.245";
 const ACCOUNT_SCHEMA_VERSION = 40;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
