@@ -1,0 +1,1299 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#121311">
+  <title>Project_W</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="js/static-data.js"></script>
+  <script defer src="js/audio.js"></script>
+  <script defer src="js/dialogue.js"></script>
+  <script defer src="js/memorial.js"></script>
+  <script defer src="js/map-view.js"></script>
+  <script defer src="js/weather.js"></script>
+  <script defer src="js/cargo.js"></script>
+  <script defer src="js/wallet.js"></script>
+  <script defer src="js/bill-notes.js"></script>
+  <script defer src="js/merchant-path.js"></script>
+  <script defer src="js/city-events.js"></script>
+  <script defer src="js/wolfen-company.js"></script>
+  <script defer src="js/route-events.js"></script>
+  <script defer src="js/information.js"></script>
+  <script defer src="js/trade.js"></script>
+  <script defer src="js/entry-tax.js"></script>
+  <script defer src="js/meal.js"></script>
+  <script defer src="js/inn.js"></script>
+  <script defer src="js/main.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section id="title-screen" class="title-screen is-loading" aria-labelledby="game-title" aria-busy="true">
+      <img class="title-background" data-asset-id="Asset_Main_01" alt="">
+      <div class="title-sunlight" aria-hidden="true"></div>
+
+      <div class="title-layout" inert>
+        <h1 id="game-title" class="title-mark">
+          <span class="title-fallback">Project_W</span>
+          <img class="title-mark-image" data-asset-id="Asset_Main_02" alt="Project_W">
+          <img class="title-mark-shine" data-asset-id="Asset_Main_02" alt="" aria-hidden="true">
+        </h1>
+
+        <nav class="title-menu" aria-label="시작 메뉴">
+          <button id="resume-game" class="title-menu-button" type="button" disabled>
+            <span class="title-menu-fallback">여행 재개</span>
+            <img data-asset-id="Asset_Main_05" alt="여행 재개">
+          </button>
+          <button id="new-journey" class="title-menu-button" type="button">
+            <span class="title-menu-fallback">새로운 여정</span>
+            <img data-asset-id="Asset_Main_06" alt="새로운 여정">
+          </button>
+          <label class="title-tutorial-option" for="title-skip-tutorials">
+            <input id="title-skip-tutorials" type="checkbox">
+            <span class="title-tutorial-label">
+              <span class="title-help-fallback">도움말 제거</span>
+              <img data-asset-id="Asset_Main_04" alt="도움말 제거">
+            </span>
+            <span class="title-checkbox-art" aria-hidden="true">
+              <img data-asset-id="Asset_Main_03" alt="">
+              <span class="title-checkbox-check">✓</span>
+            </span>
+          </label>
+        </nav>
+
+        <p id="title-notice" class="title-notice" role="status" aria-live="polite" hidden></p>
+      </div>
+
+      <section id="new-journey-confirm" class="title-confirm" role="dialog" aria-modal="true" aria-labelledby="new-journey-confirm-title" hidden>
+        <div class="title-confirm-card">
+          <p class="title-confirm-kicker">새로운 여정</p>
+          <h2 id="new-journey-confirm-title">지금까지의 여정을 지우시겠습니까?</h2>
+          <p>저장된 진행 상황은 복구할 수 없습니다. 새로운 여정을 시작하면 기존 데이터가 교체됩니다.</p>
+          <div class="title-confirm-actions">
+            <button id="new-journey-cancel" class="quiet-button" type="button">취소</button>
+            <button id="new-journey-confirm-button" class="primary-button" type="button">새로운 여정 시작</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="title-loading-curtain" aria-hidden="true"></div>
+      <p class="version-tag">VERSION <span id="game-version">0.00.242</span></p>
+    </section>
+
+    <section id="game-loading-screen" class="game-loading-screen" aria-label="여행 준비 중" aria-busy="true" hidden>
+      <img class="game-loading-background" data-asset-id="Asset_Load_0" alt="">
+      <div class="game-loading-motion" aria-hidden="true">
+        <span class="game-loading-wheel-runner">
+          <img class="game-loading-wheel" data-asset-id="Asset_Load_1" alt="">
+        </span>
+      </div>
+    </section>
+
+    <section id="game-screen" class="game-screen" aria-label="게임 장면" hidden>
+      <header class="game-toolbar">
+        <div class="toolbar-group">
+          <button id="player-name-button" class="toolbar-button player-name-button" type="button">플레이어</button>
+          <button id="wallet-button" class="toolbar-button wallet-button" type="button" aria-haspopup="dialog">
+            <span class="wallet-button-mark" aria-hidden="true">¤</span>
+            <span class="wallet-button-copy"><span>지갑</span></span>
+            <strong id="wallet-total-value">0</strong>
+          </button>
+          <button id="merchant-path-button" class="toolbar-button merchant-path-button" type="button" aria-haspopup="dialog">행상인의 길</button>
+          <button id="memorial-button" class="toolbar-button memorial-button" type="button" aria-haspopup="dialog">
+            <span class="memorial-button-mark" aria-hidden="true"></span>
+            <span>메모리얼</span>
+          </button>
+          <button id="information-button" class="toolbar-button information-button" type="button" aria-haspopup="dialog">
+            <span class="information-button-mark" aria-hidden="true">🏷️</span>
+            <span>정보</span>
+            <strong id="information-button-count">0</strong>
+          </button>
+        </div>
+        <div id="travel-toolbar-status" class="travel-toolbar-status" role="status" aria-live="polite" hidden>
+          <strong id="travel-toolbar-time">다음 지점 30초</strong>
+        </div>
+        <div class="toolbar-group toolbar-group-right">
+          <span id="game-clock" class="toolbar-clock">
+            <span id="game-clock-season" class="toolbar-season">봄</span>
+            <strong id="game-clock-date" class="toolbar-date" tabindex="0" aria-describedby="contract-tooltip">1433년 4월 8일 월요일</strong>
+            <span id="game-clock-weather" class="toolbar-weather">맑음</span>
+            <span id="game-clock-phase" class="toolbar-phase">아침</span>
+          </span>
+          <span class="toolbar-version">VERSION 0.00.242</span>
+          <button id="options-button" class="toolbar-icon-button" type="button" aria-label="옵션" title="옵션">⚙</button>
+        </div>
+      </header>
+
+      <div id="scene-stage" class="scene-stage" aria-live="polite">
+        <section class="scene-card is-active" data-scene="road" aria-label="정면뷰">
+          <img id="road-scene-background" class="scene-background" data-asset-id="Asset_A_01" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/View_1.png" alt="마차에서 바라보는 정면 풍경">
+          <div class="scene-weather-effect" aria-hidden="true"></div>
+          <nav id="settlement-tutorial-prompts" class="settlement-tutorial-prompts" aria-label="도시 안내" hidden>
+            <button id="settlement-commerce-guide" type="button">
+              <strong>거래 시설 안내</strong>
+              <span>상회 · 교역소 · 시장</span>
+            </button>
+            <button id="settlement-news-guide" type="button" disabled>
+              <strong>도시 소식 안내</strong>
+              <span>현재 소식 없음</span>
+            </button>
+          </nav>
+          <section id="road-route-bar" class="road-route-bar" aria-label="현재 이동 경로">
+            <div class="road-route-track" aria-hidden="true"><span id="road-route-progress"></span></div>
+            <div id="road-route-points" class="road-route-points"></div>
+            <img id="road-route-pin" class="road-route-pin" data-asset-id="Asset_Pin" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/%ED%95%80.png" alt="현재 위치와 이동속도" tabindex="0" aria-describedby="road-status-tooltip">
+            <p id="road-route-name" class="road-route-name"></p>
+          </section>
+          <div class="road-condition-markers" aria-label="여행 상태">
+            <div id="horse-feed-controls" class="horse-feed-controls">
+              <button id="horse-feed-button" class="horse-feed-button" type="button"><span>먹이</span></button>
+              <button id="horse-feed-change" class="horse-feed-change" type="button" hidden><span>변경</span></button>
+              <span id="horse-feed-count" class="horse-feed-count" role="status" aria-label="등록된 말먹이 0개"><b>x0</b></span>
+            </div>
+            <button class="road-condition-marker road-condition-horse" type="button" data-road-condition="horse" aria-label="말 상태">
+              <span class="road-horse-values" aria-hidden="true">
+                <b data-horse-health>100</b>
+                <b data-horse-hunger>100</b>
+              </span>
+            </button>
+            <button class="road-condition-marker road-condition-surface" type="button" data-road-condition="surface" aria-label="노면 상태"><span>노면 상태</span></button>
+            <button id="road-environment-button" class="road-environment-button" type="button" data-road-condition="environment" aria-label="환경"><span>환경</span></button>
+            <button class="road-condition-marker road-condition-wagon" type="button" data-road-condition="wagon" aria-label="짐마차 상태"><span>짐마차 상태</span></button>
+            <button id="road-wheel-replace" class="road-wheel-replace" type="button" hidden><span>바퀴<br>교체</span></button>
+          </div>
+          <section id="settlement-facilities" class="settlement-facilities" aria-labelledby="settlement-facilities-title" hidden>
+            <header>
+              <span id="settlement-facilities-category">거점 시설</span>
+              <h2 id="settlement-facilities-title">시설을 선택하세요</h2>
+            </header>
+            <div id="settlement-facility-list" class="settlement-facility-list"></div>
+          </section>
+          <section id="camp-setup" class="camp-setup" aria-labelledby="camp-setup-title" hidden>
+            <header class="camp-setup-header">
+              <div>
+                <span>저녁 야영</span>
+                <h2 id="camp-setup-title">야영 준비</h2>
+              </div>
+              <div class="camp-comfort-summary">
+                <span>야영 안락도</span>
+                <strong id="camp-comfort-value">-20</strong>
+              </div>
+              <button id="camp-setup-close" class="camp-setup-close" type="button">야영지로 돌아가기</button>
+            </header>
+            <p id="camp-comfort-breakdown" class="camp-comfort-breakdown">기본 -20</p>
+            <div class="camp-setup-columns">
+              <fieldset class="camp-selection-group">
+                <legend>식사 메뉴 <small>복수 선택 · 선택한 식량마다 1개 소모</small></legend>
+                <div id="camp-meal-list" class="camp-item-list"></div>
+              </fieldset>
+              <fieldset class="camp-selection-group">
+                <legend>야영 물품 <small>복수 선택 가능</small></legend>
+                <div id="camp-utility-list" class="camp-item-list"></div>
+              </fieldset>
+            </div>
+            <footer class="camp-setup-footer">
+              <p id="camp-setup-status" role="status">식사 없이 진행하면 야영 안락도가 30 감소합니다.</p>
+              <button id="camp-proceed" type="button">야영 진행</button>
+            </footer>
+            <div id="camp-advanced-tutorial" class="advanced-tutorial-launcher advanced-tutorial-type-b camp-advanced-tutorial" data-advanced-launcher="camp" hidden>
+              <div class="advanced-tutorial-menu" role="menu" aria-label="야영 준비 심화 튜토리얼" hidden></div>
+              <button class="advanced-tutorial-toggle" type="button" aria-expanded="false" aria-label="야영 준비 심화 안내 열기">
+                <span class="advanced-tutorial-toggle-content">
+                  <span class="advanced-tutorial-toggle-mark" aria-hidden="true">✦</span>
+                  <span class="advanced-tutorial-toggle-label">심화 안내</span>
+                </span>
+              </button>
+            </div>
+            <section id="camp-risk-confirm" class="camp-risk-confirm" role="dialog" aria-modal="true" aria-labelledby="camp-risk-confirm-title" hidden>
+              <div>
+                <span>야영 준비 재확인</span>
+                <h3 id="camp-risk-confirm-title">불만족스러운 야영 위험</h3>
+                <p>야영만족도가 -20 이하이면 불만족스러운 야영이 될 가능성이 높습니다.<br>정말로 진행하시겠습니까? 사용 가능한 야영 식량이나 물품이 있는지 확인하세요.</p>
+                <footer>
+                  <button id="camp-risk-review" type="button">재검토</button>
+                  <button id="camp-risk-force" type="button">야영 강행</button>
+                </footer>
+              </div>
+            </section>
+          </section>
+          <aside id="camp-card-panel" class="camp-card-panel" aria-labelledby="camp-card-panel-title" hidden>
+            <header>
+              <strong id="camp-card-panel-title">야영지 대화</strong>
+              <span>야영 카드만 사용할 수 있습니다.</span>
+            </header>
+            <section id="camp-card-hand" class="partner-card-hand camp-card-hand" aria-label="야영지 대화 카드 세 장"></section>
+          </aside>
+          <div id="road-control" class="road-control">
+            <aside id="settlement-meal-status" class="settlement-meal-status" aria-label="오늘의 식사 현황" hidden></aside>
+            <aside id="settlement-daily-status" class="settlement-daily-status" aria-label="시설별 정보 수집 현황" hidden></aside>
+            <p id="road-location">파르네 방면</p>
+            <strong id="road-status">짐마차가 멈춰 있습니다.</strong>
+            <div class="road-action-group">
+              <button id="road-pass-through" class="road-pass-through" type="button" hidden>지나치기</button>
+              <button id="road-action" type="button" aria-describedby="settlement-exit-tooltip">출발 <span>Space</span></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="scene-card" data-scene="partner" aria-label="파트너뷰" aria-hidden="true">
+          <img id="partner-scene-background" class="scene-background" data-asset-id="Asset_A_02" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/View_2.png" alt="마부석의 파트너 방향 풍경">
+          <div class="scene-weather-effect" aria-hidden="true"></div>
+          <img id="partner-character" class="partner-character" data-asset-id="Asset_N_01" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/Default.png" alt="동행자 나하나" role="button" tabindex="0" aria-label="나하나에게 말 걸기" draggable="false">
+          <div class="partner-weather-shade" aria-hidden="true"></div>
+          <aside id="partner-touch-popup" class="partner-touch-popup" aria-live="polite" hidden>
+            <p id="partner-touch-message"></p>
+          </aside>
+          <button id="partner-event-alert" class="partner-event-alert" type="button" aria-label="진행할 나하나 이벤트가 있습니다" aria-haspopup="dialog" hidden><span aria-hidden="true">!</span></button>
+          <section id="partner-event-panel" class="partner-event-panel" role="dialog" aria-modal="true" aria-labelledby="partner-event-title" hidden>
+            <header>
+              <div>
+                <span>나하나 이벤트</span>
+                <h2 id="partner-event-title">이벤트</h2>
+              </div>
+              <button id="partner-event-close" type="button">닫기</button>
+            </header>
+            <p id="partner-event-status" class="partner-event-status" role="status">이벤트 정보를 불러오고 있습니다.</p>
+            <div class="partner-event-details">
+              <article id="partner-event-condition-1" data-event-stage="1">
+                <span>이벤트 발생 조건</span>
+                <p id="partner-event-condition-1-text">등록된 조건이 없습니다.</p>
+              </article>
+              <article id="partner-event-condition-2" data-event-stage="2">
+                <span>이벤트 진행 조건</span>
+                <p id="partner-event-condition-2-text">등록된 조건이 없습니다.</p>
+              </article>
+              <article id="partner-event-condition-3" data-event-stage="3">
+                <span>이벤트 완료 조건</span>
+                <p id="partner-event-condition-3-text">등록된 조건이 없습니다.</p>
+              </article>
+              <article class="partner-event-reward">
+                <span>완료 보상</span>
+                <p id="partner-event-reward-text">등록된 보상이 없습니다.</p>
+              </article>
+            </div>
+          </section>
+          <aside class="partner-dashboard" aria-label="동행자 관리">
+            <p id="partner-lock-notice" class="partner-lock-notice" role="status" hidden></p>
+            <section id="partner-card-hand" class="partner-card-hand" aria-label="대화 카드 세 장"></section>
+
+            <div class="partner-companion-row">
+              <section class="partner-companion-status" aria-label="동행 정보">
+                <div><span>동행등급</span><strong id="partner-rank">1</strong></div>
+                <div><span>동행등급 경험치</span><strong id="partner-rank-experience">0 / 18</strong></div>
+                <div class="partner-mood-status">
+                  <span>기분</span>
+                  <strong id="partner-mood-value">75 / 100</strong>
+                  <div id="partner-mood-gauge" class="partner-mood-gauge" role="progressbar" aria-label="나하나 기분" aria-valuemin="0" aria-valuemax="100" aria-valuenow="75">
+                    <i id="partner-mood-fill"></i>
+                  </div>
+                  <small id="partner-mood-label">좋은 상태</small>
+                </div>
+              </section>
+              <div class="partner-appetite-dock">
+                <button id="partner-appetite-toggle" class="partner-appetite-toggle" type="button" aria-expanded="false" aria-controls="partner-appetite-panel">
+                  <span>식욕</span>
+                  <small>입맛 확인</small>
+                </button>
+                <section id="partner-appetite-panel" class="partner-appetite-panel" aria-labelledby="partner-appetite-title" hidden>
+                  <header>
+                    <span>현재 입맛</span>
+                    <strong id="partner-appetite-title">나하나의 식욕</strong>
+                  </header>
+                  <div id="partner-appetite-levels" class="partner-appetite-levels"></div>
+                  <div id="partner-appetite-effects" class="partner-appetite-effects" hidden></div>
+                </section>
+              </div>
+            </div>
+
+            <section class="partner-spirit-status" aria-label="정령력">
+              <div class="partner-spirit-heading">
+                <span>정령력</span>
+                <strong id="partner-spirit-value">0 / 1</strong>
+              </div>
+              <button id="partner-spirit-blessing" class="partner-spirit-blessing" type="button">
+                <span>정령의 가호</span>
+                <span id="partner-spirit-attention" class="partner-attention-mark" aria-label="사용 가능한 정령의 가호가 있습니다" hidden>✚</span>
+              </button>
+            </section>
+
+            <nav class="partner-action-menu" aria-label="파트너 행동">
+              <section class="partner-blessing-group">
+                <button id="partner-blessing-toggle" class="partner-action-primary" type="button" aria-expanded="false" aria-controls="partner-feature-panel">
+                  <span>축복 부여</span>
+                  <span id="partner-blessing-attention" class="partner-attention-mark" aria-label="사용 가능한 강화포인트가 있습니다" hidden>✚</span>
+                </button>
+              </section>
+              <button id="partner-snack-open" class="partner-action-primary" type="button">간식 주기</button>
+              <button id="partner-common-sense" class="partner-action-primary" type="button">상식 주입</button>
+            </nav>
+
+            <section id="partner-feature-panel" class="partner-feature-panel" aria-labelledby="partner-feature-title" hidden>
+              <header>
+                <div><span id="partner-feature-kicker">정령의 힘</span><strong id="partner-feature-title">정령의 가호</strong></div>
+                <button id="partner-feature-close" type="button">닫기</button>
+              </header>
+              <div id="partner-feature-content" class="partner-feature-content"></div>
+            </section>
+
+            <section id="partner-snack-panel" class="partner-snack-panel" aria-labelledby="partner-snack-title" hidden>
+              <header>
+                <div><span>하루 1회</span><strong id="partner-snack-title">간식 주기</strong></div>
+                <button id="partner-snack-close" type="button">닫기</button>
+              </header>
+              <p id="partner-snack-status" class="partner-snack-status">간식으로 줄 물건을 고르세요.</p>
+              <div id="partner-snack-list" class="partner-snack-list"></div>
+            </section>
+
+            <section class="partner-status-panel" aria-labelledby="partner-status-title">
+              <header>
+                <strong id="partner-status-title">상태이상</strong>
+                <span id="partner-status-source">상태 정보 준비 중</span>
+              </header>
+              <div id="partner-status-effects" class="partner-status-badges"><span class="partner-status-empty">없음</span></div>
+            </section>
+          </aside>
+          <aside id="partner-common-sense-popup" class="partner-common-sense-popup" data-small-popup-anchor="lower" aria-live="polite" aria-labelledby="partner-common-sense-speaker" hidden>
+            <div class="partner-common-sense-portrait" aria-hidden="true">
+              <img id="partner-common-sense-character" alt="나하나 SD 캐릭터" hidden>
+            </div>
+            <div class="partner-common-sense-copy">
+              <header class="partner-common-sense-heading">
+                <strong id="partner-common-sense-speaker">나하나</strong>
+              </header>
+              <p id="partner-common-sense-message"></p>
+            </div>
+            <button id="partner-common-sense-close" type="button" aria-label="상식주입 대화 닫기">닫기</button>
+          </aside>
+        </section>
+
+        <section class="scene-card" data-scene="cargo" aria-label="화물뷰" aria-hidden="true">
+          <img class="scene-background" data-asset-id="Asset_A_03" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/View_3.png" alt="마차의 화물 공간">
+          <div class="cargo-ui">
+            <div class="cargo-topbar">
+              <nav id="cargo-sort-controls" class="cargo-sort-controls" aria-label="교역품 정렬 기준">
+                <button class="is-active" type="button" data-cargo-sort="rarity" aria-pressed="true">등급 정렬</button>
+                <button type="button" data-cargo-sort="value" aria-pressed="false">가치 정렬</button>
+                <button type="button" data-cargo-sort="category" aria-pressed="false">카테고리 정렬</button>
+              </nav>
+              <header class="cargo-header">
+                <div class="cargo-heading">
+                  <span id="cargo-compartment-label">일반 화물칸</span>
+                  <strong><span id="cargo-slot-count">24</span>칸</strong>
+                </div>
+                <div id="cargo-weight-panel" class="cargo-weight-panel" tabindex="0" aria-describedby="cargo-weight-tooltip">
+                  <div class="cargo-weight-copy">
+                    <span>적재 중량</span>
+                    <strong id="cargo-weight-value">30 / 50</strong>
+                  </div>
+                  <div class="cargo-weight-track" aria-hidden="true">
+                    <span id="cargo-weight-fill"></span>
+                  </div>
+                  <span id="cargo-overweight-badge" class="cargo-overweight-badge" hidden></span>
+                </div>
+              </header>
+              <button id="cargo-wagon-summary" class="cargo-wagon-summary" type="button" aria-describedby="cargo-wagon-tooltip">
+                <span>짐마차</span>
+                <strong id="cargo-wagon-condition">200 / 200</strong>
+                <small id="cargo-wagon-effects">상태이상 없음</small>
+              </button>
+            </div>
+            <div class="cargo-grid-wrap">
+              <div id="cargo-grid" class="cargo-grid" role="grid" aria-label="24행 화물 목록" aria-rowcount="24" aria-colcount="1"></div>
+            </div>
+            <nav id="cargo-compartment-controls" class="cargo-compartment-controls" aria-label="화물칸 선택">
+              <button type="button" data-cargo-compartment="normal">일반 화물칸</button>
+              <button type="button" data-cargo-compartment="protected" hidden>보호 화물칸 <span>10칸</span></button>
+              <button type="button" data-cargo-compartment="secret" hidden>비밀 화물칸 <span>2칸</span></button>
+            </nav>
+            <div id="cargo-discard-zone" class="cargo-discard-zone" role="button" aria-label="화물 폐기 구역" hidden>
+              <strong>화물 폐기</strong>
+              <span>이곳에 놓으면 선택한 화물을 버립니다.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="scene-card" data-scene="map" aria-label="지도뷰" aria-hidden="true">
+          <img id="map-scene-background" class="scene-background" data-asset-id="Asset_A_04" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/View_4.png" alt="여행 지도">
+          <div id="map-view-ui" class="map-view-ui">
+            <nav class="map-region-tabs" aria-label="지도 지역 선택">
+              <button class="map-region-tab is-active" type="button" data-map-tab data-map-id="Asset_Map_1">북부</button>
+              <button class="map-region-tab" type="button" data-map-tab data-map-id="Asset_Map_2">중부</button>
+              <button class="map-region-tab" type="button" data-map-tab data-map-id="Asset_Map_3">남부</button>
+            </nav>
+            <aside id="map-destination-picker" class="map-destination-picker" hidden>
+              <div>
+                <strong>다음 목적지 선택</strong>
+                <span id="map-destination-message">연결된 거점을 지도에서 선택하세요.</span>
+              </div>
+              <button id="map-destination-cancel" type="button">취소</button>
+            </aside>
+            <div class="map-board-frame map-board-frame-view">
+              <div id="map-view-board" class="map-board" data-map-board="view">
+                <div id="map-view-canvas" class="map-canvas">
+                  <img id="map-view-image" class="map-image" alt="선택한 지역 지도" draggable="false">
+                  <p id="map-view-empty" class="map-asset-empty" role="status"></p>
+                  <p id="map-view-data-status" class="map-data-status" role="status">지도 데이터 준비 중</p>
+                  <svg id="map-view-routes" class="map-route-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div id="map-view-placements" class="map-placement-layer" aria-label="지도 표시"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <button id="previous-scene" class="edge-control edge-control-left" type="button" aria-label="이전 씬"></button>
+        <button id="next-scene" class="edge-control edge-control-right" type="button" aria-label="다음 씬"></button>
+      </div>
+
+      <aside id="footprint-notice" class="footprint-notice" role="status" aria-live="polite" hidden>
+        <span>새로운 발자취</span>
+        <strong id="footprint-notice-title"></strong>
+        <small>동행 경험치 +5</small>
+      </aside>
+    </section>
+
+    <p id="game-notice" class="game-notice" role="status" aria-live="polite" hidden></p>
+
+    <div id="screen-advanced-tutorial" class="advanced-tutorial-launcher advanced-tutorial-type-b" data-advanced-launcher="screen" hidden>
+      <div class="advanced-tutorial-menu" role="menu" aria-label="화면 심화 튜토리얼" hidden></div>
+      <button class="advanced-tutorial-toggle" type="button" aria-expanded="false" aria-label="심화 안내 열기">
+        <span class="advanced-tutorial-toggle-content">
+          <span class="advanced-tutorial-toggle-mark" aria-hidden="true">✦</span>
+          <span class="advanced-tutorial-toggle-label">심화 안내</span>
+        </span>
+      </button>
+    </div>
+
+    <aside id="bargain-result-notice" class="bargain-result-notice" role="status" aria-live="assertive" hidden></aside>
+
+    <div id="tutorial-layer" class="tutorial-layer" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" hidden>
+      <div id="tutorial-focus" class="tutorial-focus" aria-hidden="true"></div>
+      <button id="tutorial-skip" class="tutorial-skip" type="button">튜토리얼 스킵</button>
+      <section id="tutorial-card" class="tutorial-card">
+        <button id="tutorial-dismiss" class="tutorial-dismiss" type="button" hidden>설명창 닫기</button>
+        <h2 id="tutorial-title">여행 준비</h2>
+        <p id="tutorial-message"></p>
+        <footer>
+          <p id="tutorial-progress" class="tutorial-progress"></p>
+          <button id="tutorial-continue" class="tutorial-continue" type="button">다음</button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="advanced-tutorial-layer" class="advanced-tutorial-layer" role="dialog" aria-modal="true" aria-labelledby="advanced-tutorial-title" hidden>
+      <div id="advanced-tutorial-focus" class="advanced-tutorial-focus" aria-hidden="true"></div>
+      <button id="advanced-tutorial-close" class="advanced-tutorial-close" type="button">설명 닫기</button>
+      <section id="advanced-tutorial-card" class="advanced-tutorial-card">
+        <p class="advanced-tutorial-kicker">심화 안내</p>
+        <h2 id="advanced-tutorial-title">상세 안내</h2>
+        <div id="advanced-tutorial-message" class="advanced-tutorial-message"></div>
+        <footer>
+          <p id="advanced-tutorial-progress" class="advanced-tutorial-progress"></p>
+          <button id="advanced-tutorial-continue" class="advanced-tutorial-continue" type="button">다음</button>
+        </footer>
+      </section>
+    </div>
+
+    <aside id="cargo-tooltip" class="cargo-tooltip" role="tooltip" hidden></aside>
+    <aside id="cargo-note-tooltip" class="cargo-note-tooltip" role="tooltip" hidden></aside>
+    <aside id="cargo-weight-tooltip" class="cargo-weight-tooltip" role="tooltip" hidden></aside>
+    <aside id="cargo-wagon-tooltip" class="cargo-wagon-tooltip road-status-tooltip" role="tooltip" hidden></aside>
+    <aside id="map-tooltip" class="map-tooltip" role="tooltip" hidden></aside>
+    <aside id="map-information-tooltip" class="map-information-tooltip" role="tooltip" hidden></aside>
+    <aside id="road-status-tooltip" class="road-status-tooltip" role="tooltip" hidden></aside>
+    <aside id="settlement-exit-tooltip" class="settlement-exit-tooltip" role="tooltip" hidden></aside>
+    <aside id="contract-tooltip" class="contract-tooltip" role="tooltip" hidden></aside>
+
+    <div id="trade-modal" class="trade-modal-layer" hidden>
+      <div id="trade-side-actions" class="window-side-actions trade-side-actions">
+        <button id="trade-snack-open" class="window-side-button trade-snack-side-button" type="button" hidden>
+          <strong>간식</strong>
+          <span>시장 먹거리</span>
+        </button>
+        <button id="trade-currency-rates" class="window-side-button trade-currency-rates-button" type="button" hidden>
+          <strong>화폐 시세</strong>
+          <span>최신 정보</span>
+        </button>
+        <div id="trade-advanced-tutorial" class="advanced-tutorial-launcher advanced-tutorial-type-a" data-advanced-launcher="trade" hidden>
+          <div class="advanced-tutorial-menu" role="menu" aria-label="거래 심화 튜토리얼" hidden></div>
+          <button class="advanced-tutorial-toggle window-side-button" type="button" aria-expanded="false">
+            <strong>심화 안내</strong>
+            <span>거래 안내</span>
+          </button>
+        </div>
+      </div>
+      <section class="trade-window" role="dialog" aria-modal="true" aria-labelledby="trade-title">
+        <header class="trade-window-header">
+          <div class="trade-title-block">
+            <img id="trade-company-icon" class="trade-company-icon" alt="" hidden>
+            <div class="trade-title-copy">
+              <p id="trade-location">거점 · 시설</p>
+              <h2 id="trade-title">거래</h2>
+            </div>
+          </div>
+          <div class="trade-header-status">
+            <p id="trade-data-status" class="trade-data-status" role="status">거래 데이터 준비 중</p>
+            <strong id="trade-restock-status" class="trade-restock-status">상품 갱신일 계산 중</strong>
+          </div>
+          <div class="trade-header-actions">
+            <button id="trade-close" class="trade-close" type="button">나가기</button>
+          </div>
+        </header>
+        <div class="trade-catalogs">
+          <section class="trade-catalog trade-player-catalog" aria-labelledby="trade-player-title">
+            <header>
+              <div class="trade-player-catalog-heading">
+                <h3 id="trade-player-title">내 화물</h3>
+                <nav class="trade-player-catalog-tabs" aria-label="내 거래 자산">
+                  <button class="is-active" type="button" data-trade-player-catalog="goods" aria-pressed="true">화물</button>
+                  <button type="button" data-trade-player-catalog="information" aria-pressed="false">정보</button>
+                  <button type="button" data-trade-player-catalog="notes" aria-pressed="false">어음</button>
+                </nav>
+              </div>
+              <span id="trade-player-capacity">남은 0 / 24칸</span>
+            </header>
+            <div id="trade-player-items" class="trade-item-list"></div>
+          </section>
+          <section class="trade-catalog trade-merchant-catalog" aria-labelledby="trade-merchant-title">
+            <header>
+              <h3 id="trade-merchant-title">상인의 상품</h3>
+              <div class="trade-catalog-filter-group" aria-label="여행물품 표시 설정">
+                <button id="trade-travel-filter" class="trade-catalog-filter" type="button" aria-pressed="false">여행물품 보기</button>
+                <button id="trade-travel-hide-filter" class="trade-catalog-filter" type="button" aria-pressed="false">여행물품 숨기기</button>
+              </div>
+            </header>
+            <div id="trade-merchant-items" class="trade-item-list"></div>
+          </section>
+        </div>
+        <div class="trade-exchange">
+          <section class="trade-offer trade-player-offer" aria-labelledby="trade-player-offer-title">
+            <header>
+              <h3 id="trade-player-offer-title">내가 건네는 것</h3>
+              <div class="trade-offer-tools" aria-label="내 거래 목록 표시 설정">
+                <div class="trade-offer-filters">
+                  <button type="button" data-trade-action="filter" data-trade-owner="player" data-trade-filter="currencies">화폐만 보기</button>
+                  <button type="button" data-trade-action="filter" data-trade-owner="player" data-trade-filter="goods">상품만 보기</button>
+                  <button type="button" data-trade-action="filter" data-trade-owner="player" data-trade-filter="information">정보만 보기</button>
+                  <button type="button" data-trade-action="filter" data-trade-owner="player" data-trade-filter="notes">어음만 보기</button>
+                  <button class="is-active" type="button" data-trade-action="filter" data-trade-owner="player" data-trade-filter="all">전체 보기</button>
+                </div>
+                <div class="trade-offer-quick-actions">
+                  <button id="trade-player-currency-fill" class="trade-currency-fill" type="button" data-trade-action="currency-fill" data-trade-owner="player">화폐로 채우기</button>
+                  <button class="trade-offer-clear" type="button" data-trade-action="clear" data-trade-owner="player">비우기</button>
+                </div>
+              </div>
+            </header>
+            <div id="trade-player-currencies" class="trade-currency-list" aria-label="내 화폐"></div>
+            <div id="trade-player-offer-list" class="trade-offer-list"></div>
+          </section>
+          <div class="trade-balance" aria-live="polite">
+            <button id="trade-bargain" class="trade-bargain" type="button" hidden>
+              <strong>흥정</strong><span>1 / 1</span>
+            </button>
+            <span>거래 가치 비교</span>
+            <strong id="trade-balance-value">0 ↔ 0</strong>
+            <span id="trade-exchange-fee" class="trade-exchange-fee" hidden>환전 할증 0</span>
+            <p id="trade-balance-status">양쪽에 상품이나 화폐를 올려주세요.</p>
+            <dl id="trade-cargo-preview" class="trade-cargo-preview">
+              <div><dt>거래 후 화물칸</dt><dd id="trade-preview-slots">0 / 24</dd></div>
+              <div><dt>거래 후 중량</dt><dd id="trade-preview-weight">0 / 50</dd></div>
+            </dl>
+            <button id="trade-confirm" class="trade-confirm" type="button" disabled>거래 확정</button>
+            <div id="trade-merchant-warning" class="trade-merchant-warning" hidden>
+              <p>상인에게 지나치게 불리하여 거래가 성립되지 않습니다.</p>
+              <button id="trade-warning-info" type="button" aria-label="거래 불성립 오차 확인" aria-describedby="trade-warning-tooltip">!</button>
+              <aside id="trade-warning-tooltip" role="tooltip" hidden></aside>
+            </div>
+          </div>
+          <section class="trade-offer trade-merchant-offer" aria-labelledby="trade-merchant-offer-title">
+            <header>
+              <h3 id="trade-merchant-offer-title">상인이 건네는 것</h3>
+              <div class="trade-offer-tools" aria-label="상인 거래 목록 표시 설정">
+                <div class="trade-offer-filters">
+                  <button type="button" data-trade-action="filter" data-trade-owner="merchant" data-trade-filter="currencies">화폐만 보기</button>
+                  <button type="button" data-trade-action="filter" data-trade-owner="merchant" data-trade-filter="goods">상품만 보기</button>
+                  <button class="is-active" type="button" data-trade-action="filter" data-trade-owner="merchant" data-trade-filter="all">전체 보기</button>
+                </div>
+                <div class="trade-offer-quick-actions">
+                  <button id="trade-merchant-currency-fill" class="trade-currency-fill" type="button" data-trade-action="currency-fill" data-trade-owner="merchant">화폐로 채우기</button>
+                  <button class="trade-offer-clear" type="button" data-trade-action="clear" data-trade-owner="merchant">비우기</button>
+                </div>
+              </div>
+            </header>
+            <div id="trade-merchant-currencies" class="trade-currency-list" aria-label="상인의 화폐"></div>
+            <div id="trade-merchant-offer-list" class="trade-offer-list"></div>
+          </section>
+        </div>
+      </section>
+      <aside id="merchant-comment-popup" class="partner-common-sense-popup merchant-comment-popup" data-small-popup-anchor="upper" aria-live="polite" aria-labelledby="merchant-comment-speaker" hidden>
+        <div class="partner-common-sense-portrait" aria-hidden="true">
+          <img id="merchant-comment-character" alt="나하나 SD 캐릭터" hidden>
+        </div>
+        <div class="partner-common-sense-copy">
+          <header class="partner-common-sense-heading">
+            <strong id="merchant-comment-speaker">나하나</strong>
+          </header>
+          <p id="merchant-comment-message"></p>
+        </div>
+        <button id="merchant-comment-close" type="button">닫기</button>
+      </aside>
+    </div>
+
+    <div id="meal-modal" class="meal-modal-layer" hidden>
+      <div id="meal-side-actions" class="window-side-actions meal-side-actions">
+        <div class="meal-upper-side-actions">
+          <button id="meal-ask-nahana" class="window-side-button meal-ask-nahana" type="button" hidden>
+            <strong>나하나에게 질문</strong>
+            <span>3 / 3</span>
+          </button>
+          <button id="meal-appetite-peek" class="window-side-button meal-appetite-peek" type="button" aria-describedby="meal-appetite-tooltip" hidden>
+            <strong>식욕</strong>
+            <span>입맛 상태</span>
+          </button>
+        </div>
+        <div id="meal-advanced-tutorial" class="advanced-tutorial-launcher advanced-tutorial-type-a" data-advanced-launcher="meal" hidden>
+          <div class="advanced-tutorial-menu" role="menu" aria-label="식사 주문 심화 튜토리얼" hidden></div>
+          <button class="advanced-tutorial-toggle window-side-button" type="button" aria-expanded="false">
+            <strong>심화 안내</strong>
+            <span>식사 주문 안내</span>
+          </button>
+        </div>
+      </div>
+      <aside id="meal-appetite-tooltip" class="meal-appetite-tooltip" role="tooltip" hidden></aside>
+      <aside id="meal-menu-tooltip" class="meal-menu-tooltip" role="tooltip" hidden></aside>
+      <img id="meal-scene-background" class="facility-scene-background" alt="" hidden>
+      <section class="meal-window" role="dialog" aria-modal="true" aria-labelledby="meal-title">
+        <header class="meal-window-header">
+          <div class="meal-title-block">
+            <p id="meal-location">거점 · 주점</p>
+            <h2 id="meal-title">식사 주문</h2>
+          </div>
+          <div class="meal-header-actions">
+            <button id="meal-return" type="button" hidden>돌아가기</button>
+            <button id="meal-close" type="button">나가기</button>
+          </div>
+        </header>
+
+        <div id="meal-menu-view" class="meal-layout">
+          <section class="meal-menu-panel" aria-labelledby="meal-menu-title">
+            <header>
+              <div>
+                <span id="meal-menu-eyebrow">오늘 차려낼 수 있는 음식</span>
+                <h3 id="meal-menu-title">메뉴판</h3>
+              </div>
+              <nav class="meal-menu-filters" aria-label="메뉴 종류">
+                <button class="is-active" type="button" data-meal-filter="식사" aria-pressed="true">음식</button>
+                <button type="button" data-meal-filter="음료" aria-pressed="false">음료</button>
+              </nav>
+            </header>
+            <p id="meal-data-status" class="meal-data-status" role="status">음식 시트를 불러오는 중입니다.</p>
+            <div id="meal-menu-list" class="meal-menu-list"></div>
+          </section>
+
+          <aside class="meal-order-panel" aria-labelledby="meal-order-title">
+            <header>
+              <div>
+                <span id="meal-order-eyebrow">함께 먹을 음식</span>
+                <h3 id="meal-order-title">주문서</h3>
+              </div>
+              <div class="meal-order-tools">
+                <button id="meal-order-clear" type="button">비우기</button>
+              </div>
+            </header>
+            <div id="meal-order-list" class="meal-order-list">
+              <p class="meal-order-empty">메뉴를 선택하세요.</p>
+            </div>
+            <dl class="meal-order-summary">
+              <div><dt>식사값</dt><dd id="meal-total-value">0</dd></div>
+              <div class="meal-fullness-summary"><dt>포만감</dt><dd id="meal-total-fullness">0</dd></div>
+              <div class="meal-order-tier">
+                <dt>차림</dt>
+                <dd>
+                  <span id="meal-tier">-</span>
+                  <button id="meal-plating-preview" class="meal-plating-preview" type="button" aria-pressed="false">차림새</button>
+                </dd>
+              </div>
+            </dl>
+            <button id="meal-confirm" class="meal-confirm" type="button" disabled>결제하기</button>
+          </aside>
+        </div>
+
+        <div id="meal-payment-view" class="meal-payment-view" hidden>
+          <header class="meal-payment-header">
+            <div>
+              <span>주문 확인</span>
+              <h3 id="meal-payment-heading">식사값 지불</h3>
+            </div>
+            <button id="meal-payment-back" type="button">메뉴판으로 돌아가기</button>
+          </header>
+          <div class="meal-payment-body">
+            <section class="meal-payment-currencies" aria-labelledby="meal-currency-title">
+              <header>
+                <div>
+                  <span>보유 화폐</span>
+                  <h4 id="meal-currency-title">지불할 화폐를 선택하세요</h4>
+                </div>
+                <strong id="meal-wallet-value">약 0 가치</strong>
+              </header>
+              <div id="meal-currency-list" class="meal-currency-list"></div>
+            </section>
+            <aside class="meal-payment-offer" aria-labelledby="meal-payment-offer-title">
+              <header>
+                <div>
+                  <span>계산대</span>
+                  <h4 id="meal-payment-offer-title">올린 화폐</h4>
+                </div>
+                <button id="meal-payment-clear" type="button">비우기</button>
+              </header>
+              <div id="meal-payment-offer-list" class="meal-payment-offer-list"></div>
+              <dl class="meal-payment-totals">
+                <div><dt id="meal-payment-required-label">식사값</dt><dd id="meal-payment-required">0</dd></div>
+                <div><dt>올린 가치</dt><dd id="meal-payment-offered">0</dd></div>
+                <div><dt>차액</dt><dd id="meal-payment-difference">0</dd></div>
+              </dl>
+              <p id="meal-payment-message" class="meal-payment-message" role="status">화폐를 올려 식사값을 지불하세요.</p>
+              <button id="meal-payment-confirm" class="meal-payment-confirm" type="button" disabled>식사값 지불</button>
+            </aside>
+          </div>
+        </div>
+
+      </section>
+    </div>
+
+    <div id="service-modal" class="service-modal-layer" hidden>
+      <img id="service-scene-background" class="facility-scene-background" data-asset-id="Asset_A_11" alt="주점 내부 풍경">
+      <section class="service-window" role="dialog" aria-modal="true" aria-labelledby="service-title">
+        <header class="service-window-header">
+          <div>
+            <p id="service-location">거점 · 시설</p>
+            <h2 id="service-title">시설</h2>
+          </div>
+          <button id="service-close" type="button">나가기</button>
+        </header>
+        <div class="service-content">
+          <div class="service-introduction">
+            <p id="service-description">시설에서 할 행동을 선택하세요.</p>
+            <section id="service-guild-profile" class="service-guild-profile" hidden>
+              <header><span>상업조합 공헌도</span><strong id="service-guild-level">레벨 1</strong></header>
+              <div class="service-guild-progress"><span id="service-guild-progress-fill"></span></div>
+              <div class="service-guild-progress-copy">
+                <b id="service-guild-xp">0 / 500</b>
+                <span id="service-guild-information-limit">정보 수집 최대 1회</span>
+              </div>
+            </section>
+          </div>
+          <div id="service-actions" class="service-actions">
+            <button id="service-info-collect" type="button">
+              <strong>정보 수집</strong>
+              <span>1타임 · 남은 1/1회</span>
+            </button>
+            <button id="service-contribution-open" type="button" hidden>
+              <strong>공헌</strong>
+              <span>화폐를 납부해 조합 공헌도를 올립니다.</span>
+            </button>
+            <button id="service-bill-note-open" type="button" hidden>
+              <strong>어음증서</strong>
+              <span>현금을 안전한 정액 어음으로 바꿉니다.</span>
+            </button>
+            <button id="service-meal-order" type="button">
+              <strong>식사 주문</strong>
+              <span>주점의 음식과 음료를 주문합니다.</span>
+            </button>
+          </div>
+        </div>
+        <section id="service-contribution-view" class="service-contribution-view" hidden>
+          <header class="service-contribution-header">
+            <div><span>상업조합 공헌</span><h3>납부할 화폐를 선택하세요.</h3></div>
+            <button id="service-contribution-back" type="button">돌아가기</button>
+          </header>
+          <div class="service-contribution-layout">
+            <section class="service-contribution-wallet">
+              <header><strong>내 화폐</strong><span>화폐를 누르면 한 개씩 추가됩니다.</span></header>
+              <div id="service-contribution-currencies" class="service-contribution-currencies"></div>
+            </section>
+            <section class="service-contribution-offer">
+              <header>
+                <div><strong>공헌할 화폐</strong><span>납부한 현재 지역 가치를 공헌도로 획득합니다.</span></div>
+                <button id="service-contribution-clear" type="button">비우기</button>
+              </header>
+              <div id="service-contribution-items" class="service-contribution-items"></div>
+              <footer>
+                <span>획득 공헌도</span>
+                <strong id="service-contribution-total">0</strong>
+                <button id="service-contribution-confirm" type="button" disabled>공헌하기</button>
+              </footer>
+            </section>
+          </div>
+        </section>
+        <section id="service-bill-note-view" class="service-bill-note-view" hidden>
+          <header class="service-bill-note-header">
+            <div><span>상업조합 금융 업무</span><h3>어음증서</h3></div>
+            <button id="service-bill-note-back" type="button">돌아가기</button>
+          </header>
+          <div class="service-bill-note-body">
+            <nav class="service-bill-note-tabs" aria-label="어음 업무 선택">
+              <button class="is-active" type="button" data-bill-note-mode="issue" aria-pressed="true">어음 발급</button>
+              <button type="button" data-bill-note-mode="redeem" aria-pressed="false">화폐로 환전</button>
+            </nav>
+            <div class="service-bill-note-intro">
+              <strong id="service-bill-note-heading">발급할 어음을 선택하세요.</strong>
+              <p id="service-bill-note-description">액면가와 발급 수수료 3%를 화폐로 자동 납부합니다. 어음은 칸과 무게를 차지하지 않습니다.</p>
+            </div>
+            <div id="service-bill-note-denominations" class="service-bill-note-denominations"></div>
+            <aside class="service-bill-note-summary">
+              <dl>
+                <div><dt>선택한 액면가</dt><dd id="service-bill-note-face-value">0</dd></div>
+                <div><dt>수수료 3%</dt><dd id="service-bill-note-fee">0</dd></div>
+                <div><dt id="service-bill-note-total-label">자동 납부액</dt><dd id="service-bill-note-total">0</dd></div>
+              </dl>
+              <p id="service-bill-note-payment-status">발급할 어음을 선택하세요.</p>
+              <button id="service-bill-note-confirm" type="button" disabled>어음 발급</button>
+            </aside>
+          </div>
+        </section>
+      </section>
+    </div>
+
+    <aside id="tavern-comment-popup" class="partner-common-sense-popup tavern-comment-popup" data-small-popup-anchor="upper" aria-live="polite" aria-labelledby="tavern-comment-speaker" hidden>
+      <div class="partner-common-sense-portrait" aria-hidden="true">
+        <img id="tavern-comment-character" alt="나하나 SD 캐릭터" hidden>
+      </div>
+      <div class="partner-common-sense-copy">
+        <header class="partner-common-sense-heading">
+          <strong id="tavern-comment-speaker">나하나</strong>
+        </header>
+        <p id="tavern-comment-message"></p>
+      </div>
+      <button id="tavern-comment-close" type="button">닫기</button>
+    </aside>
+
+    <aside id="road-comment-popup" class="partner-common-sense-popup road-comment-popup" data-small-popup-anchor="upper" aria-live="polite" aria-labelledby="road-comment-speaker" hidden>
+      <div class="partner-common-sense-portrait" aria-hidden="true">
+        <img id="road-comment-character" alt="나하나 SD 캐릭터" hidden>
+      </div>
+      <div class="partner-common-sense-copy">
+        <header class="partner-common-sense-heading">
+          <strong id="road-comment-speaker">나하나</strong>
+        </header>
+        <p id="road-comment-message"></p>
+      </div>
+      <button id="road-comment-close" type="button">닫기</button>
+    </aside>
+
+    <div id="inn-modal" class="inn-modal-layer" hidden>
+      <img id="inn-scene-background" class="facility-scene-background" data-asset-id="Asset_A_10" alt="여관 내부 풍경">
+      <div id="inn-side-actions" class="window-side-actions inn-side-actions">
+        <div id="inn-advanced-tutorial" class="advanced-tutorial-launcher advanced-tutorial-type-a" data-advanced-launcher="inn" hidden>
+          <div class="advanced-tutorial-menu" role="menu" aria-label="여관 심화 안내" hidden></div>
+          <button class="advanced-tutorial-toggle window-side-button" type="button" aria-expanded="false">
+            <strong>심화 안내</strong>
+            <span>여관 안내</span>
+          </button>
+        </div>
+      </div>
+      <button id="inn-previous-scene" class="edge-control edge-control-left" type="button" aria-label="여관에서 이전 화면으로 이동"></button>
+      <button id="inn-next-scene" class="edge-control edge-control-right" type="button" aria-label="여관에서 다음 화면으로 이동"></button>
+      <section class="inn-window" role="dialog" aria-modal="true" aria-labelledby="inn-title">
+        <header class="inn-window-header">
+          <div>
+            <p id="inn-location">거점 · 여관</p>
+            <h2 id="inn-title">여관</h2>
+          </div>
+          <button id="inn-close" type="button">나가기</button>
+        </header>
+
+        <section id="inn-home" class="inn-home">
+          <div class="inn-home-copy">
+            <span>객실과 마굿간을 함께 운영하는 여행자의 쉼터</span>
+            <strong>무엇을 할지 선택하세요.</strong>
+          </div>
+          <div class="inn-action-grid">
+            <button id="inn-information" type="button">
+              <strong>정보 수집</strong>
+              <span id="inn-information-count">1타임 · 남은 1/1회</span>
+            </button>
+            <button id="inn-meal" type="button">
+              <strong>식사 주문</strong>
+              <span>여관에서 준비한 식사를 주문합니다.</span>
+            </button>
+            <button id="inn-errand" type="button">
+              <strong>심부름꾼</strong>
+              <span id="inn-errand-description">여행 물품을 대신 사 오도록 부탁합니다.</span>
+            </button>
+            <button id="inn-maintenance" type="button">
+              <strong>짐마차 정비</strong>
+              <span>내구도를 회복하고 상태이상을 수리합니다.</span>
+            </button>
+            <button id="inn-lodging" type="button">
+              <strong>숙박</strong>
+              <span>말을 돌보고 다음 날 아침까지 쉽니다.</span>
+            </button>
+          </div>
+        </section>
+
+        <section id="inn-maintenance-view" class="inn-detail-view inn-maintenance-view" hidden>
+          <header class="inn-detail-header">
+            <div><span>마굿간 정비소</span><h3>짐마차 정비 견적</h3></div>
+            <button type="button" data-inn-back>여관으로 돌아가기</button>
+          </header>
+          <div class="inn-maintenance-layout">
+            <aside class="inn-maintenance-summary">
+              <span>현재 짐마차 상태</span>
+              <strong id="inn-maintenance-condition">200 / 200</strong>
+              <div class="inn-maintenance-meter" aria-hidden="true"><i id="inn-maintenance-fill"></i></div>
+              <p>필요한 정비 항목을 각각 선택할 수 있습니다.</p>
+            </aside>
+            <section class="inn-maintenance-service-panel">
+              <header><strong>정비 항목</strong><span>선택한 작업만 청구합니다.</span></header>
+              <div id="inn-maintenance-options" class="inn-maintenance-options"></div>
+            </section>
+          </div>
+          <footer class="inn-detail-footer inn-maintenance-footer">
+            <p>선택한 정비 작업은 화폐로만 지불할 수 있습니다.</p>
+            <div class="inn-maintenance-payment">
+              <div><span>선택한 정비비</span><strong id="inn-maintenance-total">0 가치</strong></div>
+              <button id="inn-maintenance-pay" type="button">정비비 지불</button>
+            </div>
+          </footer>
+        </section>
+
+        <section id="inn-lodging-view" class="inn-detail-view" hidden>
+          <header class="inn-detail-header">
+            <div><span>숙박 계산서</span><h3>오늘 밤 묵을 비용</h3></div>
+            <button type="button" data-inn-back>돌아가기</button>
+          </header>
+          <div class="inn-invoice-wrap">
+            <div id="inn-invoice" class="inn-invoice"></div>
+            <aside class="inn-lodging-effect">
+              <span>숙박 효과</span>
+              <div class="inn-lodging-effect-list">
+                <strong>말 체력·허기 전부 회복</strong>
+                <strong id="inn-lodging-mood-effect">나하나 기분</strong>
+                <p id="inn-lodging-meal-status" class="inn-lodging-meal-status"></p>
+              </div>
+            </aside>
+          </div>
+          <footer class="inn-detail-footer">
+            <p>숙박비는 화폐로만 지불할 수 있습니다.</p>
+            <button id="inn-lodging-pay" type="button">숙박비 지불</button>
+          </footer>
+        </section>
+
+        <section id="inn-errand-view" class="inn-detail-view inn-errand-view" hidden>
+          <header class="inn-detail-header">
+            <div><span>오늘의 심부름 물품</span><h3>심부름꾼에게 부탁하기</h3></div>
+            <div class="inn-detail-header-actions">
+              <span id="inn-errand-refresh">매일 아침 재고 갱신</span>
+              <button type="button" data-inn-back>여관으로 돌아가기</button>
+            </div>
+          </header>
+          <div class="inn-errand-layout">
+            <section class="inn-errand-catalog-panel">
+              <header><strong>구입할 수 있는 물품</strong><span>재고 한도 안에서 수량을 고르세요.</span></header>
+              <div id="inn-errand-catalog" class="inn-errand-catalog"></div>
+            </section>
+            <aside class="inn-errand-order-panel">
+              <header><strong>심부름 주문서</strong><button id="inn-errand-clear" type="button">비우기</button></header>
+              <div id="inn-errand-order" class="inn-errand-order"></div>
+              <dl id="inn-errand-totals" class="inn-errand-totals"></dl>
+              <div id="inn-errand-capacity" class="inn-errand-capacity"></div>
+              <button id="inn-errand-pay" type="button">대금 지불</button>
+            </aside>
+          </div>
+        </section>
+
+        <section id="inn-payment-view" class="inn-detail-view inn-payment-view" hidden>
+          <header class="inn-detail-header">
+            <div><span>현금 전용</span><h3 id="inn-payment-title">대금 지불</h3></div>
+            <button id="inn-payment-back" type="button">돌아가기</button>
+          </header>
+          <div class="inn-payment-layout">
+            <section class="inn-payment-wallet">
+              <header><strong>내 화폐</strong><span id="inn-wallet-total">약 0 가치</span></header>
+              <div id="inn-currency-list" class="inn-currency-list"></div>
+            </section>
+            <section class="inn-payment-offer">
+              <header><strong>지불할 화폐</strong><button id="inn-payment-clear" type="button">비우기</button></header>
+              <div id="inn-payment-offer-list" class="inn-payment-offer-list"></div>
+              <dl class="inn-payment-totals">
+                <div><dt>청구액</dt><dd id="inn-payment-required">0</dd></div>
+                <div><dt>올린 가치</dt><dd id="inn-payment-offered">0</dd></div>
+                <div><dt>거스름돈</dt><dd id="inn-payment-change">0</dd></div>
+              </dl>
+              <p id="inn-payment-message" class="inn-payment-message">화폐를 선택하세요.</p>
+              <p id="inn-payment-lodging-effect" class="inn-lodging-meal-status" hidden></p>
+              <button id="inn-payment-confirm" type="button" disabled>현금 지불</button>
+            </section>
+          </div>
+        </section>
+
+        <section id="inn-trade-review-view" class="inn-detail-view inn-trade-review-view" hidden>
+          <header class="inn-detail-header">
+            <div><span>하루를 마무리하는 기록</span><h3>상행 복기</h3></div>
+            <strong id="inn-trade-review-progress">1 / 1</strong>
+          </header>
+          <div class="inn-trade-review-layout">
+            <nav id="inn-trade-review-list" class="inn-trade-review-list" aria-label="복기할 교역 목록"></nav>
+            <article id="inn-trade-review-detail" class="inn-trade-review-detail"></article>
+          </div>
+          <footer class="inn-detail-footer inn-trade-review-footer">
+            <p>확인한 거래에는 결과 뱃지가 남고 거래지식이 1 상승합니다. 남은 거래는 다음 숙박 때 이어집니다.</p>
+            <button id="inn-trade-review-finish" type="button">복기 종료</button>
+          </footer>
+        </section>
+      </section>
+    </div>
+
+    <div id="route-event-modal" class="route-event-modal-layer" hidden>
+      <article id="route-event-card" class="route-event-card" role="dialog" aria-modal="true" aria-labelledby="route-event-title">
+        <header class="route-event-card-header">
+          <span id="route-event-category">경로에서 일어난 일</span>
+          <small id="route-event-location">이동 중</small>
+        </header>
+        <figure id="route-event-visual" class="route-event-card-visual" hidden aria-hidden="true">
+          <img id="route-event-image" alt="">
+          <span class="route-event-card-visual-vignette"></span>
+        </figure>
+        <div class="route-event-card-emblem" aria-hidden="true"><i></i></div>
+        <section class="route-event-card-copy">
+          <h2 id="route-event-title">경로 사건</h2>
+          <p id="route-event-description"></p>
+        </section>
+        <aside class="route-event-card-effect">
+          <span>적용 효과</span>
+          <p id="route-event-effect"></p>
+        </aside>
+        <footer><button id="route-event-confirm" type="button">확인</button></footer>
+      </article>
+    </div>
+
+    <div id="entry-tax-modal" class="trade-modal-layer entry-tax-modal-layer" hidden>
+      <section class="entry-tax-window" role="dialog" aria-modal="true" aria-labelledby="entry-tax-title">
+        <header class="entry-tax-header">
+          <div>
+            <p id="entry-tax-location">거점 · 입장 관세소</p>
+            <h2 id="entry-tax-title">입장관세 납부</h2>
+          </div>
+          <strong id="entry-tax-rate">입장관세율 0%</strong>
+          <button id="entry-tax-close" type="button">돌아가기</button>
+        </header>
+        <p id="entry-tax-status" class="entry-tax-status" role="status">지역 시세를 확인하는 중입니다.</p>
+        <div class="entry-tax-body">
+          <section class="entry-tax-panel entry-tax-cargo-panel" aria-labelledby="entry-tax-cargo-title">
+            <header>
+              <h3 id="entry-tax-cargo-title">화물 납부</h3>
+              <span><i id="entry-tax-cargo-summary-label">관세 대상 시세 합계</i> <strong id="entry-tax-cargo-total">0</strong></span>
+            </header>
+            <div id="entry-tax-cargo" class="entry-tax-cargo-list"></div>
+          </section>
+          <section class="entry-tax-panel entry-tax-payment-panel" aria-labelledby="entry-tax-payment-title">
+            <header>
+              <h3 id="entry-tax-payment-title">화폐 및 납부안</h3>
+              <div>
+                <button id="entry-tax-auto" type="button">자동 맞춤</button>
+                <button id="entry-tax-clear" type="button">비우기</button>
+              </div>
+            </header>
+            <div id="entry-tax-currencies" class="entry-tax-currency-list" aria-label="보유 화폐"></div>
+            <div id="entry-tax-offer" class="entry-tax-offer-list"></div>
+          </section>
+        </div>
+        <footer class="entry-tax-footer">
+          <button id="entry-tax-bargain" class="entry-tax-bargain" type="button" hidden>
+            <strong>흥정</strong><span>1 / 1</span>
+          </button>
+          <dl>
+            <div><dt id="entry-tax-required-label">납부할 관세</dt><dd id="entry-tax-required">0</dd></div>
+            <div><dt>올린 납부 가치</dt><dd id="entry-tax-offered">0</dd></div>
+          </dl>
+          <button id="entry-tax-confirm" type="button" disabled>관세 납부 후 입장</button>
+        </footer>
+      </section>
+      <div id="entry-tax-overpay-warning" class="entry-tax-warning-layer" hidden>
+        <section class="entry-tax-warning" role="alertdialog" aria-modal="true" aria-labelledby="entry-tax-warning-title" aria-describedby="entry-tax-warning-message">
+          <span>초과 납부 경고</span>
+          <h3 id="entry-tax-warning-title">관세보다 많은 화폐를 지불하고 있습니다.</h3>
+          <p id="entry-tax-warning-message">초과분은 돌려받을 수 없습니다. 정말로 지불하시겠습니까?</p>
+          <div>
+            <button id="entry-tax-warning-cancel" type="button">재설정</button>
+            <button id="entry-tax-warning-confirm" type="button">초과 납부</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="wallet-modal" class="wallet-modal-layer" hidden>
+      <section class="wallet-window" role="dialog" aria-modal="true" aria-labelledby="wallet-title">
+        <header class="wallet-window-header">
+          <div>
+            <p>휴대 화폐</p>
+            <h2 id="wallet-title">지갑</h2>
+          </div>
+          <div class="wallet-window-total">
+            <span id="wallet-modal-total-label">보유 화폐 가치</span>
+            <strong id="wallet-modal-total">0</strong>
+          </div>
+          <button id="wallet-close" class="wallet-close" type="button" aria-label="지갑 닫기">닫기</button>
+        </header>
+        <nav id="wallet-tabs" class="wallet-tabs" aria-label="지갑 자산 분류">
+          <button class="is-active" type="button" data-wallet-tab="currency" aria-pressed="true">화폐</button>
+          <button type="button" data-wallet-tab="notes" aria-pressed="false">어음증서</button>
+        </nav>
+        <p id="wallet-data-source" class="wallet-data-source" role="status">화폐 데이터 준비 중</p>
+        <div id="wallet-groups" class="wallet-groups"></div>
+      </section>
+      <aside id="wallet-currency-info" class="wallet-currency-info" role="tooltip" hidden></aside>
+    </div>
+
+    <div id="information-modal" class="information-modal-layer" hidden>
+      <section class="information-window" role="dialog" aria-modal="true" aria-labelledby="information-title">
+        <header class="information-window-header">
+          <div>
+            <p>대륙을 오가는 소식과 소문</p>
+            <h2 id="information-title">정보 보관함</h2>
+          </div>
+          <button id="information-close" type="button">닫기</button>
+        </header>
+        <p id="information-status" class="information-status" role="status">정보 시트를 불러오는 중입니다.</p>
+        <div id="information-grid" class="information-grid"></div>
+      </section>
+      <aside id="information-detail-tooltip" class="information-detail-tooltip" role="tooltip" hidden></aside>
+    </div>
+
+    <div id="information-acquired-modal" class="information-acquired-layer" hidden>
+      <section class="information-acquired-window" role="dialog" aria-modal="true" aria-labelledby="information-acquired-title">
+        <header>
+          <div>
+            <p>새로운 소식이 손에 들어왔습니다</p>
+            <h2 id="information-acquired-title">정보 획득</h2>
+          </div>
+        </header>
+        <div id="information-acquired-card" class="information-acquired-card"></div>
+        <footer>
+          <button id="information-acquired-close" type="button">확인</button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="merchant-path-modal" class="merchant-path-modal-layer" hidden>
+      <section class="merchant-path-window" role="dialog" aria-modal="true" aria-labelledby="merchant-path-title">
+        <header class="merchant-path-window-header">
+          <div>
+            <p>상업조합 행상인 복무신조</p>
+            <h2 id="merchant-path-title">행상인의 길</h2>
+          </div>
+          <button id="merchant-path-close" type="button">닫기</button>
+        </header>
+        <div class="merchant-path-body">
+          <nav class="merchant-path-articles" aria-label="행상인의 길 조항">
+            <button type="button" data-merchant-path-article="1" aria-pressed="false"><span>1조</span><strong>눈과 귀를 바쁘게 움직여라</strong></button>
+            <button type="button" data-merchant-path-article="2" aria-pressed="false"><span>2조</span><strong>물고 늘어져 이윤을 만들어라</strong></button>
+            <button type="button" data-merchant-path-article="3" aria-pressed="false"><span>3조</span><strong>몸과 짐을 살펴라</strong></button>
+            <button type="button" data-merchant-path-article="4" aria-pressed="false"><span>4조</span><strong>말끔함과 웃는 얼굴</strong></button>
+            <button class="is-active" type="button" data-merchant-path-article="5" aria-pressed="true"><span>5조</span><strong>다루는 상품을 알고 이해하라</strong></button>
+          </nav>
+          <section class="merchant-path-detail">
+            <header>
+              <div class="merchant-path-article-badge">
+                <span id="merchant-path-article-number">5조</span>
+                <button id="merchant-path-info" class="merchant-path-info-button" type="button" aria-label="지식 단계별 해금 정보" aria-describedby="merchant-path-info-tooltip">!</button>
+              </div>
+              <div>
+                <h3 id="merchant-path-article-title">다루는 상품을 알고 이해하라</h3>
+                <p id="merchant-path-article-description">상품을 사고 팔며 쌓은 경험으로 상품의 정보를 단계적으로 해금합니다.</p>
+              </div>
+            </header>
+            <nav id="merchant-path-category-tabs" class="merchant-path-category-tabs" aria-label="상품 지식 카테고리"></nav>
+            <div id="merchant-path-content" class="merchant-path-content"></div>
+          </section>
+        </div>
+        <aside id="merchant-path-info-tooltip" class="merchant-path-info-tooltip" role="tooltip" hidden></aside>
+      </section>
+    </div>
+
+    <div id="memorial-modal" class="memorial-modal-layer" hidden>
+      <section class="memorial-window" role="dialog" aria-modal="true" aria-labelledby="memorial-title">
+        <header class="memorial-window-header">
+          <div>
+            <p>나하나와 함께 쌓아 온 이야기</p>
+            <h2 id="memorial-title">메모리얼</h2>
+          </div>
+          <strong id="memorial-count">0 / 0 수집</strong>
+          <button id="memorial-close" type="button">닫기</button>
+        </header>
+        <nav class="memorial-tabs" aria-label="메모리얼 분류">
+          <button class="is-active" type="button" data-memorial-category="메인대화" aria-pressed="true">메인대화 <span>0 / 0</span></button>
+          <button type="button" data-memorial-category="상식주입" aria-pressed="false">상식주입 <span>0 / 0</span></button>
+          <button type="button" data-memorial-category="대화카드" aria-pressed="false">대화카드 <span>0 / 0</span></button>
+          <button type="button" data-memorial-category="이벤트" aria-pressed="false">이벤트 <span>0 / 0</span></button>
+          <button type="button" data-memorial-category="발자취" aria-pressed="false">발자취 <span>0 / 0</span></button>
+          <button type="button" data-memorial-category="주점 음식" aria-pressed="false">주점 음식 <span>0 / 0</span></button>
+          <button type="button" data-memorial-category="시장 간식" aria-pressed="false">시장 간식 <span>0 / 0</span></button>
+        </nav>
+        <p id="memorial-status" class="memorial-status" role="status">수집한 대화를 정리하고 있습니다.</p>
+        <div id="memorial-grid" class="memorial-grid"></div>
+      </section>
+    </div>
+
+    <div id="dialog-modal" class="modal-layer" hidden>
+      <section id="dialog-card" class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="dialog-speaker" aria-describedby="dialog-message">
+        <div class="dialog-character-area">
+          <img id="dialog-character" class="dialog-character" data-asset-id="Asset_N_01" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/Default.png" alt="나하나">
+        </div>
+        <div class="dialog-panel">
+          <button id="dialog-skip" class="dialog-skip" type="button" hidden>대화 스킵</button>
+          <button id="dialog-log-toggle" class="dialog-log-toggle" type="button" aria-expanded="false" aria-controls="dialog-log-panel" hidden>대화 로그</button>
+          <p id="dialog-speaker" class="dialog-speaker">나하나</p>
+          <p id="dialog-message" class="dialog-message"></p>
+          <span id="dialog-advance-hint" class="dialog-advance-hint" aria-hidden="true" hidden>▸</span>
+          <nav id="options-tabs" class="options-tabs" aria-label="옵션 분류" hidden>
+            <button class="is-active" type="button" data-options-tab="sound" aria-pressed="true">사운드</button>
+          </nav>
+          <section id="options-sound-panel" class="options-sound-panel" aria-label="사운드 설정" hidden>
+            <header>
+              <strong>사운드 효과</strong>
+              <span>각 음량은 자동으로 저장됩니다.</span>
+            </header>
+            <div class="options-volume-list">
+              <label class="options-volume-control" for="options-master-volume">
+                <span>전체 음량</span>
+                <input id="options-master-volume" type="range" min="0" max="100" step="1" value="75" data-audio-volume="master">
+                <output id="options-master-volume-output" for="options-master-volume">75%</output>
+              </label>
+              <label class="options-volume-control" for="options-bgm-volume">
+                <span>BGM</span>
+                <input id="options-bgm-volume" type="range" min="0" max="100" step="1" value="75" data-audio-volume="bgm">
+                <output id="options-bgm-volume-output" for="options-bgm-volume">75%</output>
+              </label>
+              <label class="options-volume-control" for="options-bgs-volume">
+                <span>BGS</span>
+                <input id="options-bgs-volume" type="range" min="0" max="100" step="1" value="75" data-audio-volume="bgs">
+                <output id="options-bgs-volume-output" for="options-bgs-volume">75%</output>
+              </label>
+            </div>
+          </section>
+          <div id="dialog-actions" class="dialog-actions"></div>
+          <form id="name-form" class="name-form" hidden>
+            <label for="name-input">플레이어 이름</label>
+            <input id="name-input" name="playerName" type="text" maxlength="10" autocomplete="off" placeholder="1~10글자" required>
+            <p id="name-error" class="name-error" role="alert" hidden></p>
+            <div class="name-form-actions">
+              <button id="name-cancel" class="dialog-button dialog-button-secondary" type="button">돌아가기</button>
+              <button class="dialog-button dialog-button-primary" type="submit">등록</button>
+            </div>
+          </form>
+        </div>
+      </section>
+      <aside id="dialog-log-panel" class="dialog-log-panel" aria-label="현재 대화 로그" hidden>
+        <header><strong>대화 로그</strong><button id="dialog-log-close" type="button">닫기</button></header>
+        <div id="dialog-log-entries" class="dialog-log-entries"></div>
+      </aside>
+    </div>
+
+    <aside id="partner-status-tooltip" class="partner-status-tooltip" role="tooltip" hidden></aside>
+    <div id="scene-transition" class="scene-transition" aria-hidden="true" hidden></div>
+    <img id="scene-situation-asset" class="scene-situation-asset" alt="" aria-hidden="true" hidden>
+    <img id="game-cursor" class="game-cursor" alt="" aria-hidden="true" draggable="false" hidden>
+  </main>
+</body>
+</html>
