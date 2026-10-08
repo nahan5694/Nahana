@@ -19,7 +19,8 @@
     wheel: "Asset_BGS_10",
     rain: "Asset_BGS_11",
     heavyRain: "Asset_BGS_12",
-    goods: "Asset_BGS_13"
+    goods: "Asset_BGS_13",
+    whip: "Asset_BGS_15"
   });
   const EFFECT_LEVELS = Object.freeze({
     click: .42,
@@ -28,7 +29,8 @@
     paper: .58,
     owl: .5,
     horseBreath: .48,
-    goods: .65
+    goods: .65,
+    whip: .72
   });
   const LOOP_FADE_MS = 700;
 
@@ -87,7 +89,8 @@
 
   function handleButtonClick(event) {
     const button = event.target instanceof Element ? event.target.closest("button") : null;
-    if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") return;
+    if (!button || button.disabled || button.getAttribute("aria-disabled") === "true"
+      || button.dataset.audioSilent === "true") return;
     playEffect("click");
   }
 

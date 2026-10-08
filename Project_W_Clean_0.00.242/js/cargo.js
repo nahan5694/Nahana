@@ -1256,6 +1256,8 @@
       const section = document.createElement("section");
       const heading = document.createElement("b");
       const list = document.createElement("ul");
+      section.className = "cargo-note-written-notes";
+      list.className = "cargo-note-written-note-list";
       heading.textContent = "상품 메모";
       notes.forEach(note => {
         const item = document.createElement("li");

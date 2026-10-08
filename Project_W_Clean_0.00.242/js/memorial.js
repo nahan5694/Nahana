@@ -1,6 +1,6 @@
 (function exposeMemorial() {
   const CATEGORIES = ["메인대화", "상식주입", "대화카드", "이벤트", "발자취", "주점 음식", "시장 간식"];
-  const FOOD_DATA_URL = "data/foods.csv";
+  const FOOD_DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1425391005&single=true&output=csv";
   const FOOTPRINTS = Object.freeze([
     { id: "FOOTPRINT_001", title: "나하나가 화나다", description: "참고 참던 나하나의 기분이 끝내 바닥을 드러냈습니다.", developerDescription: "나하나 기분이 25 이하가 되었을 때 해금." },
     { id: "FOOTPRINT_002", title: "나하나가 단맛에 질리다", description: "달콤한 것이라면 한동안 보기만 해도 고개를 저을 듯합니다.", developerDescription: "단맛 패러미터가 0에 도달했을 때 해금." },
@@ -9,8 +9,8 @@
     { id: "FOOTPRINT_005", title: "나하나가 짠맛을 갈망하다", description: "유난히 짭짤한 음식이 생각나는 모양입니다.", developerDescription: "짠맛 패러미터가 100에 도달했을 때 해금." },
     { id: "FOOTPRINT_006", title: "나하나가 자극적인 맛에 질리다", description: "강한 향과 얼얼한 맛을 잠시 멀리하고 싶어 합니다.", developerDescription: "자극 패러미터가 0에 도달했을 때 해금." },
     { id: "FOOTPRINT_007", title: "나하나가 자극적인 맛을 갈망하다", description: "평범한 맛으로는 성에 차지 않는 날이 찾아왔습니다.", developerDescription: "자극 패러미터가 100에 도달했을 때 해금." },
-    { id: "FOOTPRINT_008", title: "나하나가 기름진 음식에 질리다", description: "기름진 음식이 쌓여 속이 잔뜩 무거워졌습니다.", developerDescription: "무게감 패러미터가 100에 도달했을 때 해금." },
-    { id: "FOOTPRINT_009", title: "나하나가 기름진 음식을 갈망하다", description: "든든하고 기름진 한 접시가 간절해졌습니다.", developerDescription: "무게감 패러미터가 0에 도달했을 때 해금." },
+    { id: "FOOTPRINT_008", title: "나하나가 기름진 음식에 질리다", description: "기름진 음식이 쌓여 속이 잔뜩 무거워졌습니다.", developerDescription: "기름짐 패러미터가 0에 도달했을 때 해금." },
+    { id: "FOOTPRINT_009", title: "나하나가 기름진 음식을 갈망하다", description: "든든하고 기름진 한 접시가 간절해졌습니다.", developerDescription: "기름짐 패러미터가 100에 도달했을 때 해금." },
     { id: "FOOTPRINT_010", title: "늑대의 습격에서 벗어나다", description: "사나운 울음소리를 등지고 무사히 길을 이어 갑니다.", developerDescription: "늑대 습격에서 벗어났을 때 해금. 현재 관련 기능 미구현." },
     { id: "FOOTPRINT_011", title: "도적의 위협에서 벗어나다", description: "탐욕스러운 시선을 따돌리고 짐마차를 지켜 냈습니다.", developerDescription: "도적의 위협에서 벗어났을 때 해금. 현재 관련 기능 미구현." },
     { id: "FOOTPRINT_012", title: "용병의 위협에서 벗어나다", description: "무기를 든 자들의 위협 앞에서도 여정을 지켜 냈습니다.", developerDescription: "용병의 위협에서 벗어났을 때 해금. 현재 관련 기능 미구현." },

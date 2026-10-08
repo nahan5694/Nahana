@@ -304,21 +304,24 @@
     const remaining = Math.max(0, Number(opportunity.remaining) || 0);
     const resetInDays = Math.max(1, Number(opportunity.resetInDays) || 3);
     const phaseIndex = Math.min(TIME_PHASES.length - 1, Math.max(0, Math.trunc(Number(getWorldTime()?.phaseIndex) || 0)));
+    const night = currentTimePhase() === "밤";
     elements.information.dataset.informationTimeTransition = `${TIME_PHASES[phaseIndex]} → ${TIME_PHASES[(phaseIndex + 1) % TIME_PHASES.length]}`;
     elements.information.dataset.informationAttemptCount = String(remaining);
-    elements.information.disabled = remaining <= 0;
+    elements.information.disabled = night || remaining <= 0;
     elements.information.classList.toggle("is-limit-exhausted", remaining <= 0);
     window.ProjectWInformation.updateCollectionTooltip(elements.information, "여관", opportunity.locked
       ? "아직 정보 수집 기능이 해금되지 않았습니다."
+      : night ? "밤에는 여관에서 정보를 수집할 수 없습니다."
       : remaining <= 0 ? "이번 3일 주기의 정보 수집 기회를 모두 사용했습니다." : "");
-    elements.informationCount.textContent = `1타임 · 남은 ${remaining}회 모두 시도 · ${resetInDays}일 후 초기화`;
+    elements.informationCount.textContent = night
+      ? `밤에는 이용 불가 · ${resetInDays}일 후 초기화`
+      : `1타임 · 남은 ${remaining}회 모두 시도 · ${resetInDays}일 후 초기화`;
     const worldDay = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
     const foodUsage = getFoodUsage() || {};
     const mealUsed = Math.max(1, Math.trunc(Number(foodUsage.day) || 1)) === worldDay && Boolean(foodUsage.mealUsed);
     elements.meal.disabled = mealUsed;
     elements.meal.classList.toggle("is-limit-exhausted", mealUsed);
     elements.meal.title = mealUsed ? "오늘은 이미 식사를 했습니다." : "여관의 식사 메뉴를 엽니다.";
-    const night = currentTimePhase() === "밤";
     elements.errand.disabled = night;
     if (elements.errandDescription) {
       elements.errandDescription.textContent = night
@@ -458,6 +461,11 @@
   }
 
   async function handleInformation() {
+    if (currentTimePhase() === "밤") {
+      notify("밤에는 여관에서 정보를 수집할 수 없습니다.");
+      renderHome();
+      return;
+    }
     const used = await collectInformation("여관", settlement);
     if (used !== false) renderHome();
   }

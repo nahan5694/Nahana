@@ -1449,6 +1449,8 @@
     const categoryClass = tradeCategoryClass(entry.definition.category);
     const stack = document.createElement("div");
     stack.className = `trade-item-stack ${categoryClass} ${slotCount > 1 ? "is-multi-slot" : ""}`;
+    stack.dataset.tradeItemId = String(entry.itemId || "");
+    if (owner === "merchant") stack.dataset.tradeLotId = String(entry.lotId || "");
     stack.classList.toggle("is-nahana-event-gift", eventGift);
     const button = document.createElement("button");
     button.type = "button";
@@ -3314,7 +3316,8 @@
       const pool = useWrongComment ? falseIds : trueIds;
       return {
         dialogueId: pool[Math.floor(Math.random() * pool.length)],
-        itemName: knowledgeProfile(definition, lot).name
+        itemName: knowledgeProfile(definition, lot).name,
+        itemKey: lot.lotId
       };
     }).filter(entry => entry.dialogueId);
   }
@@ -3325,12 +3328,12 @@
         await waitForMerchantComment(index === 0 ? randomInteger(Math.random, 3000, 6000) : randomInteger(Math.random, 10000, 15000));
         if (sequence !== merchantCommentSequence || !current || elements.modal.hidden) return;
         if (clamp(Number(getPartnerMood()) || 0, 0, 100) <= 33) return;
-        const { dialogueId, itemName } = plan[index];
+        const { dialogueId, itemName, itemKey } = plan[index];
         const dialogue = await window.ProjectWDialogue.getDialogue(dialogueId);
         if (sequence !== merchantCommentSequence || !current || elements.modal.hidden) return;
         const page = dialogue.pages?.[0];
         if (!page) continue;
-        await showMerchantComment(page, itemName);
+        await showMerchantComment(page, itemName, itemKey);
         if (sequence !== merchantCommentSequence || !current || elements.modal.hidden) return;
       }
     } catch (error) {
@@ -3733,6 +3736,19 @@
     if (current && elements.modal && !elements.modal.hidden) render();
   }
 
+  function focusMerchantItem(itemKey) {
+    if (!current || elements.modal?.hidden || !elements.merchantItems) return false;
+    const key = String(itemKey || "");
+    const target = [...elements.merchantItems.querySelectorAll(".trade-item-stack")]
+      .find(item => item.dataset.tradeLotId === key || item.dataset.tradeItemId === key);
+    if (!target) return false;
+    target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    target.classList.remove("is-advice-focus");
+    window.requestAnimationFrame(() => target.classList.add("is-advice-focus"));
+    window.setTimeout(() => target.classList.remove("is-advice-focus"), 1700);
+    return true;
+  }
+
   function reset() {
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -3849,6 +3865,7 @@
     getResumeState,
     restoreResumeState,
     refresh,
+    focusMerchantItem,
     reset,
     evaluateCargoAtSettlement,
     getInformationSignals,

@@ -1,5 +1,6 @@
 (function exposeMealSystem() {
-  const FOOD_DATA_URL = "data/foods.csv";
+  const FOOD_DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1425391005&single=true&output=csv";
+  const GREASE_RELIEF_FOOD_IDS = new Set(["Food_010", "Food_016"]);
   const TASTE_KEYS = ["sweet", "salty", "stimulus", "weight"];
   const SETTLEMENT_RANK = { 마을: 1, 관문: 1, 도시: 2, 대도시: 3 };
   const INN_FOOD_IDS = new Set(["Food_036", "Food_037", "Food_038"]);
@@ -295,8 +296,9 @@
   }
 
   function normalizeFood(row) {
+    const id = text(row, "ID");
     return {
-      id: text(row, "ID"),
+      id,
       name: text(row, "이름"),
       type: text(row, "종류"),
       regions: values(row, "지역"),
@@ -308,7 +310,8 @@
       sweet: number(row, "단맛"),
       salty: number(row, "짠맛"),
       stimulus: number(row, "자극"),
-      weight: number(row, "무게감"),
+      // 물과 엽차는 시트의 이전 부호가 남아 있어도 느끼함을 해소하는 방향을 보장한다.
+      weight: GREASE_RELIEF_FOOD_IDS.has(id) ? Math.abs(number(row, "무게감")) : number(row, "무게감"),
       fullness: number(row, "포만감"),
       mood: number(row, "기분"),
       reaction: text(row, "리액션"),
@@ -827,10 +830,9 @@
   function displayedTasteDirection(label, storedValue) {
     const value = Number(storedValue) || 0;
     const storedDirection = value < 0 ? -1 : value > 0 ? 1 : 0;
-    // Foods 시트에서 단맛·짠맛·자극은 음수가 맛을 강하게 만들지만,
-    // 무게감은 양수가 기름진 방향이다. 화면에는 무게감을 "기름짐"으로
-    // 표시하므로 이 항목만 시트 부호를 그대로 사용한다.
-    return label === "기름짐" ? storedDirection : -storedDirection;
+    // 네 값은 모두 갈망 수치의 증감량이다. 음수는 해당 맛을 채우고,
+    // 양수는 해당 맛의 갈망을 회복시키므로 화면의 맛 표시는 부호를 뒤집는다.
+    return -storedDirection;
   }
 
   function tasteEffectPresentation(label, storedValue) {

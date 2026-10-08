@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.248";
-const ACCOUNT_SCHEMA_VERSION = 41;
+const GAME_VERSION = "0.00.253";
+const ACCOUNT_SCHEMA_VERSION = 42;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -263,7 +263,8 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     contexts: ["road"],
     pages: [
       { title: "말 상태", text: "위쪽 숫자는 말의 체력, 아래쪽 숫자는 허기입니다.\n커서를 올리면 현재 상태를 더 자세히 확인할 수 있습니다.", selector: ".road-condition-horse", shape: "diamond" },
-      { title: "말 식량 먹이기", text: "먹이 버튼으로 등록된 건초나 말먹이를 사용합니다.\n옆의 수량은 현재 등록된 먹이의 남은 개수입니다.", selector: "#horse-feed-controls" }
+      { title: "말 식량 먹이기", text: "먹이 버튼으로 등록된 건초나 말먹이를 사용합니다.\n옆의 수량은 현재 등록된 먹이의 남은 개수입니다.", selector: "#horse-feed-controls" },
+      { title: "채찍질", text: "이동 중 말의 엉덩이 부근을 누르면 채찍질합니다.\n말의 체력이 0~2 감소하는 대신 다음 지점까지 남은 시간이 0~1초 줄어듭니다.", selector: "#horse-whip-hitbox", padding: 14 }
     ]
   },
   {
@@ -833,6 +834,7 @@ const cargoWagonTooltip = document.querySelector("#cargo-wagon-tooltip");
 const roadConditionPanel = document.querySelector(".road-condition-markers");
 const roadConditionMarkers = [...document.querySelectorAll("[data-road-condition]")];
 const roadWheelReplace = document.querySelector("#road-wheel-replace");
+const horseWhipHitbox = document.querySelector("#horse-whip-hitbox");
 const horseFeedControls = document.querySelector("#horse-feed-controls");
 const horseFeedButton = document.querySelector("#horse-feed-button");
 const horseFeedChange = document.querySelector("#horse-feed-change");
@@ -986,6 +988,7 @@ let activeTavernVisit = null;
 let roadCommentTimer;
 let roadCommentHideTimer;
 let roadCommentAvailableAt = 0;
+let pendingRoadDialogueCount = 0;
 const tavernVisitCache = new Map();
 let tutorialRuntime = null;
 let tutorialFocusTarget = null;
@@ -1014,10 +1017,13 @@ let activeBlessCategory = "수레바퀴";
 let spiritBlessingInProgress = false;
 let nahanaEventRewardDialogOpen = false;
 let nahanaEventOpeningId = "";
+let pendingNahanaEventOpeningId = "";
 const nahanaEventHardcodedDialoguesInFlight = new Set();
 let activeTalkCardId = "";
 let partnerAppetiteOpen = false;
 let roadTalkCardGenerationQueue = Promise.resolve();
+let talkCardGenerationInProgress = 0;
+let pendingNarrativePresentationTimer = 0;
 let smallPopupSequence = 0;
 let smallPopupLayoutFrame = 0;
 let partnerTouchDialogueLoadPromise;
@@ -1207,7 +1213,7 @@ window.ProjectWTrade.init({
     return ["숙취", "과식", "고혈당", "속쓰림"].find(name => partnerHasStatus(partner, name)) || "";
   },
   getAssetUrl: assetId => assetMap.get(assetId) ?? "",
-  showMerchantComment: (page, itemName) => showMerchantCommentPopup(page, itemName),
+  showMerchantComment: (page, itemName, itemKey) => showMerchantCommentPopup(page, itemName, itemKey),
   cancelMerchantComments: () => hideMerchantCommentPopup(true),
   getBargainProfile,
   attemptBargain,
@@ -1503,7 +1509,7 @@ async function enterGame() {
         if (tutorial.activeId) resumeActiveTutorial();
         else if (eventState.pendingRewardId) void showPendingNahanaEventReward();
         else if (eventState.pendingTutorialId) void startPendingNahanaEventTutorial();
-        else maybeStartPendingTalkCardTutorial();
+        else schedulePendingNarrativePresentation();
       }, 0);
     }
     gameEntryInProgress = false;
@@ -1554,7 +1560,7 @@ informationButton?.addEventListener("click", () => {
   window.setTimeout(() => maybeStartEarlyFeatureTutorial(TUTORIAL_IDS.INFORMATION_ARCHIVE), 0);
 });
 ["#wallet-close", "#information-close", "#merchant-path-close", "#memorial-close"].forEach(selector => {
-  document.querySelector(selector)?.addEventListener("click", () => window.setTimeout(maybeStartPendingTalkCardTutorial, 0));
+  document.querySelector(selector)?.addEventListener("click", schedulePendingNarrativePresentation);
 });
 optionsButton.addEventListener("click", openOptionsDialog);
 optionsTabButtons.forEach(button => button.addEventListener("click", () => setOptionsTab(button.dataset.optionsTab)));
@@ -1645,6 +1651,7 @@ settlementNewsGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.
 window.addEventListener("projectw:cityeventsopen", handleCityNewsTutorialOpen);
 horseFeedButton.addEventListener("click", feedHorse);
 horseFeedChange.addEventListener("click", changeHorseFeed);
+horseWhipHitbox?.addEventListener("click", whipHorse);
 campProceed.addEventListener("click", () => void performCamp(false));
 campSetupClose.addEventListener("click", closeCampSetup);
 campRiskReview?.addEventListener("click", () => {
@@ -2197,8 +2204,11 @@ async function playDialoguePages(pages, onComplete = closeDialog, index = 0, opt
 }
 
 async function playDialogue(dialogueId, onComplete = closeDialog, options = {}) {
+  if (activeTalkCardId && options.context !== "talk-card") return false;
   try {
     const [dialogue] = await Promise.all([window.ProjectWDialogue.getDialogue(dialogueId), loadAssets()]);
+    if (activeTalkCardId && options.context !== "talk-card") return false;
+    if (options.context === "nahana-event" && narrativePresentationBlocked()) return false;
     if (typeof options.appearanceCondition === "function") {
       const matches = dialogue.pages.some(page => options.appearanceCondition(page.appearanceCondition || ""));
       if (!matches) return false;
@@ -2507,7 +2517,13 @@ function openResetDialog() {
 
 function clearSavedJourneyData() {
   window.clearTimeout(interfacePersistTimer);
+  window.clearTimeout(pendingNarrativePresentationTimer);
   interfacePersistTimer = undefined;
+  pendingNarrativePresentationTimer = 0;
+  talkCardGenerationInProgress = 0;
+  activeTalkCardId = "";
+  nahanaEventOpeningId = "";
+  pendingNahanaEventOpeningId = "";
   restoringInterfaceState = false;
   try {
     localStorage.removeItem(STORAGE_KEY);
@@ -2732,6 +2748,7 @@ function closeDialog() {
   nameForm.hidden = true;
   resumeTravelClock("dialog");
   refreshAdvancedTutorialLaunchers();
+  schedulePendingNarrativePresentation();
 }
 
 function setDialogCharacter(assetId) {
@@ -2787,6 +2804,10 @@ function loadAccount() {
     parsed.horseFeedItemId = LEGACY_HORSE_FEED_ID_MAP.get(parsed.horseFeedItemId) || parsed.horseFeedItemId;
     parsed.horseFeedItemId = HORSE_FEED_IDS.includes(parsed.horseFeedItemId) ? parsed.horseFeedItemId : HORSE_FEED_IDS[0];
     parsed.partnerMoodAdjustment = Number(parsed.partnerMoodAdjustment) || 0;
+    if (storedSchemaVersion < 42 && parsed.partner && Number.isFinite(Number(parsed.partner.weight))) {
+      parsed.partner.weight = 100 - clampNumber(Number(parsed.partner.weight), 0, 100, 50);
+      migrated = true;
+    }
     parsed.partner = normalizePartnerState(parsed.partner, parsed.partnerMoodAdjustment);
     parsed.partnerMoodAdjustment = parsed.partner.mood - 50;
     parsed.foodUsage = normalizeFoodUsage(parsed.foodUsage, parsed.worldTime);
@@ -3131,21 +3152,21 @@ function partnerMealFullnessRestriction(partner = normalizePartnerState(account?
   };
 }
 
-function partnerAppetiteStageIndex(value, inverted = false) {
-  const normalized = clampNumber(inverted ? 100 - Number(value) : Number(value), 0, 100, 50);
+function partnerAppetiteStageIndex(value) {
+  const normalized = clampNumber(Number(value), 0, 100, 50);
   return Math.min(PARTNER_APPETITE_STAGES.length - 1, Math.floor(normalized / 20));
 }
 
 function partnerAppetiteSnapshot(partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment)) {
   const parameters = [
-    { key: "sweet", label: "단맛", value: partner.sweet, inverted: false },
-    { key: "salty", label: "짠맛", value: partner.salty, inverted: false },
-    { key: "stimulus", label: "자극", value: partner.stimulus, inverted: false },
-    { key: "weight", label: "기름짐", value: partner.weight, inverted: true }
+    { key: "sweet", label: "단맛", value: partner.sweet },
+    { key: "salty", label: "짠맛", value: partner.salty },
+    { key: "stimulus", label: "자극", value: partner.stimulus },
+    { key: "weight", label: "기름짐", value: partner.weight }
   ].map(entry => ({
     ...entry,
-    stageIndex: partnerAppetiteStageIndex(entry.value, entry.inverted),
-    stage: PARTNER_APPETITE_STAGES[partnerAppetiteStageIndex(entry.value, entry.inverted)]
+    stageIndex: partnerAppetiteStageIndex(entry.value),
+    stage: PARTNER_APPETITE_STAGES[partnerAppetiteStageIndex(entry.value)]
   }));
   const statuses = partner.effects.flatMap(effect => {
     const key = String(effect || "").trim();
@@ -3773,7 +3794,7 @@ async function useTalkCard(cardId, quickResolve = false) {
     settle();
     return true;
   }
-  const played = await playDialogue(definition.dialogueId, settle, { onSkip: settle });
+  const played = await playDialogue(definition.dialogueId, settle, { onSkip: settle, context: "talk-card" });
   if (!played) {
     activeTalkCardId = "";
     resumeTravelClock("talk-card");
@@ -3825,7 +3846,10 @@ function applyTalkCardOutcome(definition, alreadyUnlocked = false, outcomeBefore
   if (definition.id === "T_C_999" && eventState.activeId === "N_E_003" && eventState.stage === 2) {
     void resolveNahanaEventCondition(2);
   }
-  window.setTimeout(maybeStartEarlyPartnerTutorial, 0);
+  window.setTimeout(() => {
+    maybeStartEarlyPartnerTutorial();
+    schedulePendingNarrativePresentation();
+  }, 0);
 }
 
 function companionLifetimeExperience(partnerState = account?.partner) {
@@ -3875,10 +3899,15 @@ function rollTalkCardGeneration(placementId) {
   const chance = baseChance <= 0 ? 0 : Math.min(1, baseChance + partnerDialogueCardChanceBonus());
   if (Math.random() >= chance) return false;
   const context = talkCardContextAtPlacement(placementId);
+  talkCardGenerationInProgress += 1;
   const queued = roadTalkCardGenerationQueue.then(() => generateTalkCard(context));
   roadTalkCardGenerationQueue = queued.catch(error => {
     console.error("대화 카드 영역 생성 중 오류가 발생했습니다.", error);
     return false;
+  }).finally(() => {
+    talkCardGenerationInProgress = Math.max(0, talkCardGenerationInProgress - 1);
+    schedulePendingNarrativePresentation();
+    schedulePendingRoadArrivalContinuation();
   });
   return roadTalkCardGenerationQueue;
 }
@@ -3989,7 +4018,7 @@ function acquireTalkCard(definition, options = {}) {
     "talk-card"
   );
   showGameNotice(`${options.noticePrefix || "새 대화 카드"} · ${definition.title}`);
-  window.setTimeout(maybeStartPendingTalkCardTutorial, 0);
+  schedulePendingNarrativePresentation();
   return true;
 }
 
@@ -4483,7 +4512,7 @@ function hidePartnerCommonSensePopup(immediate = false) {
   }, 560);
 }
 
-function showMerchantCommentPopup(page, itemName) {
+function showMerchantCommentPopup(page, itemName, itemKey = "") {
   if (!merchantCommentPopup || !merchantCommentMessage) return Promise.resolve();
   hideMerchantCommentPopup(true);
   return new Promise(resolve => {
@@ -4495,6 +4524,23 @@ function showMerchantCommentPopup(page, itemName) {
     renderFormattedText(merchantCommentMessage, replaceDialogueVariables(page?.text, {
       교역품명: String(itemName || "이 물건")
     }));
+    const itemLink = [...merchantCommentMessage.querySelectorAll(".dialog-emphasis")]
+      .find(element => element.textContent.trim() === String(itemName || "").trim());
+    if (itemLink && itemKey) {
+      itemLink.classList.add("merchant-comment-item-link");
+      itemLink.setAttribute("role", "button");
+      itemLink.setAttribute("tabindex", "0");
+      itemLink.setAttribute("aria-label", `${itemName} 상품 위치로 이동`);
+      const focusItem = () => {
+        if (window.ProjectWTrade?.focusMerchantItem?.(itemKey)) hideMerchantCommentPopup();
+      };
+      itemLink.addEventListener("click", focusItem);
+      itemLink.addEventListener("keydown", event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        focusItem();
+      });
+    }
 
     const resolvedAssetId = resolveDialogueAssetId(page);
     const assetId = resolvedAssetId || (page?.imageCategory === "SD" ? "Asset_SD_01" : "");
@@ -4684,12 +4730,17 @@ function showRoadDialogue(dialogueId, durationMs) {
   const now = Date.now();
   const startsAt = Math.max(now, roadCommentAvailableAt);
   roadCommentAvailableAt = startsAt + durationMs + 700;
+  pendingRoadDialogueCount += 1;
   window.setTimeout(() => void presentRoadDialogue(dialogueId, durationMs), Math.max(0, startsAt - now));
   return true;
 }
 
 async function presentRoadDialogue(dialogueId, durationMs) {
-  if (!roadCommentPopup || !roadCommentMessage) return false;
+  if (!roadCommentPopup || !roadCommentMessage) {
+    pendingRoadDialogueCount = Math.max(0, pendingRoadDialogueCount - 1);
+    schedulePendingRoadArrivalContinuation();
+    return false;
+  }
   try {
     const [dialogue] = await Promise.all([window.ProjectWDialogue.getDialogue(dialogueId), loadAssets()]);
     const page = dialogue.pages?.[0];
@@ -4719,6 +4770,9 @@ async function presentRoadDialogue(dialogueId, durationMs) {
     console.error(error);
     resumeTravelClock("road-comment");
     return false;
+  } finally {
+    pendingRoadDialogueCount = Math.max(0, pendingRoadDialogueCount - 1);
+    if (account?.travel?.pendingRoadArrivalContinuation && !isTravelClockPaused()) scheduleTravelStep();
   }
 }
 
@@ -4734,6 +4788,7 @@ function hideRoadCommentPopup(immediate = false) {
     roadCommentPopup.classList.remove("is-visible", "is-leaving");
     unregisterSmallPopup(roadCommentPopup);
     resumeTravelClock("road-comment");
+    schedulePendingNarrativePresentation();
   };
   if (immediate) return finish();
   roadCommentPopup.classList.remove("is-visible");
@@ -4925,7 +4980,10 @@ function activateNahanaEvent(eventId, attention = "new", occurrenceSatisfied = f
   const eventIndex = ids.indexOf(String(eventId || ""));
   if (eventIndex < 0 || state.completedIds.includes(ids[eventIndex])) return false;
   if (state.activeId === ids[eventIndex]) {
-    if (occurrenceSatisfied && state.stage === 1) window.setTimeout(() => void beginNahanaEventOpening(state.activeId), 0);
+    if (occurrenceSatisfied && state.stage === 1) {
+      pendingNahanaEventOpeningId = state.activeId;
+      schedulePendingNarrativePresentation();
+    }
     return true;
   }
   if (state.activeId) return false;
@@ -4937,24 +4995,38 @@ function activateNahanaEvent(eventId, attention = "new", occurrenceSatisfied = f
   account.nahanaEvents = state;
   persistAccount();
   updatePartnerEventUi();
-  if (occurrenceSatisfied) window.setTimeout(() => void beginNahanaEventOpening(state.activeId), 0);
+  if (occurrenceSatisfied) {
+    pendingNahanaEventOpeningId = state.activeId;
+    schedulePendingNarrativePresentation();
+  }
   return true;
 }
 
 async function beginNahanaEventOpening(eventId) {
-  if (!account || !eventId || nahanaEventOpeningId === eventId) return false;
+  if (!account || !eventId || nahanaEventOpeningId === eventId || narrativePresentationBlocked()) return false;
   nahanaEventOpeningId = eventId;
   await loadNahanaEventDefinitions();
   const state = normalizeNahanaEventState(account.nahanaEvents);
   const definition = nahanaEventDefinitions.get(eventId);
   if (state.activeId !== eventId || state.stage !== 1 || !definition) {
+    if (pendingNahanaEventOpeningId === eventId) pendingNahanaEventOpeningId = "";
+    nahanaEventOpeningId = "";
+    schedulePendingRoadArrivalContinuation();
+    return false;
+  }
+  if (narrativePresentationBlocked()) {
     nahanaEventOpeningId = "";
     return false;
   }
+  if (pendingNahanaEventOpeningId === eventId) pendingNahanaEventOpeningId = "";
   const dialogueId = definition.linkedDialogues[0];
   if (dialogueId) {
-    const played = await playDialogue(dialogueId, closeDialog, { onSkip: closeDialog });
-    if (!played) nahanaEventOpeningId = "";
+    const played = await playDialogue(dialogueId, closeDialog, { onSkip: closeDialog, context: "nahana-event" });
+    if (!played) {
+      pendingNahanaEventOpeningId = eventId;
+      nahanaEventOpeningId = "";
+      schedulePendingNarrativePresentation();
+    }
     return played;
   }
   state.stage = 2;
@@ -4972,6 +5044,7 @@ async function beginNahanaEventOpening(eventId) {
     }
   } else scheduleNahanaEventQuestPanel(eventId);
   nahanaEventOpeningId = "";
+  schedulePendingRoadArrivalContinuation();
   return true;
 }
 
@@ -4979,7 +5052,8 @@ function triggerNahanaEventOccurrence(eventId) {
   if (!account || !eventId) return false;
   const state = normalizeNahanaEventState(account.nahanaEvents);
   if (state.activeId === eventId && state.stage === 1) {
-    window.setTimeout(() => void beginNahanaEventOpening(eventId), 0);
+    pendingNahanaEventOpeningId = eventId;
+    schedulePendingNarrativePresentation();
     return true;
   }
   return activateNahanaEvent(eventId, "new", true);
@@ -5116,7 +5190,10 @@ async function handleNahanaEventSettlementEntry(placement) {
   }
   if (state.stage !== 1) return;
   const definition = nahanaEventDefinitions.get(state.activeId);
-  if (definition?.condition1 && matchesNahanaEventLocation(definition.condition1, placement)) beginNahanaEventOpening(state.activeId);
+  if (definition?.condition1 && matchesNahanaEventLocation(definition.condition1, placement)) {
+    pendingNahanaEventOpeningId = state.activeId;
+    schedulePendingNarrativePresentation();
+  }
 }
 
 function matchesNahanaEventLocation(condition, placement) {
@@ -5146,6 +5223,7 @@ async function openPartnerEventPanel() {
 function closePartnerEventPanel() {
   if (partnerEventPanel) partnerEventPanel.hidden = true;
   if (isTutorialActive(3) && normalizeTutorialProgress(account?.tutorialProgress).step === 3) setTutorialStep(4);
+  schedulePendingNarrativePresentation();
 }
 
 function renderPartnerEventPanel(loadFailed = false) {
@@ -5182,6 +5260,8 @@ function scheduleNahanaEventQuestPanel(eventId) {
 async function showNahanaEventQuestPanel(eventId) {
   const state = normalizeNahanaEventState(account?.nahanaEvents);
   if (!account || state.activeId !== eventId || !gameScreen || gameScreen.hidden) return;
+  if (activeTalkCardId || travelPauseReasons.has("talk-card") || tutorialRuntime
+    || (tutorialLayer && !tutorialLayer.hidden) || !dialogModal.hidden) return;
   closeDialog();
   if (window.ProjectWInn?.isOpen?.() && window.ProjectWInn?.isSceneVisit?.()) openInnSceneView("partner", 1);
   else showScene("partner", 1, false);
@@ -5342,7 +5422,9 @@ async function handleNahanaEventDialogueCompleted(dialogueId) {
   await loadNahanaEventDefinitions();
   const definition = nahanaEventDefinitions.get(state.activeId);
   if (!definition) {
+    nahanaEventOpeningId = "";
     updatePartnerEventUi();
+    schedulePendingRoadArrivalContinuation();
     return false;
   }
   const linkedIndex = definition.linkedDialogues.findIndex(linkedId => linkedId === id);
@@ -5359,6 +5441,7 @@ async function handleNahanaEventDialogueCompleted(dialogueId) {
     if (!["N_E_005", "N_E_011"].includes(state.activeId) && !beginsGuidedGuildVisit) {
       scheduleNahanaEventQuestPanel(state.activeId);
     }
+    schedulePendingRoadArrivalContinuation();
     return true;
   }
 
@@ -5666,8 +5749,9 @@ function driftPartnerTasteParameters(placementId = "") {
 function recoverDailyPartnerGreasiness() {
   if (!account) return;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
-  // 현재 weight는 느끼함의 누적값이다. 낮아질수록 식욕 UI에서는 갈망에 가까워진다.
-  account.partner.weight = Math.max(0, account.partner.weight - DAILY_GREASINESS_RECOVERY);
+  // 다른 입맛과 마찬가지로 weight도 높을수록 해당 맛을 갈망한다.
+  // 하루가 지나 느끼함이 해소되면 기름진 음식에 대한 갈망이 다시 오른다.
+  account.partner.weight = Math.min(100, account.partner.weight + DAILY_GREASINESS_RECOVERY);
 }
 
 function awardMealCompanionExperience(lastMeal) {
@@ -5719,8 +5803,8 @@ function handleFoodConsumptionComplete(record) {
   if ((Number(tasteDelta.sweet) || 0) <= -40) queuePartnerMorningStatus("N_S_018");
   if ((Number(tasteDelta.salty) || 0) <= -40) addPartnerStatus("N_S_019", { remainingTimes: 10 });
   if ((Number(tasteDelta.stimulus) || 0) <= -40) addPartnerStatus("N_S_020", { remainingTimes: 10 });
-  if ((Number(tasteDelta.weight) || 0) >= 40) addPartnerStatus("N_S_021", { remainingTimes: 10 });
-  if ((Number(tasteDelta.weight) || 0) <= -40) addPartnerStatus("N_S_022", { remainingTimes: 10 });
+  if ((Number(tasteDelta.weight) || 0) <= -40) addPartnerStatus("N_S_021", { remainingTimes: 10 });
+  if ((Number(tasteDelta.weight) || 0) >= 40) addPartnerStatus("N_S_022", { remainingTimes: 10 });
 
   const alcoholCount = Math.max(0, Math.trunc(Number(record.alcoholCount) || 0));
   const hangover = alcoholCount > 0 && rollHangover(alcoholCount);
@@ -6932,8 +7016,8 @@ function evaluatePartnerParameterFootprints() {
     if (partner.salty >= 100) unlockFootprint("FOOTPRINT_005");
     if (partner.stimulus <= 0) unlockFootprint("FOOTPRINT_006");
     if (partner.stimulus >= 100) unlockFootprint("FOOTPRINT_007");
-    if (partner.weight >= 100) unlockFootprint("FOOTPRINT_008");
-    if (partner.weight <= 0) unlockFootprint("FOOTPRINT_009");
+    if (partner.weight <= 0) unlockFootprint("FOOTPRINT_008");
+    if (partner.weight >= 100) unlockFootprint("FOOTPRINT_009");
   } finally {
     evaluatingPartnerFootprints = false;
   }
@@ -7308,6 +7392,7 @@ function createInitialTravelState() {
     settlementAssetId: "",
     departureNodeId: "",
     pendingRoadArrivalContinuation: false,
+    pendingRoadArrivalPhase: "",
     talkCardAreaRouteKey: "",
     talkCardAreaRolls: []
   };
@@ -7338,6 +7423,12 @@ function normalizeTravelState(value) {
   const savedTurnBackEndsAt = Math.max(0, Number(value.turnBackEndsAt) || 0);
   const turningBack = mode === "road" && Boolean(value.turningBack) && savedTurnBackEndsAt > 0;
   const moving = Boolean(value.moving) && canMove && !turningBack;
+  const pendingRoadArrivalContinuation = moving && Boolean(value.pendingRoadArrivalContinuation);
+  const pendingRoadArrivalPhase = pendingRoadArrivalContinuation
+    ? (["before-route-event", "after-route-event"].includes(value.pendingRoadArrivalPhase)
+      ? value.pendingRoadArrivalPhase
+      : "before-route-event")
+    : "";
   const savedRate = clampNumber(Number(value.progressRate), 0.1, MAX_TRAVEL_RATE, 1);
   const savedRemaining = value.segmentRemainingMs == null ? Number.NaN : Number(value.segmentRemainingMs);
   const legacyNextStepAt = value.nextStepAt == null ? Number.NaN : Number(value.nextStepAt);
@@ -7372,7 +7463,8 @@ function normalizeTravelState(value) {
     settlementName: String(value.settlementName ?? "").trim(),
     settlementAssetId: String(value.settlementAssetId ?? "").trim(),
     departureNodeId: String(value.departureNodeId ?? "").trim(),
-    pendingRoadArrivalContinuation: moving && Boolean(value.pendingRoadArrivalContinuation),
+    pendingRoadArrivalContinuation,
+    pendingRoadArrivalPhase,
     talkCardAreaRouteKey: String(value.talkCardAreaRouteKey || "").trim(),
     talkCardAreaRolls
   };
@@ -7432,6 +7524,8 @@ function pauseTravelClock(reason) {
   travelPauseReasons.add(key);
   clearTravelTimers();
   if (account.travel?.moving) account.travel.progressUpdatedAt = Date.now();
+  gameScreen.classList.remove("is-wagon-moving");
+  syncAudioState();
 }
 
 function pauseTravelClockAtArrival(reason) {
@@ -7440,6 +7534,8 @@ function pauseTravelClockAtArrival(reason) {
   travelPauseReasons.add(key);
   clearTravelTimers();
   if (account.travel?.moving) account.travel.progressUpdatedAt = Date.now();
+  gameScreen.classList.remove("is-wagon-moving");
+  syncAudioState();
 }
 
 function resumeTravelClock(reason) {
@@ -7454,6 +7550,7 @@ function resumeTravelClock(reason) {
     syncTravelExperience();
     scheduleTravelStep();
   }
+  schedulePendingNarrativePresentation();
 }
 
 function prepareTravelExperience() {
@@ -7553,6 +7650,7 @@ function stopTravelAtCurrentPosition(travel) {
   travel.turningBack = false;
   travel.turnBackEndsAt = 0;
   travel.pendingRoadArrivalContinuation = false;
+  travel.pendingRoadArrivalPhase = "";
   travel.segmentRemainingMs = TRAVEL_STEP_MS;
   travel.progressUpdatedAt = null;
   travel.progressRate = 1;
@@ -7560,6 +7658,11 @@ function stopTravelAtCurrentPosition(travel) {
 }
 
 function completeTravelStep(travel) {
+  if (!travel || travel !== account?.travel || !travel.moving) return;
+  // 도착 후속 처리(튜토리얼·길 이벤트·나하나 이벤트·야영 판정)가 끝날 때까지
+  // 다음 구간으로 넘어가지 않도록 공통 도착 잠금을 유지한다.
+  travel.pendingRoadArrivalContinuation = true;
+  travel.pendingRoadArrivalPhase = "before-route-event";
   advanceGameTime();
   window.ProjectWMerchantPath?.advanceTradeJourneyDistance?.(1);
   advanceRoadSurfaceState();
@@ -7608,6 +7711,9 @@ function notifyArrivalOutsideRoadView(placementId) {
 
 function continueRoadArrivalAfterTutorial(travel) {
   if (!travel || travel !== account?.travel || !travel.moving) return;
+  if (travel.pendingRoadArrivalPhase === "after-route-event") {
+    return continueTravelAfterRouteEvent(travel);
+  }
   if (handleNahanaEventRoadArrival(travel)) return;
 
   if (travel.routeIndex >= travel.routePath.length - 1 || isNodeId(travel.positionId)) {
@@ -7626,6 +7732,26 @@ function handleNahanaEventRoadArrival(travel) {
   return true;
 }
 
+function hasPendingRoadArrivalPresentation() {
+  if (!account) return false;
+  const progress = normalizeTutorialProgress(account.tutorialProgress);
+  const nonRoutePause = [...travelPauseReasons]
+    .some(reason => reason !== "route-event" && reason !== "route-event-check");
+  return pendingRoadDialogueCount > 0
+    || Boolean(pendingNahanaEventOpeningId || nahanaEventOpeningId)
+    || talkCardGenerationInProgress > 0
+    || Boolean(progress.talkCardTutorialPending)
+    || Boolean(activeTalkCardId)
+    || nonRoutePause;
+}
+
+function schedulePendingRoadArrivalContinuation() {
+  const travel = account?.travel;
+  if (!travel?.moving || !travel.pendingRoadArrivalContinuation || isTravelClockPaused()) return false;
+  scheduleTravelStep();
+  return true;
+}
+
 async function resolveRouteEventAtCurrentDot(travel) {
   if (!travel?.moving || isNodeId(travel.positionId)) return;
   pauseTravelClockAtArrival("route-event-check");
@@ -7641,17 +7767,21 @@ async function resolveRouteEventAtCurrentDot(travel) {
     }
     if (!event) event = await window.ProjectWRouteEvents.rollAtDot(context);
     if (event) {
+      travel.pendingRoadArrivalPhase = "after-route-event";
+      persistAccount();
       pauseTravelClock("route-event");
       return;
     }
+    travel.pendingRoadArrivalPhase = "after-route-event";
     continueTravelAfterRouteEvent(travel);
   } catch (error) {
     console.error("경로 이벤트 판정 중 오류가 발생했습니다.", error);
+    travel.pendingRoadArrivalPhase = "after-route-event";
     continueTravelAfterRouteEvent(travel);
   } finally {
     resumeTravelClock("route-event-check");
     if (account?.travel === travel && travel.moving && !isTravelClockPaused()) scheduleTravelStep();
-    window.setTimeout(maybeStartPendingTalkCardTutorial, 0);
+    schedulePendingNarrativePresentation();
   }
 }
 
@@ -7665,6 +7795,15 @@ function continueTravelAfterRouteEvent(travel = account?.travel) {
     enterCampAtCurrentPosition(travel);
     return;
   }
+  if (hasPendingRoadArrivalPresentation()) {
+    travel.pendingRoadArrivalContinuation = true;
+    travel.pendingRoadArrivalPhase = "after-route-event";
+    persistAccount();
+    syncTravelExperience();
+    return;
+  }
+  travel.pendingRoadArrivalContinuation = false;
+  travel.pendingRoadArrivalPhase = "";
   travel.progressRate = calculateTravelRate(currentScene, travel);
   travel.progressUpdatedAt = Date.now();
   persistAccount();
@@ -7676,10 +7815,13 @@ function handleRouteEventResolved(event) {
   if (["R_E_002", "R_E_003", "R_E_004"].includes(event?.id)) unlockFootprint("FOOTPRINT_010");
   if (event?.id === "R_E_005") unlockFootprint("FOOTPRINT_011");
   if (["R_E_006", "R_E_007"].includes(event?.id)) unlockFootprint("FOOTPRINT_012");
+  if (account?.travel?.pendingRoadArrivalContinuation) {
+    account.travel.pendingRoadArrivalPhase = "after-route-event";
+  }
   continueTravelAfterRouteEvent(account?.travel);
   persistAccount();
   syncTravelExperience();
-  window.setTimeout(maybeStartPendingTalkCardTutorial, 0);
+  schedulePendingNarrativePresentation();
 }
 
 function advanceGameTime() {
@@ -8366,7 +8508,7 @@ function clearTravelTimers() {
 
 function syncTravelExperience() {
   const travel = account?.travel;
-  const presentingMovement = Boolean(travel?.moving && !travelPauseReasons.has("route-event") && !travelPauseReasons.has("route-event-check"));
+  const presentingMovement = Boolean(travel?.moving && !isTravelClockPaused());
   gameScreen.classList.toggle("is-wagon-moving", presentingMovement);
   updateGameClock();
   window.ProjectWWallet.refresh();
@@ -8415,7 +8557,7 @@ function syncAudioState() {
     region: conditions?.region || placement?.region || "중부",
     mode: loadingActive ? "loading" : titleActive ? "title" : travel?.mode || "road",
     settlementCategory: !titleActive && !loadingActive && travel?.mode === "settlement" ? placement?.category || "" : "",
-    moving: !titleActive && !loadingActive && Boolean(travel?.moving) && !travelPauseReasons.has("route-event") && !travelPauseReasons.has("route-event-check"),
+    moving: !titleActive && !loadingActive && Boolean(travel?.moving) && !isTravelClockPaused(),
     weather: account ? currentWeatherLabel() : "맑음"
   });
 }
@@ -9430,6 +9572,11 @@ async function collectFacilityInformation(type, requestedPlacement = null) {
     showGameNotice("아직 정보 수집 기능이 해금되지 않았습니다.");
     return false;
   }
+  if (type === "여관" && currentTimePhase() === "밤") {
+    showGameNotice("밤에는 여관에서 정보를 수집할 수 없습니다.");
+    window.ProjectWInn.refresh();
+    return false;
+  }
   const placement = requestedPlacement || activeServiceContext?.placement || currentSettlementPlacement();
   const opportunity = informationOpportunity(type, placement);
   if (!placement || opportunity.maximum <= 0) return false;
@@ -9815,6 +9962,8 @@ function beginTurnBack() {
   }
   travel.moving = false;
   travel.turningBack = true;
+  travel.pendingRoadArrivalContinuation = false;
+  travel.pendingRoadArrivalPhase = "";
   travel.turnBackEndsAt = Date.now() + TURN_BACK_DURATION_MS;
   travel.progressUpdatedAt = null;
   persistAccount();
@@ -9852,6 +10001,7 @@ function completeTurnBack(travel = ensureTravelState()) {
   travel.progressUpdatedAt = travel.moving ? Date.now() : null;
   travel.progressRate = travel.moving ? calculateTravelRate(currentScene, travel) : 1;
   travel.pendingRoadArrivalContinuation = false;
+  travel.pendingRoadArrivalPhase = "";
   travel.talkCardAreaRouteKey = "";
   travel.talkCardAreaRolls = [];
   if (travel.moving) ensureRoadTalkCardAreaPlan(travel);
@@ -9869,6 +10019,8 @@ function startTravel() {
   }
   ensureRoadTalkCardAreaPlan(travel);
   travel.moving = true;
+  travel.pendingRoadArrivalContinuation = false;
+  travel.pendingRoadArrivalPhase = "";
   travel.segmentRemainingMs = TRAVEL_STEP_MS;
   travel.progressUpdatedAt = Date.now();
   travel.progressRate = calculateTravelRate(currentScene, travel);
@@ -10348,6 +10500,7 @@ async function performCamp(forceLowComfort = false) {
   }
   if (campHangover) result += " · 숙취 획득";
   showGameNotice(result);
+  schedulePendingNarrativePresentation();
 }
 
 async function handleNahanaEventCampComplete() {
@@ -10952,6 +11105,11 @@ function updateRoadConditionUi() {
   const visible = Boolean(travel && travel.mode === "road");
   roadConditionPanel.hidden = !visible;
   horseFeedControls.hidden = !visible;
+  if (horseWhipHitbox) {
+    horseWhipHitbox.hidden = !visible;
+    horseWhipHitbox.disabled = !travel?.moving;
+    horseWhipHitbox.setAttribute("aria-label", travel?.moving ? "말 채찍질" : "이동 중에만 채찍질할 수 있습니다");
+  }
   if (!visible) {
     if (roadWheelReplace) roadWheelReplace.hidden = true;
     hideRoadStatusTooltip();
@@ -11000,6 +11158,45 @@ function updateRoadConditionUi() {
     roadWheelReplace.title = canReplaceWheel ? `예비 수레 바퀴를 사용합니다 · 보유 ${spareWheelCount}개` : "";
     roadWheelReplace.setAttribute("aria-label", `바퀴 교체, 예비 수레 바퀴 ${spareWheelCount}개 보유`);
   }
+}
+
+function whipHorse(event) {
+  const travel = account?.travel;
+  if (!travel?.moving || travel.mode !== "road" || isTravelClockPaused()) return;
+  const currentRate = clampNumber(Number(travel.progressRate), 0.1, MAX_TRAVEL_RATE, 1);
+  const remainingProgress = liveSegmentRemainingMs(travel);
+  const healthLoss = Math.floor(Math.random() * 3);
+  const timeReductionSeconds = Math.floor(Math.random() * 2);
+
+  account.horse = normalizeHorseState(account.horse);
+  account.horse.health = Math.max(0, account.horse.health - healthLoss);
+  travel.segmentRemainingMs = Math.max(0, remainingProgress - (timeReductionSeconds * 1000 * currentRate));
+  travel.progressRate = calculateTravelRate(currentScene, travel);
+  travel.progressUpdatedAt = Date.now();
+
+  window.ProjectWAudio?.playEffect("whip");
+  if (healthLoss > 0) window.setTimeout(() => window.ProjectWAudio?.playEffect("horseBreath", .56), 45);
+  showHorseWhipFloatingNumber(event, healthLoss, timeReductionSeconds);
+  persistAccount();
+  syncTravelExperience();
+  scheduleTravelStep();
+}
+
+function showHorseWhipFloatingNumber(event, healthLoss, timeReductionSeconds) {
+  if (!roadScene || !horseWhipHitbox) return;
+  const sceneRect = roadScene.getBoundingClientRect();
+  const hitRect = horseWhipHitbox.getBoundingClientRect();
+  const indicator = document.createElement("span");
+  const damage = document.createElement("strong");
+  const time = document.createElement("small");
+  indicator.className = "horse-whip-floating-damage";
+  damage.textContent = healthLoss > 0 ? `−${healthLoss}` : "0";
+  time.textContent = timeReductionSeconds > 0 ? `다음 지점 −${timeReductionSeconds}초` : "시간 단축 없음";
+  indicator.style.left = `${(Number(event?.clientX) || hitRect.left + (hitRect.width / 2)) - sceneRect.left}px`;
+  indicator.style.top = `${(Number(event?.clientY) || hitRect.top + (hitRect.height / 2)) - sceneRect.top}px`;
+  indicator.append(damage, time);
+  roadScene.append(indicator);
+  window.setTimeout(() => indicator.remove(), 1100);
 }
 
 function replaceDamagedWheel() {
@@ -11388,7 +11585,7 @@ function initCustomCursor() {
     gameCursor.style.top = `${event.clientY}px`;
     gameCursor.hidden = false;
     const target = event.target instanceof Element ? event.target : null;
-    const help = Boolean(target?.closest(".map-view-placement-layer .map-marker, .road-route-point, .road-route-weather-marker, .road-route-pin, [data-road-condition], .horse-feed-controls button, .camp-item-option, .toolbar-date, .cargo-slot.is-occupied, .cargo-weight-panel, .cargo-wagon-summary, .wallet-currency, .merchant-path-window button, .memorial-window button, .meal-window button, .meal-modal-layer > button, .window-side-button, [data-advanced-launcher] button, .service-window button, .service-modal-layer > button, .inn-window button, .partner-event-alert, .partner-event-panel button"));
+    const help = Boolean(target?.closest(".map-view-placement-layer .map-marker, .road-route-point, .road-route-weather-marker, .road-route-pin, [data-road-condition], #horse-whip-hitbox, .horse-feed-controls button, .camp-item-option, .toolbar-date, .cargo-slot.is-occupied, .cargo-weight-panel, .cargo-wagon-summary, .wallet-currency, .merchant-path-window button, .memorial-window button, .meal-window button, .meal-modal-layer > button, .window-side-button, [data-advanced-launcher] button, .service-window button, .service-modal-layer > button, .inn-window button, .partner-event-alert, .partner-event-panel button"));
     setCustomCursorMode(help ? "help" : "default");
   });
   document.documentElement.addEventListener("pointerleave", () => { gameCursor.hidden = true; });
@@ -11795,17 +11992,13 @@ function maybeStartHorseFeedTutorial(travel = account?.travel) {
   syncTravelExperience();
   updateHorseFeedUi();
   const started = startTutorial(TUTORIAL_IDS.HORSE_FEED);
-  if (!started) {
-    travel.pendingRoadArrivalContinuation = false;
-    persistAccount();
-  }
+  if (!started) persistAccount();
   return started;
 }
 
 function resumePendingRoadArrivalContinuation(travel = account?.travel) {
   if (!travel || travel !== account?.travel || !travel.moving
     || travel.mode !== "road" || !travel.pendingRoadArrivalContinuation) return false;
-  travel.pendingRoadArrivalContinuation = false;
   clearTravelTimers();
   travel.progressUpdatedAt = Date.now();
   persistAccount();
@@ -11818,6 +12011,9 @@ function maybeStartPendingTalkCardTutorial() {
   const progress = normalizeTutorialProgress(account.tutorialProgress);
   if (!hasReachedEarlyTutorialBranch()) return false;
   if (!progress.talkCardTutorialPending || !shouldStartTutorial(TUTORIAL_IDS.TALK_CARD)) return false;
+  if (gameEntryInProgress || talkCardGenerationInProgress > 0 || activeTalkCardId || tutorialRuntime
+    || advancedTutorialRuntime || (tutorialLayer && !tutorialLayer.hidden)
+    || (advancedTutorialLayer && !advancedTutorialLayer.hidden)) return false;
   const state = normalizeTalkCardState(account.talkCards);
   if (!state.hand.length) {
     progress.talkCardTutorialPending = false;
@@ -11825,9 +12021,14 @@ function maybeStartPendingTalkCardTutorial() {
     persistAccount();
     return false;
   }
+  if (account.travel?.mode === "camp") {
+    const hasUsableCampCard = state.hand.some(cardId => talkCardDefinitions.get(cardId)?.category === "야영");
+    if (!hasUsableCampCard) return false;
+  }
   const modalOpen = !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
-    || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden;
+    || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
+    || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
   if (modalOpen || travelPauseReasons.has("route-event-check") || travelPauseReasons.has("route-event")) return false;
   if (currentScene !== "partner") showScene("partner", 1, true);
   if (!startTutorial(TUTORIAL_IDS.TALK_CARD)) return false;
@@ -11837,12 +12038,53 @@ function maybeStartPendingTalkCardTutorial() {
   return true;
 }
 
+function narrativePresentationBlocked() {
+  if (!account || gameScreen.hidden || gameEntryInProgress || talkCardGenerationInProgress > 0
+    || activeTalkCardId || travelPauseReasons.has("talk-card") || tutorialRuntime
+    || pendingRoadDialogueCount > 0 || travelPauseReasons.has("road-comment")
+    || travelPauseReasons.has("route-event-check") || travelPauseReasons.has("route-event")
+    || advancedTutorialRuntime || (tutorialLayer && !tutorialLayer.hidden)
+    || (advancedTutorialLayer && !advancedTutorialLayer.hidden)) return true;
+  const progress = normalizeTutorialProgress(account.tutorialProgress);
+  if (progress.activeId || progress.talkCardTutorialPending) return true;
+  return !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
+    || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
+    || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
+    || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
+}
+
+function continuePendingNarrativePresentation() {
+  if (!account || gameScreen.hidden) return false;
+  if (maybeStartPendingTalkCardTutorial()) return true;
+  if (narrativePresentationBlocked()) return false;
+  const eventState = normalizeNahanaEventState(account.nahanaEvents);
+  const eventId = pendingNahanaEventOpeningId;
+  if (!eventId || eventState.activeId !== eventId || eventState.stage !== 1) {
+    pendingNahanaEventOpeningId = "";
+    schedulePendingRoadArrivalContinuation();
+    return false;
+  }
+  void beginNahanaEventOpening(eventId);
+  return true;
+}
+
+function schedulePendingNarrativePresentation() {
+  window.clearTimeout(pendingNarrativePresentationTimer);
+  pendingNarrativePresentationTimer = window.setTimeout(() => {
+    pendingNarrativePresentationTimer = 0;
+    continuePendingNarrativePresentation();
+  }, 0);
+}
+
 function isTutorialActive(tutorialId) {
   return Boolean(account && normalizeTutorialProgress(account.tutorialProgress).activeId === tutorialId);
 }
 
 function startTutorial(tutorialId, step = 0) {
   if (!shouldStartTutorial(tutorialId) || !tutorialLayer) return false;
+  if (step === 0 && [3, 4].includes(tutorialId) && currentScene !== "road") {
+    showScene("road", -1, false);
+  }
   if (tutorialId === TUTORIAL_IDS.MERCHANT_PATH) window.ProjectWMerchantPath?.prepareNotebookTutorial?.();
   pauseTravelClock("tutorial");
   account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
@@ -11908,7 +12150,7 @@ function completeTutorial(tutorialId = tutorialRuntime?.id) {
   const eventState = normalizeNahanaEventState(account.nahanaEvents);
   if (eventState.pendingRewardId) window.setTimeout(() => void showPendingNahanaEventReward(), 0);
   else if (eventState.pendingTutorialId) window.setTimeout(() => void startPendingNahanaEventTutorial(), 0);
-  else window.setTimeout(maybeStartPendingTalkCardTutorial, 0);
+  else schedulePendingNarrativePresentation();
   if (currentScene === "partner" && tutorialId !== TUTORIAL_IDS.TALK_CARD) {
     window.setTimeout(maybeStartEarlyPartnerTutorial, 0);
   }
