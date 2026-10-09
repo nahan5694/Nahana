@@ -20,8 +20,8 @@
     { minimum: 0, name: "뜨내기 고객", benefit: "거래 가치가 10~20% 불리하게 적용됩니다.", merchantSellRange: [10, 20], playerSellRange: [-20, -10], informationBonus: 0 },
     { minimum: 100, name: "일반 고객", benefit: "관계에 따른 거래 가치 보정이 없습니다.", merchantSellRange: [0, 0], playerSellRange: [0, 0], informationBonus: 0 },
     { minimum: 500, name: "비지니스 고객", benefit: "거래 가치가 5~10% 유리하게 적용됩니다.", merchantSellRange: [-10, -5], playerSellRange: [5, 10], informationBonus: 0 },
-    { minimum: 1500, name: "단골 고객", benefit: "5~10%의 거래 혜택과 정보 획득 기회 +1을 적용합니다.", merchantSellRange: [-10, -5], playerSellRange: [5, 10], informationBonus: 1 },
-    { minimum: 3000, name: "상업 동반자", benefit: "10~20%의 거래 혜택과 정보 획득 기회 +1을 적용합니다.", merchantSellRange: [-20, -10], playerSellRange: [10, 20], informationBonus: 1 }
+    { minimum: 1500, name: "단골 고객", benefit: "5~10%의 거래 혜택과 상회 정보 수집 기회 +1을 적용합니다.", merchantSellRange: [-10, -5], playerSellRange: [5, 10], informationBonus: 1 },
+    { minimum: 3000, name: "상업 동반자", benefit: "10~20%의 거래 혜택과 상회 정보 수집 기회 +1을 적용합니다.", merchantSellRange: [-20, -10], playerSellRange: [10, 20], informationBonus: 1 }
   ];
   const QUALITY_RANGES = {
     저품질: [-30, -15],
@@ -41,6 +41,16 @@
     ["PED_029", .2]
   ];
   const INFORMATION_SOURCE_SKILLS = ["PED_032", "PED_033", "PED_034"];
+  const BARGAIN_VALUE_CAP_SKILLS = new Map([
+    ["PED_007", 1],
+    ["PED_008", 1],
+    ["PED_009", 2]
+  ]);
+  const PEDDLER_EFFECT_OVERRIDES = new Map([
+    ["PED_007", "흥정 누적 가치 보정 상한 +1%"],
+    ["PED_008", "흥정 누적 가치 보정 상한 +1%"],
+    ["PED_009", "흥정 누적 가치 보정 상한 +2%"]
+  ]);
   const DETERIORATION_SKILL_GROUPS = [
     { categories: ["가축"], first: "PED_010", second: "PED_011" },
     { categories: ["식료품", "조미료", "주류"], first: "PED_012", second: "PED_013" },
@@ -568,7 +578,7 @@
       ["4단계 · 경험 80", "이름_1 · 상품설명 · 도시 총재고"],
       ["5단계 · 경험 160", "품질 등급 · 품질 수치"],
       ["6단계 · 경험 320", "원산지 · 특산물·명산품 · 거리 보정"],
-      ["7단계 · 경험 640", "거래안의 상품 1개당 흥정 성공률 +4%"]
+      ["7단계 · 경험 640", "서로 다른 지식 상품 1종당 흥정 성공률 +4% · 최대 3종"]
     ], elements.info);
   }
 
@@ -633,7 +643,7 @@
             cost: Math.max(1, Math.trunc(Number(row["행상포인트"]) || 1)),
             article: Math.trunc(Number.parseInt(category, 10) || 0),
             prerequisite: String(row["선행요구"] || "").trim(),
-            effect: String(row["효과설명"] || "").trim(),
+            effect: PEDDLER_EFFECT_OVERRIDES.get(String(row.ID || "").trim()) || String(row["효과설명"] || "").trim(),
             developer: String(row["개발자용 설명"] || "").trim()
           };
         }).filter(definition => definition.id && definition.effect && definition.article >= 1 && definition.article <= 3);
@@ -671,6 +681,13 @@
     points.innerHTML = `<span>행상포인트</span><strong>${profile.points}</strong>`;
     overview.append(level, progress, points);
     wrapper.append(overview);
+
+    if (articleId === 2) {
+      const rules = document.createElement("p");
+      rules.className = "merchant-path-bargain-rules";
+      rules.textContent = "흥정 성공 시 다음 성공 확률 -8%p · 상품 지식 보정은 서로 다른 상품 최대 3종 · 달변가 완성 시 누적 가치 보정 상한 10%";
+      wrapper.append(rules);
+    }
 
     const available = peddlerDefinitions.filter(definition => definition.article === articleId);
     if (!available.length) {
@@ -804,12 +821,11 @@
       const effect = definition.effect;
       const attempts = effect.match(/흥정\s*시도\s*횟수\s*\+(\d+)/);
       const chance = effect.match(/흥정\s*성공률\s*\+(\d+)%/);
-      const value = effect.match(/가치\s*보정치\s*\+(\d+)%/);
       if (attempts) bonuses.attempts += Number(attempts[1]);
       if (chance) bonuses.chance += Number(chance[1]);
-      if (value) bonuses.value += Number(value[1]);
+      bonuses.valueCap += BARGAIN_VALUE_CAP_SKILLS.get(definition.id) || 0;
       return bonuses;
-    }, { attempts: 0, chance: 0, value: 0 });
+    }, { attempts: 0, chance: 0, valueCap: 6 });
   }
 
   function getInformationBonuses() {

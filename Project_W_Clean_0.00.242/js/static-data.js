@@ -1,7 +1,19 @@
 (function exposeStaticDataLoader() {
+  const REQUEST_TIMEOUT_MS = 20_000;
+
   async function loadCsv(url) {
     const requestUrl = resolveRequestUrl(url);
-    const response = await fetch(requestUrl, { cache: "no-store" });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(requestUrl, { cache: "no-store", signal: controller.signal });
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("정적 데이터 요청 시간이 초과되었습니다.");
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
     if (!response.ok) throw new Error(`정적 데이터 요청 실패 (${response.status})`);
 
     const rows = parseCsv(await response.text());

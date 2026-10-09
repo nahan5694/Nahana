@@ -980,13 +980,10 @@
     elements.tradeReviewProgress.textContent = `${formatNumber(tradeReviewIndex + 1)} / ${formatNumber(tradeReviewEntries.length)}`;
     elements.tradeReviewList.replaceChildren(...tradeReviewEntries.map((entry, index) => createTradeReviewTab(entry, index)));
     elements.tradeReviewDetail.replaceChildren(createTradeReviewDetail(active));
-    const viewedCount = tradeReviewEntries.filter(entry => tradeReviewViewedIds.has(String(entry.id))).length;
     elements.tradeReviewFinish.disabled = tradeReviewFinishing;
     elements.tradeReviewFinish.textContent = tradeReviewFinishing
       ? "숙박을 준비하는 중..."
-      : viewedCount < tradeReviewEntries.length
-        ? `복기 종료 · 확인 ${formatNumber(viewedCount)}/${formatNumber(tradeReviewEntries.length)}`
-        : "복기 종료";
+      : "복기 종료";
   }
 
   function createTradeReviewTab(entry, index) {
@@ -1104,9 +1101,7 @@
     if (!lodgingPaymentCommitted || tradeReviewFinishing || !tradeReviewEntries.length) return;
     tradeReviewFinishing = true;
     renderTradeReview();
-    const reviewedIds = tradeReviewEntries
-      .filter(entry => tradeReviewViewedIds.has(String(entry.id)))
-      .map(entry => entry.id);
+    const reviewedIds = tradeReviewEntries.map(entry => entry.id);
     const result = window.ProjectWMerchantPath?.completeTradeReviews?.(reviewedIds) || { reviewed: 0 };
     window.dispatchEvent(new CustomEvent("projectw:tradereviewcomplete", { detail: result }));
     lodgingPaymentCommitted = false;

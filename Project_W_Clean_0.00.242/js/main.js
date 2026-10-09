@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.253";
-const ACCOUNT_SCHEMA_VERSION = 42;
+const GAME_VERSION = "0.00.259";
+const ACCOUNT_SCHEMA_VERSION = 44;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -71,6 +71,9 @@ const TALK_CARD_CAMP_CHANCE = 0.1;
 const TALK_CARD_AREA_SLOT_OFFSETS = Object.freeze([-0.4, -0.2, 0.2, 0.4]);
 const MAX_COMPANION_RANK = 50;
 const COMPANION_EVENT_RANKS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+const NAHANA_SITUATION_EVENT_IDS = Object.freeze(
+  Array.from({ length: 15 }, (_, index) => `E_${String(index + 1).padStart(3, "0")}`)
+);
 const TUTORIAL_IDS = Object.freeze({
   HORSE_FEED: 11,
   EARLY_PARTNER: 12,
@@ -135,8 +138,8 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     contexts: ADVANCED_TRADE_CONTEXTS,
     pages: [
       { title: "흥정 시도", text: "흥정은 내가 건네는 물건과 화폐의 가치를 한 번의 거래 동안 높여 줍니다.\n버튼에 커서를 올리면 현재 성공 가능성과 성공 시 보정을 확인할 수 있습니다.", selector: "#trade-bargain" },
-      { title: "상품 지식과 흥정", text: "지식 7단계에 도달한 상품을 거래안에 올리면 그 수량만큼 흥정 성공 가능성이 높아집니다.\n적용 중인 상품 지식 보정은 흥정 버튼의 툴팁에서 확인할 수 있습니다.", selector: "#trade-bargain" },
-      { title: "성공을 이어갈수록", text: "같은 거래에서 성공을 거듭하면 보정은 쌓이지만 다음 시도는 더 어려워집니다.\n거래를 확정하면 그 거래에 쌓인 성공 보정은 끝납니다." }
+      { title: "상품 지식과 흥정", text: "지식 7단계에 도달한 서로 다른 상품을 거래안에 올리면 최대 3종까지 흥정 성공 가능성이 높아집니다.\n적용 중인 상품 지식 보정은 흥정 버튼의 툴팁에서 확인할 수 있습니다.", selector: "#trade-bargain" },
+      { title: "성공을 이어갈수록", text: "같은 거래에서 흥정에 성공할 때마다 다음 성공 확률은 8%포인트 낮아지고 가치 보정은 쌓입니다.\n가치 보정은 달변가를 모두 익혀도 최대 10%까지만 누적되며, 거래를 확정하면 끝납니다." }
     ]
   },
   {
@@ -155,7 +158,8 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     previewMerchantPath: true,
     pages: [
       { title: "상회 이용 관계", text: "상회에서 거래를 이어가면 해당 상회와의 이용 관계가 쌓입니다.\n행상인의 길에서 각 상회의 현재 관계와 다음 혜택을 확인할 수 있습니다.", selector: ".merchant-path-company-list" },
-      { title: "관계는 상회마다 따로 쌓입니다", text: "한 상회에서 얻은 관계가 다른 상회에 그대로 적용되지는 않습니다.\n자주 이용할 상회를 정하면 장기적인 거래 기반을 만들기 쉽습니다.", selector: ".merchant-path-company-list" }
+      { title: "관계는 상회마다 따로 쌓입니다", text: "한 상회에서 얻은 관계가 다른 상회에 그대로 적용되지는 않습니다.\n자주 이용할 상회를 정하면 장기적인 거래 기반을 만들기 쉽습니다.", selector: ".merchant-path-company-list" },
+      { title: "상회 정보 수집", text: "이용 관계가 단골 고객에 도달하면 상회 거래창에서 정보 수집이 열립니다.\n정보 수집 기회를 한 번에 사용하며, 시간은 흐르지 않습니다.", selector: "#trade-company-information" }
     ]
   },
   {
@@ -215,9 +219,9 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     unlockKey: "information",
     lockLabel: "정보 수집 기능 해금 필요",
     pages: [
-      { title: "상업조합의 정보 수집", text: "정보 수집을 누르면 이 조합에 남은 수집 기회를 한 번에 모두 사용합니다.\n각 기회마다 정보를 얻을 가능성이 있으며 상업조합에서는 시간이 흐르지 않습니다.", selector: "#service-info-collect" },
+      { title: "상업조합의 정보 수집", text: "정보 수집을 누르면 이 조합에 남은 수집 기회를 한 번에 모두 사용합니다.\n대륙 전역의 정보가 대상이며, 상업조합에서는 시간이 흐르지 않습니다.", selector: "#service-info-collect" },
       { title: "여러 정보를 얻었다면", text: "한 번에 여러 정보를 얻으면 획득 카드를 한 장씩 확인합니다.\n확인을 누르면 다음 카드가 차례로 나타납니다." },
-      { title: "공헌도와 수집 기회", text: "상업조합 공헌도가 오르면 조합에서 사용할 수 있는 정보 수집 기회도 늘어납니다.\n기회는 일정 기간마다 다시 채워집니다.", selector: "#service-guild-profile" }
+      { title: "공헌도와 수집 기회", text: "상업조합 공헌도는 대륙 전역의 지부가 공유합니다.\n단계가 오르면 모든 지부의 정보 수집 기회가 늘어나며, 기회는 일정 기간마다 다시 채워집니다.", selector: "#service-guild-profile" }
     ]
   },
   {
@@ -227,9 +231,9 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     unlockKey: "guildContribution",
     lockLabel: "공헌 기능 해금 필요",
     pages: [
-      { title: "상업조합 공헌", text: "공헌은 화폐를 조합에 납부해 공헌도를 얻는 기능입니다.\n지역마다 하루에 한 번 공헌할 수 있습니다.", selector: "#service-contribution-open" },
-      { title: "공헌도 단계", text: "공헌도는 행상인의 길에서도 확인할 수 있습니다.\n단계가 높아질수록 상업조합에서 얻는 정보 수집 기회가 늘어납니다.", selector: "#service-guild-profile" },
-      { title: "지역별 활동", text: "공헌은 현재 지역의 상업조합 활동으로 기록됩니다.\n여러 지역을 오간다면 각 지역의 공헌 상태를 따로 살펴보세요." }
+      { title: "상업조합 공헌", text: "공헌은 화폐를 조합에 납부해 공헌도를 얻는 기능입니다.\n각 거점의 상업조합에서 하루에 한 번 공헌할 수 있습니다.", selector: "#service-contribution-open" },
+      { title: "공헌도 단계", text: "공헌도는 대륙 전역의 상업조합이 공유하며 행상인의 길에서도 확인할 수 있습니다.\n단계가 높아질수록 모든 지부에서 얻는 정보 수집 기회가 늘어납니다.", selector: "#service-guild-profile" },
+      { title: "거점별 공헌 기회", text: "공헌도와 단계는 전역에서 공유하지만 하루 1회 제한은 거점마다 따로 적용됩니다.\n다른 도시로 이동하면 그곳의 상업조합에서도 하루 한 번 공헌할 수 있습니다." }
     ]
   },
   {
@@ -389,8 +393,8 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     unlockKey: "guildContribution",
     lockLabel: "공헌 기능 해금 필요",
     pages: [
-      { title: "상업조합 공헌도", text: "행상인의 길 4조에서 현재 공헌도 단계와 다음 단계까지의 진행을 확인할 수 있습니다.\n공헌도는 상업조합 정보 수집 기회에 연결됩니다.", selector: ".merchant-path-articles" },
-      { title: "공헌도를 올리는 법", text: "상업조합의 공헌 기능으로 화폐를 납부하면 현재 지역의 공헌도가 오릅니다." }
+      { title: "상업조합 공헌도", text: "행상인의 길 4조에서 현재 공헌도 단계와 다음 단계까지의 진행을 확인할 수 있습니다.\n공헌도는 대륙 전역의 상업조합이 공유하며 정보 수집 기회에 연결됩니다.", selector: ".merchant-path-articles" },
+      { title: "공헌도를 올리는 법", text: "상업조합에서 화폐를 납부하면 전역 공헌도가 오릅니다.\n공헌은 각 거점의 상업조합에서 하루 한 번씩 할 수 있습니다." }
     ]
   },
   {
@@ -399,7 +403,8 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     contexts: ["merchant-path"],
     pages: [
       { title: "상회 이용점수", text: "행상인의 길 4조에서 상회별 이용 관계를 확인할 수 있습니다.\n상회와 거래하며 쌓은 점수에 따라 관계 단계와 혜택이 달라집니다.", selector: ".merchant-path-articles" },
-      { title: "상회마다 별도 기록", text: "어느 상회를 자주 이용했는지에 따라 기록이 따로 쌓입니다.\n주력 상회를 정할 때 현재 관계 단계를 참고하세요." }
+      { title: "상회마다 별도 기록", text: "어느 상회를 자주 이용했는지에 따라 기록이 따로 쌓입니다.\n주력 상회를 정할 때 현재 관계 단계를 참고하세요." },
+      { title: "단골 고객의 정보 수집", text: "이용점수가 단골 고객 단계에 도달한 상회에서는 거래창의 정보 수집을 사용할 수 있습니다.\n정보 수집에는 시간이 흐르지 않습니다." }
     ]
   },
   {
@@ -409,7 +414,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "상품 지식", text: "상품을 사고팔면 해당 상품에 대한 지식 경험이 쌓입니다.\n지식 단계가 오르면 거래창과 화물뷰에서 숨겨졌던 정보가 차례로 열립니다.", selector: ".merchant-path-articles" },
       { title: "초반 지식 단계", text: "초반에는 열화 내구도와 상품 이름을 알아내고, 이어서 희귀등급과 상품 설명, 도시 총재고를 확인하게 됩니다." },
-      { title: "깊어진 상품 지식", text: "더 익숙해지면 품질, 원산지와 특산물·명산품 여부, 거리 보정이 열립니다.\n최종 단계의 상품은 거래안에 올린 수량만큼 흥정에도 도움을 줍니다." },
+      { title: "깊어진 상품 지식", text: "더 익숙해지면 품질, 원산지와 특산물·명산품 여부, 거리 보정이 열립니다.\n최종 단계의 서로 다른 상품은 거래안에서 최대 3종까지 흥정에 도움을 줍니다." },
       { title: "정보는 상품마다 따로", text: "한 상품을 많이 다뤄도 다른 상품의 정보가 함께 열리지는 않습니다.\n관심 있는 상품을 반복해서 거래하며 경험을 축적하세요." }
     ]
   },
@@ -475,7 +480,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "숙박 전에 돌아보는 교역", text: "숙박비를 지불하면 아직 복기하지 않은 완료 교역을 먼저 살펴봅니다.\n각 구입·판매 과정은 한 번만 복기할 수 있습니다.", selector: "#inn-lodging" },
       { title: "이익과 손실의 원인", text: "복기 화면은 구입가와 판매가, 최종 손익을 비교하고 가격에 크게 작용한 요소를 보여 줍니다.\n◆는 가장 큰 요소, ▲는 유리한 요소, ▼는 불리한 요소입니다." },
-      { title: "복기를 마치면", text: "확인한 거래에는 이익 또는 손실 뱃지가 남고 해당 교역품의 거래지식이 1 오릅니다.\n확인하지 않은 거래는 다음 숙박 때 다시 볼 수 있으며, 복기 종료를 누르면 기존 숙박으로 이어집니다." }
+      { title: "복기를 마치면", text: "복기 목록의 거래에는 이익 또는 손실 뱃지가 남고 해당 교역품의 거래지식이 1 오릅니다.\n복기 종료를 누르면 그날 제시된 목록 전체를 기록하고 기존 숙박으로 이어집니다." }
     ]
   },
   {
@@ -1018,6 +1023,7 @@ let spiritBlessingInProgress = false;
 let nahanaEventRewardDialogOpen = false;
 let nahanaEventOpeningId = "";
 let pendingNahanaEventOpeningId = "";
+let activeNahanaSituationEventId = "";
 const nahanaEventHardcodedDialoguesInFlight = new Set();
 let activeTalkCardId = "";
 let partnerAppetiteOpen = false;
@@ -1172,6 +1178,7 @@ window.ProjectWInformation.init({
   getWorldSeed: () => String(account?.worldSeed || "title"),
   getSettlements: () => window.ProjectWMapView.getTradeWorldData?.().nodes || [],
   getRoutes: () => window.ProjectWMapView.getTradeWorldData?.().routes || [],
+  getPlacementDistance: (fromId, toId) => window.ProjectWMapView.getShortestPlacementDistance(fromId, toId),
   getCityEvents: placement => window.ProjectWCityEvents.getSettlementEvents(placement),
   getWeather: placementId => weatherAtPlacement(placementId),
   getWolfenState: () => window.ProjectWWolfenCompany.ensureState(),
@@ -1218,6 +1225,17 @@ window.ProjectWTrade.init({
   getBargainProfile,
   attemptBargain,
   completeBargainTrade,
+  updateCompanyInformationButton: (button, companyName, placement) => updateInformationButton(
+    button,
+    "상회",
+    placement,
+    { companyName }
+  ),
+  collectCompanyInformation: (companyName, placement) => collectFacilityInformation(
+    "상회",
+    placement,
+    { companyName }
+  ),
   recordMerchantProfit: amount => window.ProjectWMerchantPath.recordMerchantProfit(amount),
   showBargainDialogue: (dialogueId, success) => {
     showBargainResultFeedback(success);
@@ -1715,6 +1733,8 @@ window.addEventListener("projectw:mealtransitionstart", event => {
 window.addEventListener("projectw:mealcomplete", event => {
   const record = event.detail || {};
   void handleNahanaEventMealComplete(record);
+  if (record.kind === "meal" && record.tier === "호화로운 만찬") queueNahanaSituationEvent("E_006");
+  if (record.kind === "meal" && record.tier === "과식") queueNahanaSituationEvent("E_007");
   if (record.kind === "snack" && record.vendor === "시장") void showMarketSnackDialogue(record);
 });
 window.addEventListener("projectw:mealviewchange", event => {
@@ -1955,6 +1975,7 @@ function chooseAnonymousName() {
     tutorialProgress: createNewJourneyTutorialProgress(),
     advancedTutorials: createInitialAdvancedTutorialState(skipTutorialsForNewJourney),
     nahanaEvents: createInitialNahanaEventState(),
+    nahanaSituationEvents: createInitialNahanaSituationEventState(),
     partnerWeatherStreak: createInitialPartnerWeatherStreak(),
     informationUsage: createInitialInformationUsage(),
     informationState: window.ProjectWInformation.createState(),
@@ -2054,6 +2075,7 @@ function confirmName() {
       tutorialProgress: createNewJourneyTutorialProgress(),
       advancedTutorials: createInitialAdvancedTutorialState(skipTutorialsForNewJourney),
       nahanaEvents: createInitialNahanaEventState(),
+      nahanaSituationEvents: createInitialNahanaSituationEventState(),
       partnerWeatherStreak: createInitialPartnerWeatherStreak(),
       informationUsage: createInitialInformationUsage(),
       informationState: window.ProjectWInformation.createState(),
@@ -2139,10 +2161,20 @@ function preloadImageSource(source) {
   if (!source) return Promise.resolve();
   return new Promise(resolve => {
     const image = new Image();
-    image.onload = resolve;
-    image.onerror = resolve;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      image.onload = null;
+      image.onerror = null;
+      resolve();
+    };
+    const timeout = window.setTimeout(finish, 5_000);
+    image.onload = finish;
+    image.onerror = finish;
     image.src = source;
-    if (image.complete) resolve();
+    if (image.complete) finish();
   });
 }
 
@@ -2524,6 +2556,7 @@ function clearSavedJourneyData() {
   activeTalkCardId = "";
   nahanaEventOpeningId = "";
   pendingNahanaEventOpeningId = "";
+  activeNahanaSituationEventId = "";
   restoringInterfaceState = false;
   try {
     localStorage.removeItem(STORAGE_KEY);
@@ -2859,6 +2892,8 @@ function loadAccount() {
     }
     if (!parsed.nahanaEvents) migrated = true;
     parsed.nahanaEvents = normalizeNahanaEventState(parsed.nahanaEvents);
+    if (!parsed.nahanaSituationEvents) migrated = true;
+    parsed.nahanaSituationEvents = normalizeNahanaSituationEventState(parsed.nahanaSituationEvents);
     parsed.partnerWeatherStreak = normalizePartnerWeatherStreak(parsed.partnerWeatherStreak);
     parsed.informationUsage = normalizeInformationUsage(parsed.informationUsage, parsed.worldTime);
     if (!parsed.informationState) migrated = true;
@@ -4587,13 +4622,15 @@ function beginTavernVisit(placement) {
   hideTavernCommentPopup(true);
   const visitToken = settlementDialogueVisitToken();
   const cacheKey = `${visitToken}|${placement?.id || placement?.name || "tavern"}`;
+  const partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment);
+  const hangover = partnerHasStatus(partner, "숙취");
   const cached = tavernVisitCache.get(cacheKey);
-  if (cached) {
+  const cachedMatchesHangover = Boolean(cached?.dialogueId === "DL_T_009") === hangover;
+  if (cached && cachedMatchesHangover) {
     activeTavernVisit = cached;
     return activeTavernVisit;
   }
-  const partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment);
-  const hangover = partnerHasStatus(partner, "숙취");
+  if (cached) tavernVisitCache.delete(cacheKey);
   if (!hangover && partner.mood <= 25) {
     activeTavernVisit = { token: cacheKey, placementId: placement?.id || "", dialogueId: "", special: null, variables: {}, readyPromise: Promise.resolve() };
     tavernVisitCache.set(cacheKey, activeTavernVisit);
@@ -4643,8 +4680,10 @@ async function replayTavernVisitDialogue() {
 }
 
 async function showTavernDialogue(dialogueId, variables = {}) {
-  if (/^DL_T_00[1-8]$/.test(String(dialogueId || ""))
-    && normalizePartnerState(account?.partner, account?.partnerMoodAdjustment).mood <= 25) return false;
+  const dialogueKey = String(dialogueId || "");
+  const partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment);
+  if (dialogueKey === "DL_T_009" && !partnerHasStatus(partner, "숙취")) return false;
+  if (/^DL_T_00[1-8]$/.test(dialogueKey) && partner.mood <= 25) return false;
   try {
     const [dialogue] = await Promise.all([window.ProjectWDialogue.getDialogue(dialogueId), loadAssets()]);
     const page = dialogue.pages[0];
@@ -4735,10 +4774,30 @@ function showRoadDialogue(dialogueId, durationMs) {
   return true;
 }
 
+function roadDialoguePresentationBlocked() {
+  if (!account || gameScreen.hidden || gameEntryInProgress) return true;
+  return Boolean(activeTalkCardId || tutorialRuntime || advancedTutorialRuntime
+    || travelPauseReasons.has("talk-card") || travelPauseReasons.has("tutorial")
+    || travelPauseReasons.has("advanced-tutorial") || travelPauseReasons.has("dialog")
+    || travelPauseReasons.has("road-comment") || travelPauseReasons.has("route-event-check")
+    || travelPauseReasons.has("route-event") || !dialogModal.hidden || !routeEventModal.hidden
+    || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden));
+}
+
 async function presentRoadDialogue(dialogueId, durationMs) {
   if (!roadCommentPopup || !roadCommentMessage) {
     pendingRoadDialogueCount = Math.max(0, pendingRoadDialogueCount - 1);
     schedulePendingRoadArrivalContinuation();
+    return false;
+  }
+  if (!account || gameScreen.hidden) {
+    pendingRoadDialogueCount = Math.max(0, pendingRoadDialogueCount - 1);
+    schedulePendingNarrativePresentation();
+    schedulePendingRoadArrivalContinuation();
+    return false;
+  }
+  if (roadDialoguePresentationBlocked()) {
+    window.setTimeout(() => void presentRoadDialogue(dialogueId, durationMs), 250);
     return false;
   }
   try {
@@ -4973,6 +5032,115 @@ function companionEventIds() {
   return ["N_E_001", ...COMPANION_EVENT_RANKS.map((_, index) => `N_E_${String(index + 2).padStart(3, "0")}`)];
 }
 
+function queueNahanaSituationEvent(eventId) {
+  if (!account) return false;
+  const id = String(eventId || "").trim();
+  if (!NAHANA_SITUATION_EVENT_IDS.includes(id)) return false;
+  const state = normalizeNahanaSituationEventState(account.nahanaSituationEvents);
+  if (state.completedIds.includes(id) || state.pendingIds.includes(id) || activeNahanaSituationEventId === id) return false;
+  state.pendingIds.push(id);
+  account.nahanaSituationEvents = state;
+  persistAccount();
+  schedulePendingNarrativePresentation();
+  return true;
+}
+
+function queueNahanaSituationEventsForArrival(placementId = "") {
+  if (!account) return false;
+  const id = String(placementId || "").trim();
+  const placement = window.ProjectWMapView.getPlacement(id);
+  if (!id || !placement) return false;
+  const region = String(placement.region || wolfenRegionAtPlacement(id) || "").trim();
+  const routeName = String(placement.name || "").replace(/\s+/g, "");
+  const weather = String(weatherAtPlacement(id)?.label || "").trim();
+  let queued = false;
+  if (region === "북부") queued = queueNahanaSituationEvent("E_001") || queued;
+  if (region === "남부") queued = queueNahanaSituationEvent("E_002") || queued;
+  if (/대호수.*가도/.test(routeName)) queued = queueNahanaSituationEvent("E_003") || queued;
+  if (id === "MAP_DOT_0147") queued = queueNahanaSituationEvent("E_004") || queued;
+  if (id === "MAP_DOT_0005") queued = queueNahanaSituationEvent("E_005") || queued;
+  const weatherEventId = ({ 비: "E_012", 눈: "E_013", 폭우: "E_014", 폭설: "E_015" })[weather];
+  if (weatherEventId) queued = queueNahanaSituationEvent(weatherEventId) || queued;
+  return queued;
+}
+
+function nahanaSituationEventRewardExperience(definition) {
+  const match = String(definition?.reward || "").match(/동행\s*(?:포인트|경험치)?\s*(\d+)/);
+  return Math.max(0, Math.trunc(Number(match?.[1]) || 10));
+}
+
+function completeNahanaSituationEvent(eventId, definition) {
+  if (!account) return false;
+  const id = String(eventId || "").trim();
+  const state = normalizeNahanaSituationEventState(account.nahanaSituationEvents);
+  if (state.completedIds.includes(id)) {
+    activeNahanaSituationEventId = "";
+    state.pendingIds = state.pendingIds.filter(pendingId => pendingId !== id);
+    account.nahanaSituationEvents = state;
+    persistAccount();
+    closeDialog();
+    return false;
+  }
+  state.pendingIds = state.pendingIds.filter(pendingId => pendingId !== id);
+  state.completedIds.push(id);
+  account.nahanaSituationEvents = state;
+  activeNahanaSituationEventId = "";
+  persistAccount();
+  closeDialog();
+  const reward = nahanaSituationEventRewardExperience(definition);
+  if (reward > 0) addCompanionExperience(reward, `${definition?.name || "나하나 상황 이벤트"} 완료`);
+  if (state.pendingIds.length) schedulePendingNarrativePresentation();
+  else schedulePendingRoadArrivalContinuation();
+  return true;
+}
+
+async function beginNextNahanaSituationEvent() {
+  if (!account || activeNahanaSituationEventId || narrativePresentationBlocked()) return false;
+  let state = normalizeNahanaSituationEventState(account.nahanaSituationEvents);
+  const eventId = state.pendingIds[0] || "";
+  if (!eventId) return false;
+  activeNahanaSituationEventId = eventId;
+  const loaded = await loadNahanaEventDefinitions();
+  state = normalizeNahanaSituationEventState(account?.nahanaSituationEvents);
+  const definition = nahanaEventDefinitions.get(eventId);
+  if (!loaded || !definition || !state.pendingIds.includes(eventId)) {
+    activeNahanaSituationEventId = "";
+    if (state.pendingIds.includes(eventId)) {
+      state.pendingIds = state.pendingIds.filter(pendingId => pendingId !== eventId);
+      account.nahanaSituationEvents = state;
+      persistAccount();
+      showGameNotice("나하나 상황 이벤트 데이터를 불러오지 못해 이번 표시를 건너뜁니다.");
+    }
+    schedulePendingNarrativePresentation();
+    schedulePendingRoadArrivalContinuation();
+    return false;
+  }
+  if (narrativePresentationBlocked({ ignoreSituationEvent: true })) {
+    activeNahanaSituationEventId = "";
+    schedulePendingNarrativePresentation();
+    return false;
+  }
+  const dialogueId = definition.linkedDialogues[0];
+  if (!dialogueId) return completeNahanaSituationEvent(eventId, definition);
+  const finish = () => completeNahanaSituationEvent(eventId, definition);
+  const played = await playDialogue(dialogueId, finish, { onSkip: finish, context: "nahana-situation" });
+  if (!played) {
+    activeNahanaSituationEventId = "";
+    if (narrativePresentationBlocked()) {
+      schedulePendingNarrativePresentation();
+    } else {
+      state = normalizeNahanaSituationEventState(account?.nahanaSituationEvents);
+      state.pendingIds = state.pendingIds.filter(pendingId => pendingId !== eventId);
+      account.nahanaSituationEvents = state;
+      persistAccount();
+      showGameNotice("나하나 상황 대화를 시작하지 못해 이번 표시를 건너뜁니다.");
+      schedulePendingNarrativePresentation();
+      schedulePendingRoadArrivalContinuation();
+    }
+  }
+  return played;
+}
+
 function activateNahanaEvent(eventId, attention = "new", occurrenceSatisfied = false) {
   if (!account) return false;
   const state = normalizeNahanaEventState(account.nahanaEvents);
@@ -5011,6 +5179,7 @@ async function beginNahanaEventOpening(eventId) {
   if (state.activeId !== eventId || state.stage !== 1 || !definition) {
     if (pendingNahanaEventOpeningId === eventId) pendingNahanaEventOpeningId = "";
     nahanaEventOpeningId = "";
+    schedulePendingNarrativePresentation();
     schedulePendingRoadArrivalContinuation();
     return false;
   }
@@ -5023,9 +5192,16 @@ async function beginNahanaEventOpening(eventId) {
   if (dialogueId) {
     const played = await playDialogue(dialogueId, closeDialog, { onSkip: closeDialog, context: "nahana-event" });
     if (!played) {
-      pendingNahanaEventOpeningId = eventId;
       nahanaEventOpeningId = "";
-      schedulePendingNarrativePresentation();
+      if (narrativePresentationBlocked()) {
+        pendingNahanaEventOpeningId = eventId;
+        schedulePendingNarrativePresentation();
+      } else {
+        if (pendingNahanaEventOpeningId === eventId) pendingNahanaEventOpeningId = "";
+        showGameNotice("나하나 이벤트 대화를 시작하지 못했습니다. 이벤트 알림은 유지됩니다.");
+        schedulePendingNarrativePresentation();
+        schedulePendingRoadArrivalContinuation();
+      }
     }
     return played;
   }
@@ -5701,6 +5877,7 @@ function recordCompanionArrival(placementId = "") {
   const nextRewards = Math.floor(account.partner.arrivalCount / 10);
   if (nextRewards > previousRewards) addCompanionExperience(nextRewards - previousRewards, "여정 10지점 도달");
   const normalizedId = String(placementId || "").trim();
+  if (normalizedId) queueNahanaSituationEventsForArrival(normalizedId);
   if (normalizedId && isNodeId(normalizedId) && Math.random() < .33) {
     addCompanionExperience(1, "거점 도착");
   }
@@ -6145,13 +6322,6 @@ async function acquireRandomSpiritBlessing() {
   const definition = [...nahanaBuffDefinitions.values()].find(entry => entry.name === name && entry.gradeNumber === gradeNumber)
     || [...nahanaBuffDefinitions.values()].find(entry => entry.name === name);
   if (!definition) return;
-  spiritBlessingInProgress = true;
-  partnerFeaturePanel?.classList.add("is-spirit-revealing");
-  gameScreen.classList.add("is-spirit-blessing-reveal");
-  await wait(2000);
-  partnerFeaturePanel?.classList.remove("is-spirit-revealing");
-  gameScreen.classList.remove("is-spirit-blessing-reveal");
-  if (account.travel?.moving) reconcileTravelProgress(false);
   const acquiredDay = normalizeWorldTime(account.worldTime).day;
   partner.spirit -= 1;
   partner.activeBuffs.push({
@@ -6159,6 +6329,14 @@ async function acquireRandomSpiritBlessing() {
     acquiredDay,
     expiresDay: acquiredDay + gradeNumber + 2
   });
+  persistAccount();
+  spiritBlessingInProgress = true;
+  partnerFeaturePanel?.classList.add("is-spirit-revealing");
+  gameScreen.classList.add("is-spirit-blessing-reveal");
+  await wait(2000);
+  partnerFeaturePanel?.classList.remove("is-spirit-revealing");
+  gameScreen.classList.remove("is-spirit-blessing-reveal");
+  if (account.travel?.moving) reconcileTravelProgress(false);
   if (definition.gradeNumber === 3) {
     addCompanionExperience(1, "3등급 가호 획득");
     unlockFootprint("FOOTPRINT_013");
@@ -6615,6 +6793,10 @@ function createInitialNahanaEventState() {
   };
 }
 
+function createInitialNahanaSituationEventState() {
+  return { completedIds: [], pendingIds: [] };
+}
+
 function createInitialPartnerWeatherStreak() {
   return { type: "", count: 0 };
 }
@@ -6698,18 +6880,19 @@ function bargainFacilityModifier(type) {
 }
 
 function getBargainProfile(context = {}) {
-  if (!account) return { available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 5, knowledgeItemBonus: 0 };
+  if (!account) return { available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 3, valueMaximum: 6, knowledgeItemBonus: 0 };
   account.bargaining = normalizeBargainingState(account.bargaining, account.worldTime);
-  const bonuses = window.ProjectWMerchantPath?.getBargainingBonuses?.() || { attempts: 0, chance: 0, value: 0 };
+  const bonuses = window.ProjectWMerchantPath?.getBargainingBonuses?.() || { attempts: 0, chance: 0, valueCap: 6 };
   const facilityKey = String(context.facilityKey || "").trim();
   const successes = Math.max(0, account.bargaining.successesByFacility[facilityKey] || 0);
   const attemptsMaximum = Math.max(1, 1 + (Number(bonuses.attempts) || 0));
   const attemptsUsed = Math.max(0, account.bargaining.attemptsUsedByFacility[facilityKey] || 0);
   const attemptsRemaining = Math.max(0, attemptsMaximum - attemptsUsed);
-  const valuePerSuccess = Math.max(1, 5 + (Number(bonuses.value) || 0));
+  const valuePerSuccess = 3;
+  const valueMaximum = Math.max(6, Number(bonuses.valueCap) || 6);
   const knowledgeItemBonus = Math.max(0, Number(context.knowledgeItemBonus) || 0);
   const chance = Math.max(0, Math.min(100,
-    50 + bargainFacilityModifier(context.facilityType) + (Number(bonuses.chance) || 0) + knowledgeItemBonus - (successes * 5)
+    50 + bargainFacilityModifier(context.facilityType) + (Number(bonuses.chance) || 0) + knowledgeItemBonus - (successes * 8)
   ));
   return {
     available: Boolean(facilityKey) && attemptsRemaining > 0,
@@ -6719,7 +6902,8 @@ function getBargainProfile(context = {}) {
     successes,
     knowledgeItemBonus,
     valuePerSuccess,
-    bonusPercent: successes * valuePerSuccess
+    valueMaximum,
+    bonusPercent: Math.min(valueMaximum, successes * valuePerSuccess)
   };
 }
 
@@ -6742,7 +6926,7 @@ function completeBargainTrade(context = {}) {
 }
 
 function createInitialGuildContribution() {
-  return { xp: 0, lastContributionDayByRegion: {} };
+  return { xp: 0, lastContributionDayBySettlement: {} };
 }
 
 function createInitialWagonState() {
@@ -6985,6 +7169,17 @@ function normalizeNahanaEventState(value) {
   };
 }
 
+function normalizeNahanaSituationEventState(value) {
+  const completedIds = [...new Set((Array.isArray(value?.completedIds) ? value.completedIds : [])
+    .map(id => String(id || "").trim())
+    .filter(id => NAHANA_SITUATION_EVENT_IDS.includes(id)))];
+  const completed = new Set(completedIds);
+  const pendingIds = [...new Set((Array.isArray(value?.pendingIds) ? value.pendingIds : [])
+    .map(id => String(id || "").trim())
+    .filter(id => NAHANA_SITUATION_EVENT_IDS.includes(id) && !completed.has(id)))];
+  return { completedIds, pendingIds };
+}
+
 function normalizePartnerWeatherStreak(value) {
   const type = value?.type === "rain" || value?.type === "snow" ? value.type : "";
   return { type, count: type ? Math.max(1, Math.trunc(Number(value?.count) || 1)) : 0 };
@@ -7098,15 +7293,15 @@ function normalizeInformationUsage(value, worldTime = account?.worldTime) {
 }
 
 function normalizeGuildContribution(value) {
-  const lastContributionDayByRegion = {};
-  Object.entries(value?.lastContributionDayByRegion || {}).forEach(([region, day]) => {
-    const normalizedRegion = String(region || "").trim();
+  const lastContributionDayBySettlement = {};
+  Object.entries(value?.lastContributionDayBySettlement || {}).forEach(([settlementId, day]) => {
+    const normalizedSettlementId = String(settlementId || "").trim();
     const normalizedDay = Math.max(0, Math.trunc(Number(day) || 0));
-    if (normalizedRegion && normalizedDay > 0) lastContributionDayByRegion[normalizedRegion] = normalizedDay;
+    if (normalizedSettlementId && normalizedDay > 0) lastContributionDayBySettlement[normalizedSettlementId] = normalizedDay;
   });
   return {
     xp: Math.max(0, Math.floor(Number(value?.xp) || 0)),
-    lastContributionDayByRegion
+    lastContributionDayBySettlement
   };
 }
 
@@ -7739,6 +7934,8 @@ function hasPendingRoadArrivalPresentation() {
     .some(reason => reason !== "route-event" && reason !== "route-event-check");
   return pendingRoadDialogueCount > 0
     || Boolean(pendingNahanaEventOpeningId || nahanaEventOpeningId)
+    || Boolean(activeNahanaSituationEventId
+      || normalizeNahanaSituationEventState(account.nahanaSituationEvents).pendingIds.length)
     || talkCardGenerationInProgress > 0
     || Boolean(progress.talkCardTutorialPending)
     || Boolean(activeTalkCardId)
@@ -7812,9 +8009,18 @@ function continueTravelAfterRouteEvent(travel = account?.travel) {
 }
 
 function handleRouteEventResolved(event) {
-  if (["R_E_002", "R_E_003", "R_E_004"].includes(event?.id)) unlockFootprint("FOOTPRINT_010");
-  if (event?.id === "R_E_005") unlockFootprint("FOOTPRINT_011");
-  if (["R_E_006", "R_E_007"].includes(event?.id)) unlockFootprint("FOOTPRINT_012");
+  if (["R_E_002", "R_E_003", "R_E_004"].includes(event?.id)) {
+    unlockFootprint("FOOTPRINT_010");
+    queueNahanaSituationEvent("E_008");
+  }
+  if (event?.id === "R_E_005") {
+    unlockFootprint("FOOTPRINT_011");
+    queueNahanaSituationEvent("E_009");
+  }
+  if (["R_E_006", "R_E_007"].includes(event?.id)) {
+    unlockFootprint("FOOTPRINT_012");
+    queueNahanaSituationEvent("E_010");
+  }
   if (account?.travel?.pendingRoadArrivalContinuation) {
     account.travel.pendingRoadArrivalPhase = "after-route-event";
   }
@@ -8112,7 +8318,8 @@ function enterCampAtCurrentPosition(travel) {
   account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
   persistAccount();
   refreshAdvancedTutorialLaunchers();
-  window.requestAnimationFrame(() => window.setTimeout(maybeStartFirstCampTutorial, 0));
+  // 첫 야영 튜토리얼도 공통 서사 대기열에서 시작해 다른 대화와 겹치지 않게 한다.
+  window.requestAnimationFrame(() => window.setTimeout(schedulePendingNarrativePresentation, 0));
 }
 
 function maybeStartFirstCampTutorial() {
@@ -9082,12 +9289,14 @@ function renderServiceGuildProfile() {
 
 function guildContributionAvailability(placement = activeServiceContext?.placement || currentSettlementPlacement()) {
   const contribution = normalizeGuildContribution(account?.guildContribution);
-  const region = String(placement?.region || "중부").trim() || "중부";
+  const settlementId = String(placement?.id || "").trim();
+  const settlementName = String(placement?.name || "현재 거점").trim() || "현재 거점";
   const day = normalizeWorldTime(account?.worldTime).day;
   return {
-    region,
+    settlementId,
+    settlementName,
     day,
-    completed: contribution.lastContributionDayByRegion[region] === day
+    completed: Boolean(settlementId) && contribution.lastContributionDayBySettlement[settlementId] === day
   };
 }
 
@@ -9106,13 +9315,13 @@ function updateGuildContributionAvailabilityUi() {
   if (copy) copy.textContent = featureLocked
     ? "이벤트를 통해 기능을 해금할 수 있습니다."
     : availability.completed
-    ? `${availability.region} · 오늘 공헌 완료`
-    : `${availability.region} · 오늘 1회 공헌 가능`;
+    ? `${availability.settlementName} · 오늘 공헌 완료`
+    : `${availability.settlementName} · 오늘 1회 공헌 가능`;
   serviceContributionOpen.title = featureLocked
     ? "아직 상업조합 공헌 기능이 해금되지 않았습니다."
     : availability.completed
-    ? `${availability.region}에서는 오늘 이미 공헌했습니다.`
-    : `${availability.region}에서 오늘 한 번 공헌할 수 있습니다.`;
+    ? `${availability.settlementName}에서는 오늘 이미 공헌했습니다.`
+    : `${availability.settlementName}에서 오늘 한 번 공헌할 수 있습니다.`;
 }
 
 function openGuildContribution() {
@@ -9123,7 +9332,7 @@ function openGuildContribution() {
   }
   const availability = guildContributionAvailability();
   if (availability.completed) {
-    showGameNotice(`${availability.region}에서는 오늘 이미 공헌했습니다.`);
+    showGameNotice(`${availability.settlementName}에서는 오늘 이미 공헌했습니다.`);
     updateGuildContributionAvailabilityUi();
     return;
   }
@@ -9237,7 +9446,7 @@ function renderGuildContribution() {
   const eventRequirement = activeNahanaEventContributionRequirement();
   serviceContributionConfirm.disabled = total <= 0 || total < eventRequirement || availability.completed;
   serviceContributionConfirm.title = availability.completed
-    ? `${availability.region}에서는 오늘 이미 공헌했습니다.`
+    ? `${availability.settlementName}에서는 오늘 이미 공헌했습니다.`
     : total < eventRequirement
       ? `이번 이벤트를 진행하려면 300 가치 이상 공헌해야 합니다. · 부족 ${formatCompactNumber(eventRequirement - total)}`
       : "";
@@ -9282,7 +9491,7 @@ function completeGuildContribution() {
     serviceContributionOffer.clear();
     setServiceView("home");
     updateGuildContributionAvailabilityUi();
-    showGameNotice(`${availability.region}에서는 오늘 이미 공헌했습니다.`);
+    showGameNotice(`${availability.settlementName}에서는 오늘 이미 공헌했습니다.`);
     return;
   }
   const total = guildContributionTotal();
@@ -9306,7 +9515,7 @@ function completeGuildContribution() {
   account.guildContribution = normalizeGuildContribution(account.guildContribution);
   const earnedContribution = Math.floor(total * partnerGuildContributionMultiplier());
   account.guildContribution.xp += earnedContribution;
-  account.guildContribution.lastContributionDayByRegion[availability.region] = availability.day;
+  account.guildContribution.lastContributionDayBySettlement[availability.settlementId] = availability.day;
   serviceContributionOffer.clear();
   persistAccount();
   window.ProjectWWallet.refresh();
@@ -9521,44 +9730,64 @@ function completeBillNoteService() {
   renderBillNoteService();
 }
 
-function informationUsageKey(placement, type) {
-  return `${placement?.id || placement?.name || "unknown"}:${type}`;
+function informationUsageKey(placement, type, qualifier = "") {
+  const suffix = String(qualifier || "").trim();
+  return `${placement?.id || placement?.name || "unknown"}:${type}${suffix ? `:${suffix}` : ""}`;
 }
 
-function informationOpportunity(type, placement = currentSettlementPlacement()) {
-  if (!isFeatureUnlocked("information")) return { maximum: 0, used: 0, remaining: 0, resetInDays: 3, locked: true };
-  let maximum = type === "상업조합"
-    ? guildContributionProfile().maxInformationAttempts
-    : INFORMATION_LIMITS.get(type) || 0;
+function informationOpportunity(type, placement = currentSettlementPlacement(), options = {}) {
+  if (!isFeatureUnlocked("information")) {
+    return { maximum: 0, used: 0, remaining: 0, resetInDays: 3, locked: true, lockReason: "아직 정보 수집 기능이 해금되지 않았습니다." };
+  }
+  const companyName = String(options.companyName || "").trim();
+  const companyProfile = type === "상회" ? window.ProjectWMerchantPath.getCompanyProfile?.(companyName) : null;
+  let maximum = type === "상회"
+    ? Math.max(0, Number(companyProfile?.informationBonus) || 0)
+    : type === "상업조합"
+      ? guildContributionProfile().maxInformationAttempts
+      : INFORMATION_LIMITS.get(type) || 0;
+  if (type === "상회" && maximum <= 0) {
+    return {
+      maximum: 0,
+      used: 0,
+      remaining: 0,
+      resetInDays: 3,
+      locked: true,
+      lockReason: `상회 이용점수 ${formatCompactNumber(companyProfile?.score || 0)} / 1,500 · 단골 고객부터 이용할 수 있습니다.`,
+      companyScore: Math.max(0, Number(companyProfile?.score) || 0)
+    };
+  }
   if (type === "여관" && activePartnerBuff("N_Buff_022")) maximum += 1;
   maximum += Number(window.ProjectWMerchantPath.getInformationBonuses()?.attempts?.[type]) || 0;
   maximum += Number(window.ProjectWCityEvents.getModifiers(placement).information[type]) || 0;
   if (!account || !maximum || !placement) return { maximum, used: 0, remaining: 0, resetInDays: 3 };
   account.informationUsage = normalizeInformationUsage(account.informationUsage, account.worldTime);
-  const used = Math.min(maximum, account.informationUsage.facilities[informationUsageKey(placement, type)] || 0);
+  const used = Math.min(maximum, account.informationUsage.facilities[informationUsageKey(placement, type, companyName)] || 0);
   const day = normalizeWorldTime(account.worldTime).day;
   const cycle = Math.floor((day - 1) / 3);
   const resetInDays = ((cycle + 1) * 3) + 1 - day;
   return { maximum, used, remaining: Math.max(0, maximum - used), resetInDays };
 }
 
-function updateInformationButton(button, type, placement = currentSettlementPlacement()) {
+function updateInformationButton(button, type, placement = currentSettlementPlacement(), options = {}) {
   if (!button) return;
-  const opportunity = informationOpportunity(type, placement);
+  const opportunity = informationOpportunity(type, placement, options);
   const copy = button.querySelector("span");
-  const timeCost = type === "상업조합" ? "타임 소모 없음" : "1타임";
+  const timeCost = ["상업조합", "상회"].includes(type) ? "타임 소모 없음" : "1타임";
   button.dataset.informationAttemptCount = String(opportunity.remaining);
   if (copy) copy.textContent = opportunity.locked
-    ? "이벤트를 통해 기능을 해금할 수 있습니다."
+    ? type === "상회" && opportunity.companyScore !== undefined
+      ? `이용점수 ${formatCompactNumber(opportunity.companyScore)} / 1,500`
+      : "이벤트를 통해 기능을 해금할 수 있습니다."
     : `${timeCost} · 남은 ${opportunity.remaining}회 모두 시도 · ${opportunity.resetInDays}일 후 초기화`;
   button.disabled = opportunity.remaining <= 0;
   button.classList.toggle("is-limit-exhausted", opportunity.remaining <= 0);
   const blockedReason = opportunity.locked
-    ? "아직 정보 수집 기능이 해금되지 않았습니다."
+    ? opportunity.lockReason || "아직 정보 수집 기능이 해금되지 않았습니다."
     : opportunity.remaining <= 0 ? "이번 3일 주기의 정보 수집 기회를 모두 사용했습니다." : "";
   const currentPhaseIndex = normalizeWorldTime(account?.worldTime).phaseIndex;
   const nextPhase = TIME_PHASES[(currentPhaseIndex + 1) % TIME_PHASES.length];
-  button.dataset.informationTimeTransition = type === "상업조합"
+  button.dataset.informationTimeTransition = ["상업조합", "상회"].includes(type)
     ? "변화 없음"
     : `${TIME_PHASES[currentPhaseIndex]} → ${nextPhase}`;
   window.ProjectWInformation.updateCollectionTooltip(button, type, blockedReason);
@@ -9566,7 +9795,7 @@ function updateInformationButton(button, type, placement = currentSettlementPlac
 
 let facilityInformationPending = false;
 
-async function collectFacilityInformation(type, requestedPlacement = null) {
+async function collectFacilityInformation(type, requestedPlacement = null, options = {}) {
   if (facilityInformationPending) return false;
   if (!isFeatureUnlocked("information")) {
     showGameNotice("아직 정보 수집 기능이 해금되지 않았습니다.");
@@ -9578,7 +9807,11 @@ async function collectFacilityInformation(type, requestedPlacement = null) {
     return false;
   }
   const placement = requestedPlacement || activeServiceContext?.placement || currentSettlementPlacement();
-  const opportunity = informationOpportunity(type, placement);
+  const opportunity = informationOpportunity(type, placement, options);
+  if (opportunity.locked) {
+    showGameNotice(opportunity.lockReason || "아직 이 시설에서 정보를 수집할 수 없습니다.");
+    return false;
+  }
   if (!placement || opportunity.maximum <= 0) return false;
   if (opportunity.remaining <= 0) {
     showGameNotice("이번 3일 주기의 정보 수집 기회를 모두 사용했습니다.");
@@ -9601,9 +9834,9 @@ async function collectFacilityInformation(type, requestedPlacement = null) {
     }
     const acquiredResults = attemptedResults.filter(result => result.acquired);
     if (acquiredResults.length) addCompanionExperience(acquiredResults.length, `정보 수집 성공 ${acquiredResults.length}건`);
-    const key = informationUsageKey(placement, type);
+    const key = informationUsageKey(placement, type, options.companyName);
     account.informationUsage.facilities[key] = opportunity.used + attemptsToUse;
-    const consumesTime = type !== "상업조합";
+    const consumesTime = !["상업조합", "상회"].includes(type);
     if (consumesTime) {
       advanceGameTime();
       advanceRoadSurfaceState();
@@ -9762,7 +9995,7 @@ function applyCampSceneContext() {
   setSceneBackground(mapBackground, "Asset_A_05", "야영지의 지도뷰 배경");
   roadScene.setAttribute("aria-label", "야영뷰");
   if (campSetupOpen) renderCampSetup();
-  if (!tutorialRuntime) window.setTimeout(maybeStartFirstCampTutorial, 0);
+  if (!tutorialRuntime) window.setTimeout(schedulePendingNarrativePresentation, 0);
 }
 
 function setSceneBackground(image, assetId, alt) {
@@ -10484,6 +10717,7 @@ async function performCamp(forceLowComfort = false) {
   updateTravelDisplays();
   if (isTutorialActive(2)) completeTutorial(2);
   await handleNahanaEventCampComplete();
+  if (uncomfortable) queueNahanaSituationEvent("E_011");
 
   let result = `야영 안락도 ${formatSigned(comfort)}`;
   if (appliedPartnerMoodChange < 0) result += ` · 파트너 기분 ${appliedPartnerMoodChange}`;
@@ -12038,15 +12272,17 @@ function maybeStartPendingTalkCardTutorial() {
   return true;
 }
 
-function narrativePresentationBlocked() {
-  if (!account || gameScreen.hidden || gameEntryInProgress || talkCardGenerationInProgress > 0
+function narrativePresentationBlocked(options = {}) {
+  if (!account || gameScreen.hidden || gameEntryInProgress
+    || (activeNahanaSituationEventId && !options.ignoreSituationEvent)
+    || talkCardGenerationInProgress > 0
     || activeTalkCardId || travelPauseReasons.has("talk-card") || tutorialRuntime
     || pendingRoadDialogueCount > 0 || travelPauseReasons.has("road-comment")
     || travelPauseReasons.has("route-event-check") || travelPauseReasons.has("route-event")
     || advancedTutorialRuntime || (tutorialLayer && !tutorialLayer.hidden)
     || (advancedTutorialLayer && !advancedTutorialLayer.hidden)) return true;
   const progress = normalizeTutorialProgress(account.tutorialProgress);
-  if (progress.activeId || progress.talkCardTutorialPending) return true;
+  if (progress.activeId || (progress.talkCardTutorialPending && !options.ignoreTalkCardTutorialPending)) return true;
   return !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
     || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
@@ -12055,17 +12291,30 @@ function narrativePresentationBlocked() {
 
 function continuePendingNarrativePresentation() {
   if (!account || gameScreen.hidden) return false;
+  // 필수 화면 전환을 마친 뒤 첫 야영 안내를 가장 먼저 정리한다.
+  // 대화 카드 안내는 그 다음이며, 나하나 메인 이벤트와 상황 이벤트가 순서대로 이어진다.
+  if (account.travel?.mode === "camp" && shouldStartTutorial(2)
+    && !narrativePresentationBlocked({ ignoreTalkCardTutorialPending: true })
+    && maybeStartFirstCampTutorial()) return true;
   if (maybeStartPendingTalkCardTutorial()) return true;
   if (narrativePresentationBlocked()) return false;
   const eventState = normalizeNahanaEventState(account.nahanaEvents);
   const eventId = pendingNahanaEventOpeningId;
-  if (!eventId || eventState.activeId !== eventId || eventState.stage !== 1) {
-    pendingNahanaEventOpeningId = "";
-    schedulePendingRoadArrivalContinuation();
-    return false;
+  if (eventId && eventState.activeId === eventId && eventState.stage === 1) {
+    void beginNahanaEventOpening(eventId);
+    return true;
   }
-  void beginNahanaEventOpening(eventId);
-  return true;
+  if (eventId) {
+    pendingNahanaEventOpeningId = "";
+  }
+  const situationState = normalizeNahanaSituationEventState(account.nahanaSituationEvents);
+  if (activeNahanaSituationEventId) return true;
+  if (situationState.pendingIds.length) {
+    void beginNextNahanaSituationEvent();
+    return true;
+  }
+  schedulePendingRoadArrivalContinuation();
+  return false;
 }
 
 function schedulePendingNarrativePresentation() {
@@ -12161,7 +12410,7 @@ function completeTutorial(tutorialId = tutorialRuntime?.id) {
     window.setTimeout(() => maybeStartHorseFeedTutorial(account.travel), 0);
   }
   if (account.travel?.mode === "camp" && tutorialId !== 2) {
-    window.setTimeout(maybeStartFirstCampTutorial, 0);
+    window.setTimeout(schedulePendingNarrativePresentation, 0);
   }
 }
 
@@ -12246,7 +12495,7 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["숙박비 지불", "올려 둔 화폐로 숙박비를 지불하세요. 완료한 교역이 있다면 잠들기 전에 상행 복기가 이어집니다.", "#inn-payment-confirm", true],
       ["상행 복기", "구입부터 판매까지 끝낸 교역을 하나씩 돌아봅니다. 왼쪽 목록에서 거래를 바꾸며 각 결과를 확인할 수 있습니다.", "#inn-trade-review-view", false, { padding: 12 }],
       ["가격을 움직인 원인", "구입과 판매에서 10% 이상 작용한 주요 요인이 표시됩니다. ◆는 가장 큰 요소, ▲는 유리한 요소, ▼는 불리한 요소입니다.", ".inn-trade-review-factors", false, { padding: 12 }],
-      ["복기 종료", "복기 종료를 누르면 확인한 거래에 결과 뱃지가 남고 상품마다 거래지식이 1 상승합니다. 확인하지 않은 거래는 다음 숙박 때 다시 볼 수 있으며, 화면이 어두워진 뒤 숙박으로 이어집니다.", "#inn-trade-review-finish", true, { padding: 10 }]
+      ["복기 종료", "복기 종료를 누르면 그날 제시된 거래 전체에 결과 뱃지가 남고 상품마다 거래지식이 1 상승합니다. 화면이 어두워진 뒤 숙박으로 이어집니다.", "#inn-trade-review-finish", true, { padding: 10 }]
     ],
     7: [
       ["상태 확인", "파트너뷰로 이동해 나하나의 상태를 확인하세요.", partnerMoveSelector, true],
@@ -12314,6 +12563,7 @@ function tutorialStepConfiguration(tutorialId, step) {
     [TUTORIAL_IDS.CURRENCY_EXCHANGE]: [
       ["환전상 거리", "환전상에서는 상품 없이 화폐끼리만 교환합니다.", ".trade-window", false, { padding: 12 }],
       ["내가 지불할 화폐", "왼쪽에서 환전상에게 건넬 화폐를 고릅니다.", "#trade-player-currencies", false, { padding: 10 }],
+      ["받을 화폐 자동 구성", "내가 지불할 화폐를 올린 뒤 금화·은화·동화 중점을 누르면 선택한 종류를 우선해 받을 화폐를 자동으로 구성합니다.\n부족한 잔액은 다른 종류의 화폐로 보충합니다.", "#trade-exchange-focus", false, { padding: 10 }],
       ["받을 화폐", "오른쪽에서 환전상에게 받을 화폐를 고릅니다. 거래에는 환전 할증이 더해집니다.", "#trade-merchant-currencies", false, { padding: 10 }],
       ["화폐 시세", "화폐 시세 버튼에서 정보비를 내고 현재 지역의 최신 화폐 가치를 갱신할 수 있습니다.", "#trade-currency-rates", false, { padding: 10 }]
     ],
@@ -12339,8 +12589,9 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["관람 보상", "보상이 있는 도시 이벤트는 거점에 진입하면 자동으로 관람합니다. 사건 내용과 획득한 기분 또는 동행 경험치가 카드로 표시되며, 같은 사건을 다시 관람하려면 충분한 시간이 지나야 합니다.", ".city-events-window", false, { padding: 12 }]
     ],
     [TUTORIAL_IDS.INFORMATION_GATHERING]: [
-      ["정보 수집 해금", "주점, 여관과 상업조합에서 대륙의 소식을 수집할 수 있게 되었습니다. 정보 수집 한 번으로 현재 시설의 남은 기회를 모두 사용합니다.", "#service-info-collect", false, { padding: 10 }],
-      ["정보 수집 시도", "각 기회마다 정보 획득을 판정하며 여러 장을 얻으면 차례로 확인합니다. 주점과 여관은 1타임이 흐르고, 상업조합에서는 시간이 흐르지 않습니다.", "#service-info-collect", true, { padding: 10 }]
+      ["정보 수집 해금", "주점, 여관과 상업조합에서 소식을 수집할 수 있게 되었습니다. 정보 수집 한 번으로 현재 시설의 남은 기회를 모두 사용합니다.", "#service-info-collect", false, { padding: 10 }],
+      ["장소에 따른 정보망", "주점과 여관에서는 현재 거점과 가까운 거점·경로의 소식이 자주 나옵니다. 상업조합과 상회에서는 대륙 전역의 정보를 고르게 다룹니다.", "#service-info-collect", false, { padding: 10 }],
+      ["정보 수집 시도", "각 기회마다 정보 획득을 판정하며 여러 장을 얻으면 차례로 확인합니다. 주점과 여관은 1타임이 흐르고, 상업조합과 상회에서는 시간이 흐르지 않습니다.", "#service-info-collect", true, { padding: 10 }]
     ],
     [TUTORIAL_IDS.SPIRIT_BLESSING]: [
       ["정령의 가호 해금", "정령력을 사용해 여정에 도움이 되는 일시적인 가호를 얻을 수 있습니다. 정령의 가호를 열어보세요.", "#partner-spirit-blessing", true, { padding: 10 }],
@@ -12350,11 +12601,11 @@ function tutorialStepConfiguration(tutorialId, step) {
     [TUTORIAL_IDS.GUILD_CONTRIBUTION]: [
       ["상업조합 자격", "상업조합을 이용할 자격을 얻었습니다. 현재 대도시의 상업조합으로 들어가세요.", "#settlement-facility-list button[data-facility-type='상업조합']", true, { padding: 10 }],
       ["상업조합", "상업조합에서는 조합원으로서의 공헌도와 대륙의 정보를 다룹니다. 현금을 안전하게 옮길 어음증서도 이용할 수 있습니다.", ".service-content", false, { padding: 14 }],
-      ["조합 공헌도", "공헌도는 지역별 조합 활동의 기반입니다. 단계가 오르면 상업조합에서 시도할 수 있는 정보 수집 횟수가 늘어납니다.", "#service-guild-profile", false, { padding: 10 }],
+      ["조합 공헌도", "공헌도와 단계는 대륙 전역의 상업조합이 공유합니다. 단계가 오르면 모든 지부에서 시도할 수 있는 정보 수집 횟수가 늘어납니다.", "#service-guild-profile", false, { padding: 10 }],
       ["정보 수집", "상업조합의 정보 수집은 시간을 소모하지 않으며, 한 번 누르면 남은 기회를 모두 사용합니다. 현재 공헌도 단계만큼 3일마다 수집 기회를 받습니다.", "#service-info-collect", false, { padding: 10 }],
       ["어음증서", "도시와 대도시의 상업조합에서는 현금을 정해진 액면의 어음으로 바꿀 수 있습니다. 어음은 화물칸과 무게를 차지하지 않습니다.", "#service-bill-note-open", false, { padding: 10 }],
       ["조합 공헌", "마지막으로 공헌 기능입니다. 공헌을 눌러 조합에 납부할 화폐를 준비하세요.", "#service-contribution-open", true, { padding: 10 }],
-      ["첫 공헌", "화폐를 골라 공헌 가치가 300 이상이 되도록 맞춘 뒤 공헌하세요. 공헌은 지역마다 하루에 한 번만 할 수 있습니다.", "#service-contribution-view", true, {
+      ["첫 공헌", "화폐를 골라 공헌 가치가 300 이상이 되도록 맞춘 뒤 공헌하세요. 공헌은 각 거점의 상업조합에서 하루에 한 번만 할 수 있습니다.", "#service-contribution-view", true, {
         padding: 14,
         conditions: [["공헌 가치", "300 이상"]]
       }]
@@ -12363,8 +12614,8 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["첫 상행 복기", "숙박비를 지불한 뒤, 구입과 판매를 모두 마친 교역을 잠들기 전에 돌아봅니다. 거래마다 복기는 한 번만 진행됩니다.", "#inn-trade-review-view", false, { padding: 12 }],
       ["구입과 판매 비교", "교역품을 몇 개, 어디서 얼마에 사고팔았는지와 최종 손익을 비교합니다.", ".inn-trade-review-summary", false, { padding: 12 }],
       ["중요한 가격 요인", "10% 이상 작용한 요소가 복수로 표시됩니다. ◆는 가장 큰 요소이며, 초록 ▲는 이익에 도움을 준 요인, 빨간 ▼는 손실을 키운 요인입니다.", ".inn-trade-review-factors", false, { padding: 12 }],
-      ["다른 거래도 확인", "왼쪽 목록에 복기할 거래가 여러 개라면 눌러서 결과를 바꿔 볼 수 있습니다. 확인하지 않은 거래는 은은하게 강조됩니다.", "#inn-trade-review-list", false, { padding: 10 }],
-      ["복기 종료", "복기 종료를 누르면 확인한 거래에 결과 뱃지가 붙고 거래지식 1을 얻습니다. 확인하지 않은 거래는 다음 숙박 때 다시 볼 수 있으며, 화면이 어두워지며 숙박을 계속합니다.", "#inn-trade-review-finish", true, { padding: 10 }]
+      ["다른 거래도 확인", "왼쪽 목록에 복기할 거래가 여러 개라면 눌러서 결과를 바꿔 볼 수 있습니다. 아직 열어보지 않은 거래는 은은하게 강조됩니다.", "#inn-trade-review-list", false, { padding: 10 }],
+      ["복기 종료", "복기 종료를 누르면 그날 제시된 거래 전체에 결과 뱃지가 붙고 거래지식 1을 얻습니다. 화면이 어두워지며 숙박을 계속합니다.", "#inn-trade-review-finish", true, { padding: 10 }]
     ]
   };
   const entry = configurations[tutorialId]?.[step];

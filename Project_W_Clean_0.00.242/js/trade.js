@@ -124,9 +124,11 @@
   let hasPartnerHangover = () => false;
   let showMerchantComment = () => Promise.resolve();
   let cancelMerchantComments = () => {};
-  let getBargainProfile = () => ({ available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 5 });
+  let getBargainProfile = () => ({ available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 3, valueMaximum: 6 });
   let attemptBargain = () => ({ success: false });
   let completeBargainTrade = () => {};
+  let updateCompanyInformationButton = () => {};
+  let collectCompanyInformation = () => Promise.resolve(false);
   let recordMerchantProfit = () => {};
   let showBargainDialogue = () => {};
   let notify = () => {};
@@ -164,6 +166,12 @@
     getBargainProfile = typeof options.getBargainProfile === "function" ? options.getBargainProfile : getBargainProfile;
     attemptBargain = typeof options.attemptBargain === "function" ? options.attemptBargain : attemptBargain;
     completeBargainTrade = typeof options.completeBargainTrade === "function" ? options.completeBargainTrade : completeBargainTrade;
+    updateCompanyInformationButton = typeof options.updateCompanyInformationButton === "function"
+      ? options.updateCompanyInformationButton
+      : updateCompanyInformationButton;
+    collectCompanyInformation = typeof options.collectCompanyInformation === "function"
+      ? options.collectCompanyInformation
+      : collectCompanyInformation;
     recordMerchantProfit = typeof options.recordMerchantProfit === "function" ? options.recordMerchantProfit : recordMerchantProfit;
     showBargainDialogue = typeof options.showBargainDialogue === "function" ? options.showBargainDialogue : showBargainDialogue;
     notify = typeof options.notify === "function" ? options.notify : notify;
@@ -171,6 +179,7 @@
       modal: document.querySelector("#trade-modal"),
       snackButton: document.querySelector("#trade-snack-open"),
       currencyRatesButton: document.querySelector("#trade-currency-rates"),
+      companyInformationButton: document.querySelector("#trade-company-information"),
       close: document.querySelector("#trade-close"),
       title: document.querySelector("#trade-title"),
       location: document.querySelector("#trade-location"),
@@ -190,6 +199,8 @@
       merchantCurrencyFill: document.querySelector("#trade-merchant-currency-fill"),
       balanceValue: document.querySelector("#trade-balance-value"),
       bargain: document.querySelector("#trade-bargain"),
+      exchangeFocus: document.querySelector("#trade-exchange-focus"),
+      exchangeFocusButtons: [...document.querySelectorAll("[data-trade-action='exchange-focus']")],
       exchangeFee: document.querySelector("#trade-exchange-fee"),
       balanceStatus: document.querySelector("#trade-balance-status"),
       cargoPreview: document.querySelector("#trade-cargo-preview"),
@@ -207,6 +218,7 @@
     if (!elements.modal || !elements.confirm) return;
     elements.snackButton?.addEventListener("click", openMarketSnack);
     elements.currencyRatesButton?.addEventListener("click", purchaseCurrencyRates);
+    elements.companyInformationButton?.addEventListener("click", handleCompanyInformation);
     elements.close.addEventListener("click", close);
     elements.confirm.addEventListener("click", confirmTrade);
     elements.bargain?.addEventListener("click", handleBargain);
@@ -258,9 +270,14 @@
       const status = elements.currencyRatesButton.querySelector("span");
       if (status) status.textContent = `${region} 최신 정보`;
     }
+    if (elements.companyInformationButton) {
+      elements.companyInformationButton.hidden = facilityType !== "상회";
+      elements.companyInformationButton.disabled = true;
+    }
     elements.modal.hidden = false;
     elements.modal.dataset.facilityType = facilityType;
     elements.modal.classList.toggle("is-currency-exchange", currencyOnly);
+    if (elements.exchangeFocus) elements.exchangeFocus.hidden = !currencyOnly;
     window.dispatchEvent(new CustomEvent("projectw:facilitychange", {
       detail: { open: true, facilityType }
     }));
@@ -349,6 +366,9 @@
       : { player: "all", merchant: "all" };
     render();
     if (elements.currencyRatesButton && currencyOnly) elements.currencyRatesButton.disabled = false;
+    if (elements.companyInformationButton && facilityType === "상회") {
+      updateCompanyInformationButton(elements.companyInformationButton, companyName, settlement);
+    }
     startMerchantCommentary();
     if (elements.snackButton && snackAvailable) {
       const usage = getFoodUsage() || {};
@@ -394,6 +414,15 @@
       kind: "snack",
       onReturn: () => open(reopenOptions)
     });
+  }
+
+  async function handleCompanyInformation() {
+    if (!current || current.facilityType !== "상회" || !elements.companyInformationButton) return;
+    elements.companyInformationButton.disabled = true;
+    await collectCompanyInformation(current.companyName, current.settlement);
+    if (current?.facilityType === "상회" && !elements.modal.hidden) {
+      updateCompanyInformationButton(elements.companyInformationButton, current.companyName, current.settlement);
+    }
   }
 
   function purchaseCurrencyRates() {
@@ -2361,6 +2390,9 @@
       elements.merchantCurrencyFill.hidden = Boolean(current.currencyOnly);
       elements.merchantCurrencyFill.disabled = current.currencyOnly || proposal.player.notes.size > 0 || balance.playerValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("merchant", missingValue, false);
     }
+    elements.exchangeFocusButtons?.forEach(button => {
+      button.disabled = !current.currencyOnly || playerTotal <= 0;
+    });
     renderBalanceValue(balance);
     if (elements.exchangeFee) {
       elements.exchangeFee.hidden = !current.currencyOnly;
@@ -2757,6 +2789,10 @@
       fillOfferWithCurrency(target.dataset.tradeOwner === "merchant" ? "merchant" : "player");
       return;
     }
+    if (action === "exchange-focus") {
+      fillCurrencyExchangePayout(target.dataset.currencyFocus);
+      return;
+    }
     if (action === "filter") setOfferFilter(target.dataset.tradeOwner, target.dataset.tradeFilter);
   }
 
@@ -2837,6 +2873,70 @@
     if (added > 0) window.ProjectWAudio?.playEffect("coin");
     else notify(playerSide ? "부족한 가치를 채울 화폐가 없습니다." : "상인이 건넬 수 있는 적절한 화폐가 없습니다.");
     render();
+  }
+
+  function maximumCurrencyExchangePayout(playerValue, feeRate) {
+    let low = 0;
+    let high = Math.max(0, Math.floor(Number(playerValue) || 0));
+    const rate = Math.max(0, Number(feeRate) || 0);
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      const required = middle + Math.ceil(middle * rate / 100);
+      if (required <= playerValue) low = middle;
+      else high = middle - 1;
+    }
+    return low;
+  }
+
+  function fillCurrencyExchangePayout(focusType) {
+    if (!current?.currencyOnly || !["금화", "은화", "동화"].includes(focusType)) return;
+    const playerValue = Math.max(0, Math.floor(offerValue("player")));
+    if (playerValue <= 0) {
+      notify("먼저 왼쪽에 지불할 화폐를 올려주세요.");
+      return;
+    }
+    const payoutTarget = maximumCurrencyExchangePayout(playerValue, calculateExchangeFeeRate());
+    if (payoutTarget <= 0) {
+      notify("환전 할증을 포함해 받을 수 있는 화폐 가치가 부족합니다.");
+      return;
+    }
+
+    proposal.merchant.currencies.clear();
+    const entries = current.currencies
+      .map(currency => ({
+        currency,
+        value: tradeCurrencyValue(currency),
+        available: Math.max(0, walletQuantity(current.merchant.wallet, currency.id))
+      }))
+      .filter(entry => entry.value > 0 && entry.available > 0);
+    const byValueDescending = (left, right) => right.value - left.value || left.currency.id.localeCompare(right.currency.id);
+    const ordered = [
+      ...entries.filter(entry => entry.currency.type === focusType).sort(byValueDescending),
+      ...entries.filter(entry => entry.currency.type !== focusType).sort(byValueDescending)
+    ];
+
+    let remaining = payoutTarget;
+    let selected = 0;
+    ordered.forEach(entry => {
+      if (remaining <= 0) return;
+      const quantity = Math.min(entry.available, Math.floor((remaining + .0001) / entry.value));
+      if (quantity <= 0) return;
+      proposal.merchant.currencies.set(entry.currency.id, quantity);
+      remaining -= entry.value * quantity;
+      selected += quantity;
+    });
+
+    if (selected <= 0) {
+      notify("환전상이 지급할 수 있는 화폐가 없습니다.");
+      render();
+      return;
+    }
+    window.ProjectWAudio?.playEffect("coin");
+    render();
+    const result = balanceResult(offerValue("player"), offerValue("merchant"));
+    notify(result.valid
+      ? `${focusType} 중점으로 받을 화폐를 구성했습니다.`
+      : `${focusType} 재고가 부족해 가능한 범위에서 구성했습니다. 가치를 확인해주세요.`);
   }
 
   function setOfferFilter(owner, filter) {
@@ -2985,15 +3085,15 @@
   }
 
   function knowledgeBargainChanceBonus() {
-    let eligibleQuantity = 0;
+    const eligibleItems = new Set();
     ["player", "merchant"].forEach(owner => {
       proposal[owner].goods.forEach((quantity, key) => {
         const entry = tradeEntry(owner, key);
         if (!entry?.definition || !knowledgeProfile(entry.definition, entry).showBargainChanceBonus) return;
-        eligibleQuantity += Math.max(0, Math.trunc(Number(quantity) || 0));
+        if (Math.max(0, Math.trunc(Number(quantity) || 0)) > 0) eligibleItems.add(entry.definition.id);
       });
     });
-    return eligibleQuantity * 4;
+    return Math.min(3, eligibleItems.size) * 4;
   }
 
   function renderBargainControl() {
@@ -3006,7 +3106,7 @@
     if (count) count.textContent = `${profile.attemptsRemaining} / ${profile.attemptsMaximum}`;
     elements.bargain.disabled = !profile.available || profile.attemptsRemaining <= 0;
     const knowledgeBonus = Math.max(0, Number(profile.knowledgeItemBonus) || 0);
-    const tooltip = `성공 확률 ${formatNumber(profile.chance)}%${knowledgeBonus > 0 ? `\n상품 지식 보정 +${formatNumber(knowledgeBonus)}%` : ""}\n가치 보정 +${formatNumber(profile.valuePerSuccess)}%\n현재 거래 누적 성공 ${Math.max(0, Math.trunc(Number(profile.successes) || 0))}회`;
+    const tooltip = `성공 확률 ${formatNumber(profile.chance)}%${knowledgeBonus > 0 ? `\n상품 지식 보정 +${formatNumber(knowledgeBonus)}%` : ""}\n성공 시 가치 보정 +${formatNumber(profile.valuePerSuccess)}% · 누적 상한 ${formatNumber(profile.valueMaximum)}%\n현재 거래 누적 성공 ${Math.max(0, Math.trunc(Number(profile.successes) || 0))}회`;
     elements.bargain.dataset.bargainTooltip = tooltip;
     elements.bargain.setAttribute("aria-label", `흥정. ${tooltip.replaceAll("\n", ". ")}`);
     elements.bargain.classList.toggle("has-attempts", profile.available && profile.attemptsRemaining > 0);
@@ -3189,6 +3289,9 @@
     proposal = createProposal();
     if (!current.currencyOnly) completeBargainTrade(bargainContext());
     render();
+    if (elements.companyInformationButton && current.facilityType === "상회") {
+      updateCompanyInformationButton(elements.companyInformationButton, current.companyName, current.settlement);
+    }
     const completionDetails = [];
     if (companyTrade?.earnedScore > 0) completionDetails.push(`${current.companyName} 이용점수 +${formatNumber(companyTrade.earnedScore)}`);
     if (soldCargoQuantity > 0) {
@@ -3381,6 +3484,7 @@
     elements.modal.hidden = true;
     delete elements.modal.dataset.facilityType;
     elements.modal.classList.remove("is-currency-exchange");
+    if (elements.exchangeFocus) elements.exchangeFocus.hidden = true;
     if (elements.snackButton) {
       elements.snackButton.hidden = true;
       elements.snackButton.disabled = true;
@@ -3388,6 +3492,10 @@
     if (elements.currencyRatesButton) {
       elements.currencyRatesButton.hidden = true;
       elements.currencyRatesButton.disabled = true;
+    }
+    if (elements.companyInformationButton) {
+      elements.companyInformationButton.hidden = true;
+      elements.companyInformationButton.disabled = true;
     }
     window.dispatchEvent(new CustomEvent("projectw:facilitychange", {
       detail: { open: false, facilityType: current?.facilityType || "" }

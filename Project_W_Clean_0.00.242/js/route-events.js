@@ -389,7 +389,15 @@
 
   async function restorePending() {
     const state = currentState();
-    if (!state.pending || !await load()) return false;
+    if (!state.pending) return false;
+    if (!await load()) {
+      state.pending = null;
+      storeState(state);
+      persist();
+      notify("경로 이벤트 데이터를 불러오지 못해 해당 이벤트를 건너뜁니다.");
+      closeAndResume();
+      return false;
+    }
     try {
       await Promise.all([prepareCurrencyData(), prepareAssetData()]);
     } catch (error) {
@@ -399,6 +407,9 @@
     if (!event) {
       state.pending = null;
       storeState(state);
+      persist();
+      notify("저장된 경로 이벤트를 찾지 못해 해당 이벤트를 건너뜁니다.");
+      closeAndResume();
       return false;
     }
     const paymentRange = automaticPaymentRange(event.developer);

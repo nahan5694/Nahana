@@ -5,6 +5,12 @@
   const REGIONS = ["북부", "중부", "남부"];
   const BASE_ACQUISITION_CHANCE = .2;
   const SPECIAL_INFORMATION_WEIGHT_MULTIPLIER = 10;
+  const LOCAL_INFORMATION_FACILITIES = new Set(["주점", "여관"]);
+  const NEARBY_INFORMATION_DISTANCE = 14;
+  const LOCAL_INFORMATION_WEIGHT_MULTIPLIER = 8;
+  const MIDRANGE_INFORMATION_DISTANCE = 25;
+  const MIDRANGE_INFORMATION_WEIGHT_MULTIPLIER = 3;
+  const DISTANT_INFORMATION_WEIGHT_MULTIPLIER = .35;
   const GRADE_VI_EFFECTIVE_WEIGHT = 11;
   const INITIAL_INFORMATION_AGE_BANDS = [
     [
@@ -66,6 +72,7 @@
   let getWorldSeed = () => "legacy-world";
   let getSettlements = () => [];
   let getRoutes = () => [];
+  let getPlacementDistance = () => Number.POSITIVE_INFINITY;
   let getCityEvents = () => [];
   let getWeather = () => ({ label: "맑음" });
   let getWolfenState = () => ({});
@@ -100,6 +107,9 @@
     getWorldSeed = typeof options.getWorldSeed === "function" ? options.getWorldSeed : getWorldSeed;
     getSettlements = typeof options.getSettlements === "function" ? options.getSettlements : getSettlements;
     getRoutes = typeof options.getRoutes === "function" ? options.getRoutes : getRoutes;
+    getPlacementDistance = typeof options.getPlacementDistance === "function"
+      ? options.getPlacementDistance
+      : getPlacementDistance;
     getCityEvents = typeof options.getCityEvents === "function" ? options.getCityEvents : getCityEvents;
     getWeather = typeof options.getWeather === "function" ? options.getWeather : getWeather;
     getWolfenState = typeof options.getWolfenState === "function" ? options.getWolfenState : getWolfenState;
@@ -375,7 +385,7 @@
       state.discoveredKeys = state.discoveredKeys.filter(key => !text(key).startsWith("WOLFEN:"));
     }
     const requestedSpecial = text(special);
-    const candidates = (await buildCandidates(state, placement)).filter(candidate => !requestedSpecial
+    const candidates = (await buildCandidates(state, placement, facility)).filter(candidate => !requestedSpecial
       || candidate.template?.special === requestedSpecial
       || array(candidate.variants).some(variant => variant?.special === requestedSpecial));
     if (!candidates.length) return { acquired: false, attempted: false, message: "지금 얻을 수 있는 새로운 정보가 없습니다." };
@@ -447,7 +457,7 @@
     };
   }
 
-  async function buildCandidates(state, placement) {
+  async function buildCandidates(state, placement, facility = "") {
     // Trade signals load the map and current city events before these snapshots are read.
     const signals = await getInformationSignals();
     const discovered = new Set(state.discoveredKeys);
@@ -460,7 +470,8 @@
     const candidates = [];
     const push = (template, instanceKey, variables = {}, target = {}, multiplier = 1) => {
       if (!template || discovered.has(instanceKey)) return;
-      candidates.push({ template, instanceKey, variables, target, weight: Math.max(.01, template.weight * multiplier) });
+      const locality = informationLocalityMultiplier({ facility, placement, target, settlements, routes });
+      candidates.push({ template, instanceKey, variables, target, weight: Math.max(.01, template.weight * multiplier * locality) });
     };
     const pushVariants = (variants, instanceKey, variables = {}, target = {}, multiplier = 1) => {
       const available = array(variants).filter(Boolean);
@@ -472,7 +483,8 @@
         instanceKey,
         variables,
         target,
-        weight: Math.max(.01, averageWeight * multiplier)
+        weight: Math.max(.01, averageWeight * multiplier
+          * informationLocalityMultiplier({ facility, placement, target, settlements, routes }))
       });
     };
 
@@ -545,6 +557,30 @@
         }, { ...signal, kind: "security" }, SPECIAL_INFORMATION_WEIGHT_MULTIPLIER);
     });
     return candidates;
+  }
+
+  function informationLocalityMultiplier({ facility = "", placement = null, target = {}, settlements = [], routes = [] } = {}) {
+    if (!LOCAL_INFORMATION_FACILITIES.has(text(facility))) return 1;
+    const originId = text(placement?.id);
+    const targetIds = informationTargetPlacementIds(target, settlements, routes);
+    if (!originId || !targetIds.length) return 1;
+    const nearestDistance = Math.min(...targetIds.map(targetId => number(getPlacementDistance(originId, targetId), Number.POSITIVE_INFINITY)));
+    if (nearestDistance <= NEARBY_INFORMATION_DISTANCE) return LOCAL_INFORMATION_WEIGHT_MULTIPLIER;
+    if (nearestDistance <= MIDRANGE_INFORMATION_DISTANCE) return MIDRANGE_INFORMATION_WEIGHT_MULTIPLIER;
+    return DISTANT_INFORMATION_WEIGHT_MULTIPLIER;
+  }
+
+  function informationTargetPlacementIds(target = {}, settlements = [], routes = []) {
+    const settlementId = text(target.settlementId || (target.targetKind === "settlement" ? target.targetId : ""));
+    if (settlementId && settlements.some(settlement => settlement.id === settlementId)) return [settlementId];
+    const placementId = text(target.placementId);
+    if (placementId && (settlements.some(settlement => settlement.id === placementId)
+      || routes.some(route => route.id === placementId))) return [placementId];
+    const routeKey = text(target.placementId || target.segmentId || (target.targetKind === "route" ? target.targetId : ""));
+    if (!routeKey) return [];
+    return routes
+      .filter(route => route.id === routeKey || routeSegmentId(route) === routeKey)
+      .map(route => route.id);
   }
 
   function buildWeatherCandidates({ settlements, routes, cycle, pushVariants }) {
@@ -854,11 +890,16 @@
     const title = document.createElement("strong");
     title.textContent = "정보 수집";
     const details = document.createElement("dl");
+    const facility = button.dataset.informationFacility;
+    const noTime = ["상업조합", "상회"].includes(facility);
     const fields = [
       ["정보 획득 확률", `${Math.round(acquisitionChance() * 100)}%`],
       ["이번 수집", `${Math.max(0, Math.trunc(Number(button.dataset.informationAttemptCount) || 0))}회 일괄 시도`],
-      ["소모 시간", button.dataset.informationFacility === "상업조합" ? "없음 (0타임)" : "1타임"],
-      ["전환 시간대", button.dataset.informationTimeTransition || (button.dataset.informationFacility === "상업조합" ? "변화 없음" : "다음 시간대")]
+      ["정보 범위", LOCAL_INFORMATION_FACILITIES.has(facility)
+        ? `현재 거점 포함 · 거리 0~${NEARBY_INFORMATION_DISTANCE} 8배 · ${NEARBY_INFORMATION_DISTANCE + 1}~${MIDRANGE_INFORMATION_DISTANCE} 3배`
+        : "대륙 전역"],
+      ["소모 시간", noTime ? "없음 (0타임)" : "1타임"],
+      ["전환 시간대", button.dataset.informationTimeTransition || (noTime ? "변화 없음" : "다음 시간대")]
     ];
     fields.forEach(([label, value]) => {
       const term = document.createElement("dt");
