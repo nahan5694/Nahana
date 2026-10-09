@@ -5290,24 +5290,6 @@ button.map-marker:active { cursor: grabbing; }
 .trade-title-copy { min-width: 0; }
 .trade-company-icon { flex: 0 0 auto; width: 46px; height: 46px; object-fit: contain; filter: drop-shadow(0 2px 2px #4a2d194d); }
 .trade-header-actions { display: flex; align-items: center; gap: 7px; }
-.trade-dialogue-action {
-  min-height: 34px;
-  padding: 7px 11px;
-  border: 1px solid #80603d;
-  border-radius: 3px;
-  background: linear-gradient(#f6e6c5, #dabb84);
-  color: #5b3c24;
-  font-size: .67rem;
-  font-weight: 900;
-  box-shadow: inset 0 1px #fff6df, 0 1px 2px #3f291c26;
-}
-.trade-dialogue-action:hover:not(:disabled),
-.trade-dialogue-action:focus-visible:not(:disabled) {
-  border-color: #5f4024;
-  background: linear-gradient(#fff1cf, #e7c78e);
-  box-shadow: inset 0 0 0 1px #fff4d6, 0 0 0 2px #c08b4352;
-}
-.trade-dialogue-action:disabled { opacity: .42; filter: grayscale(.65); cursor: default; }
 .trade-window-header p { margin: 0; }
 .trade-window-header .trade-title-copy > p { color: #856744; font-size: .7rem; font-weight: 850; }
 .trade-window-header h2 { margin: 2px 0 0; font-size: 1.35rem; }
@@ -5336,101 +5318,6 @@ button.map-marker:active { cursor: grabbing; }
   box-shadow: inset 0 0 0 1px #cda56c7d;
 }
 .trade-developer-toggle { border-color: #66573c; background: linear-gradient(#76694d, #554832); color: #fff1cf; }
-.trade-dialogue-review-layer {
-  position: fixed;
-  z-index: 151;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 34px;
-  background: #24180fad;
-  backdrop-filter: blur(2px);
-}
-.trade-dialogue-review-layer[hidden] { display: none; }
-.trade-dialogue-review-window {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  width: min(760px, 76vw);
-  max-height: min(720px, 78vh);
-  padding: 16px;
-  overflow: hidden;
-  border: 1px solid #674522;
-  border-radius: 4px;
-  background: linear-gradient(145deg, #f7e8c9f7, #ddbf8bf7);
-  color: #4b321f;
-  box-shadow: inset 0 0 0 2px #fff1cf8c, 0 18px 50px #1d120b80;
-}
-.trade-dialogue-review-window > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 2px 2px 12px;
-  border-bottom: 1px solid #76502f66;
-}
-.trade-dialogue-review-window > header span { color: #8a6842; font-size: .67rem; font-weight: 900; }
-.trade-dialogue-review-window h3 { margin: 3px 0 0; font-size: 1.15rem; }
-.trade-dialogue-review-window > header button,
-.trade-dialogue-review-list article > button {
-  min-height: 31px;
-  padding: 6px 11px;
-  border: 1px solid #795332;
-  border-radius: 3px;
-  background: #f0d9ad;
-  color: #563821;
-  font-size: .66rem;
-  font-weight: 900;
-}
-.trade-dialogue-review-summary {
-  margin: 0;
-  padding: 10px 2px 8px;
-  color: #765637;
-  font-size: .72rem;
-  font-weight: 850;
-}
-.trade-dialogue-review-list {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 2px 5px 2px 2px;
-  scrollbar-color: #9b7448 #ead3a7;
-  scrollbar-width: thin;
-}
-.trade-dialogue-review-list article {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px 14px;
-  padding: 11px 12px;
-  border: 1px solid #98714970;
-  border-left: 4px solid #957044;
-  border-radius: 3px;
-  background: #fff0d2b8;
-  box-shadow: inset 0 1px #fff8e9b3;
-}
-.trade-dialogue-review-list article > header { display: grid; grid-column: 1; gap: 5px; min-width: 0; }
-.trade-dialogue-review-list article > header > div { display: flex; align-items: center; gap: 7px; }
-.trade-dialogue-review-list article > header span {
-  padding: 2px 6px;
-  border: 1px solid #8d68445c;
-  background: #dcc08e9e;
-  color: #644529;
-  font-size: .59rem;
-  font-weight: 900;
-}
-.trade-dialogue-review-list article > header small { color: #987957; font-size: .58rem; font-weight: 900; }
-.trade-dialogue-review-list article > header strong { font-size: .76rem; }
-.trade-dialogue-review-list article > p {
-  grid-column: 1;
-  margin: 0;
-  color: #4d3523;
-  font-size: .76rem;
-  font-weight: 700;
-  line-height: 1.58;
-}
-.trade-dialogue-review-list article > button { grid-column: 2; grid-row: 1 / span 2; align-self: center; white-space: nowrap; }
 .trade-catalogs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 0; }
 .trade-catalog,
 .trade-offer {

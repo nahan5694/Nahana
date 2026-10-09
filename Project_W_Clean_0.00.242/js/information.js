@@ -895,17 +895,21 @@
     const fields = [
       ["정보 획득 확률", `${Math.round(acquisitionChance() * 100)}%`],
       ["이번 수집", `${Math.max(0, Math.trunc(Number(button.dataset.informationAttemptCount) || 0))}회 일괄 시도`],
-      ["정보 범위", LOCAL_INFORMATION_FACILITIES.has(facility)
-        ? `현재 거점 포함 · 거리 0~${NEARBY_INFORMATION_DISTANCE} 8배 · ${NEARBY_INFORMATION_DISTANCE + 1}~${MIDRANGE_INFORMATION_DISTANCE} 3배`
-        : "대륙 전역"],
-      ["소모 시간", noTime ? "없음 (0타임)" : "1타임"],
-      ["전환 시간대", button.dataset.informationTimeTransition || (noTime ? "변화 없음" : "다음 시간대")]
+      ["정보 범위", LOCAL_INFORMATION_FACILITIES.has(facility) ? "인근 정보" : "광역 정보", "range"],
+      ["소모 시간", noTime ? "없음" : "1타임", "cost"],
+      ["시간 변화", button.dataset.informationTimeTransition || (noTime ? "변화 없음" : "다음 시간대"), "time"]
     ];
-    fields.forEach(([label, value]) => {
+    fields.forEach(([label, value, kind = "text"]) => {
       const term = document.createElement("dt");
       const description = document.createElement("dd");
       term.textContent = label;
-      description.textContent = value;
+      if (kind === "range") {
+        description.append(collectionTooltipBadge(value, value === "인근 정보" ? "nearby" : "wide"));
+      } else if (kind === "cost") {
+        description.append(collectionTooltipBadge(value, noTime ? "quiet" : "cost"));
+      } else if (kind === "time") {
+        description.append(createInformationTimeFlow(value));
+      } else description.textContent = value;
       details.append(term, description);
     });
     tooltip.replaceChildren(title, details);
@@ -921,6 +925,29 @@
     const top = anchor.bottom + rect.height + 12 <= window.innerHeight ? anchor.bottom + 10 : anchor.top - rect.height - 10;
     tooltip.style.left = `${Math.max(12, left)}px`;
     tooltip.style.top = `${Math.max(12, top)}px`;
+  }
+
+  function collectionTooltipBadge(label, tone = "quiet") {
+    const badge = document.createElement("span");
+    badge.className = `information-collection-badge is-${tone}`;
+    badge.textContent = label;
+    return badge;
+  }
+
+  function createInformationTimeFlow(value) {
+    const flow = document.createElement("span");
+    flow.className = "information-time-flow";
+    const phases = String(value || "").split(/\s*(?:→|>>|≫)\s*/).filter(Boolean);
+    if (phases.length < 2) {
+      flow.append(collectionTooltipBadge(value || "변화 없음", "quiet"));
+      return flow;
+    }
+    flow.append(collectionTooltipBadge(phases[0], "time-from"));
+    const arrow = document.createElement("span");
+    arrow.className = "information-time-flow-arrow";
+    arrow.textContent = ">>";
+    flow.append(arrow, collectionTooltipBadge(phases.at(-1), "time-to"));
+    return flow;
   }
 
   function hideCollectionTooltip() {

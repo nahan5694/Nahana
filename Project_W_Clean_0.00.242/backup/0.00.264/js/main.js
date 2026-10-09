@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.265";
+const GAME_VERSION = "0.00.263";
 const ACCOUNT_SCHEMA_VERSION = 44;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -920,12 +920,6 @@ const merchantCommentCharacter = document.querySelector("#merchant-comment-chara
 const merchantCommentSpeaker = document.querySelector("#merchant-comment-speaker");
 const merchantCommentMessage = document.querySelector("#merchant-comment-message");
 const merchantCommentClose = document.querySelector("#merchant-comment-close");
-const tradeDialogueReview = document.querySelector("#trade-dialogue-review");
-const tradeDialogueDismiss = document.querySelector("#trade-dialogue-dismiss");
-const tradeDialogueReviewLayer = document.querySelector("#trade-dialogue-review-layer");
-const tradeDialogueReviewClose = document.querySelector("#trade-dialogue-review-close");
-const tradeDialogueReviewSummary = document.querySelector("#trade-dialogue-review-summary");
-const tradeDialogueReviewList = document.querySelector("#trade-dialogue-review-list");
 const tavernCommentPopup = document.querySelector("#tavern-comment-popup");
 const tavernCommentCharacter = document.querySelector("#tavern-comment-character");
 const tavernCommentSpeaker = document.querySelector("#tavern-comment-speaker");
@@ -995,10 +989,6 @@ let partnerCommonSenseHideTimer;
 let merchantCommentTimer;
 let merchantCommentHideTimer;
 let merchantCommentResolve;
-let shopSideDialogueSessionKey = "";
-let shopSideDialogueEnabled = false;
-let shopSideDialogueDismissAvailable = false;
-const shopSideDialogueEntries = [];
 let tavernCommentTimer;
 let tavernCommentHideTimer;
 let activeTavernVisit = null;
@@ -1225,7 +1215,7 @@ window.ProjectWTrade.init({
   getMerchantCommentMisreadChance: () => partnerHasStatus(
     normalizePartnerState(account?.partner, account?.partnerMoodAdjustment),
     "성실한 학생"
-  ) ? 0 : null,
+  ) ? 0 : 0.15,
   getCompanyScoreMultiplier: () => partnerCompanyScoreMultiplier(),
   getSettlementVisitToken: () => settlementDialogueVisitToken(),
   getCityEventModifiers: settlement => window.ProjectWCityEvents.getModifiers(settlement),
@@ -1636,18 +1626,6 @@ dialogCard?.addEventListener("click", handleDialogueCardClick);
 dialogLogToggle?.addEventListener("click", () => toggleDialogueLog());
 dialogLogClose?.addEventListener("click", () => toggleDialogueLog(false));
 merchantCommentClose?.addEventListener("click", () => hideMerchantCommentPopup());
-tradeDialogueReview?.addEventListener("click", openShopSideDialogueReview);
-tradeDialogueDismiss?.addEventListener("click", dismissShopSideDialogues);
-tradeDialogueReviewClose?.addEventListener("click", closeShopSideDialogueReview);
-tradeDialogueReviewLayer?.addEventListener("pointerdown", event => {
-  if (event.target === tradeDialogueReviewLayer) closeShopSideDialogueReview();
-});
-window.addEventListener("keydown", event => {
-  if (event.key !== "Escape" || !tradeDialogueReviewLayer || tradeDialogueReviewLayer.hidden) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  closeShopSideDialogueReview();
-}, true);
 tavernCommentClose?.addEventListener("click", () => hideTavernCommentPopup());
 roadCommentClose?.addEventListener("click", () => hideRoadCommentPopup());
 tutorialContinue?.addEventListener("click", advanceTutorialFromCard);
@@ -1787,16 +1765,11 @@ window.addEventListener("projectw:tradereviewcomplete", () => {
   scheduleInterfacePersistence();
 });
 window.addEventListener("projectw:tradeopen", event => {
-  beginShopSideDialogueSession(event.detail || {});
   handleTutorialTradeOpen(event.detail || {});
   refreshAdvancedTutorialLaunchers();
   scheduleInterfacePersistence();
 });
 window.addEventListener("projectw:tradeclose", () => {
-  closeShopSideDialogueReview();
-  shopSideDialogueEnabled = false;
-  shopSideDialogueDismissAvailable = false;
-  updateShopSideDialogueActions();
   latestTradeTutorialContext = null;
   refreshAdvancedTutorialLaunchers();
 });
@@ -4639,101 +4612,6 @@ function hidePartnerCommonSensePopup(immediate = false) {
   }, 560);
 }
 
-function beginShopSideDialogueSession(detail = {}) {
-  const facilityType = String(detail.facilityType || "").trim();
-  shopSideDialogueSessionKey = `${String(detail.settlementId || "")}|${facilityType}|${Date.now()}`;
-  shopSideDialogueEnabled = ["상회", "교역소", "시장", "좌판"].includes(facilityType);
-  shopSideDialogueDismissAvailable = shopSideDialogueEnabled;
-  shopSideDialogueEntries.splice(0);
-  closeShopSideDialogueReview();
-  updateShopSideDialogueActions();
-}
-
-function recordShopSideDialogue(entry = {}) {
-  if (!shopSideDialogueEnabled || tradeModal?.hidden) return;
-  const text = String(entry.text || "").replace(/\s+/g, " ").trim();
-  if (!text) return;
-  shopSideDialogueEntries.push({
-    sessionKey: shopSideDialogueSessionKey,
-    kind: String(entry.kind || "점포 대사"),
-    speaker: String(entry.speaker || "나하나"),
-    text,
-    itemName: String(entry.itemName || ""),
-    itemKey: String(entry.itemKey || "")
-  });
-  shopSideDialogueDismissAvailable = true;
-  updateShopSideDialogueActions();
-  if (tradeDialogueReviewLayer && !tradeDialogueReviewLayer.hidden) renderShopSideDialogueReview();
-}
-
-function updateShopSideDialogueActions() {
-  if (tradeDialogueReview) {
-    tradeDialogueReview.hidden = !shopSideDialogueEnabled;
-    tradeDialogueReview.disabled = !shopSideDialogueEnabled || shopSideDialogueEntries.length === 0;
-    tradeDialogueReview.textContent = shopSideDialogueEntries.length > 0
-      ? `확인한 조언 ${shopSideDialogueEntries.length}`
-      : "확인한 조언";
-  }
-  if (tradeDialogueDismiss) {
-    tradeDialogueDismiss.hidden = !shopSideDialogueEnabled;
-    tradeDialogueDismiss.disabled = !shopSideDialogueEnabled || !shopSideDialogueDismissAvailable;
-  }
-}
-
-function dismissShopSideDialogues() {
-  if (!shopSideDialogueEnabled) return;
-  window.ProjectWTrade?.dismissMerchantCommentary?.();
-  hideMerchantCommentPopup(true);
-  document.querySelectorAll(".system-mini-popup.is-bargain-success, .system-mini-popup.is-bargain-failure")
-    .forEach(popup => popup.querySelector("button")?.click());
-  shopSideDialogueDismissAvailable = false;
-  updateShopSideDialogueActions();
-}
-
-function openShopSideDialogueReview() {
-  if (!tradeDialogueReviewLayer || !shopSideDialogueEnabled || shopSideDialogueEntries.length === 0) return;
-  renderShopSideDialogueReview();
-  tradeDialogueReviewLayer.hidden = false;
-  requestAnimationFrame(() => tradeDialogueReviewClose?.focus());
-}
-
-function closeShopSideDialogueReview() {
-  if (tradeDialogueReviewLayer) tradeDialogueReviewLayer.hidden = true;
-}
-
-function renderShopSideDialogueReview() {
-  if (!tradeDialogueReviewList || !tradeDialogueReviewSummary) return;
-  tradeDialogueReviewList.replaceChildren();
-  tradeDialogueReviewSummary.textContent = `이 점포에서 확인한 상품 조언 ${shopSideDialogueEntries.length}건`;
-  shopSideDialogueEntries.forEach((entry, index) => {
-    const article = document.createElement("article");
-    const heading = document.createElement("header");
-    const meta = document.createElement("div");
-    const kind = document.createElement("span");
-    kind.textContent = entry.kind;
-    const sequence = document.createElement("small");
-    sequence.textContent = `${index + 1}`.padStart(2, "0");
-    meta.append(kind, sequence);
-    const speaker = document.createElement("strong");
-    speaker.textContent = entry.itemName ? `${entry.speaker} · ${entry.itemName}` : entry.speaker;
-    heading.append(meta, speaker);
-    const message = document.createElement("p");
-    message.textContent = entry.text;
-    article.append(heading, message);
-    if (entry.itemKey) {
-      const focus = document.createElement("button");
-      focus.type = "button";
-      focus.textContent = "상품 위치 보기";
-      focus.addEventListener("click", () => {
-        closeShopSideDialogueReview();
-        window.ProjectWTrade?.focusMerchantItem?.(entry.itemKey);
-      });
-      article.append(focus);
-    }
-    tradeDialogueReviewList.append(article);
-  });
-}
-
 function showMerchantCommentPopup(page, itemName, itemKey = "") {
   if (!merchantCommentPopup || !merchantCommentMessage) return Promise.resolve();
   hideMerchantCommentPopup(true);
@@ -4746,13 +4624,6 @@ function showMerchantCommentPopup(page, itemName, itemKey = "") {
     renderFormattedText(merchantCommentMessage, replaceDialogueVariables(page?.text, {
       교역품명: String(itemName || "이 물건")
     }));
-    recordShopSideDialogue({
-      kind: "상품 조언",
-      speaker: merchantCommentSpeaker.textContent,
-      text: merchantCommentMessage.textContent,
-      itemName,
-      itemKey
-    });
     const itemLink = [...merchantCommentMessage.querySelectorAll(".dialog-emphasis")]
       .find(element => element.textContent.trim() === String(itemName || "").trim());
     if (itemLink && itemKey) {

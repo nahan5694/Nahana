@@ -88,8 +88,6 @@
   const MERCHANT_COMMENT_FACILITIES = new Set(["시장", "좌판", "교역소", "상회"]);
   const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", "G_0280", NAHANA_EVENT_GIFT_ITEM_ID]);
   const MERCHANT_COMMENT_MISREAD_DIALOGUES = ["DL_G_001", "DL_G_002", "DL_G_003", "DL_G_004", "DL_G_005", "DL_G_006"];
-  const MERCHANT_COMMENT_ACCURACY_BY_TIER = new Map([[1, .95], [2, .9], [3, .85], [4, .8]]);
-  const MERCHANT_COMMENT_BAD_DURABILITY_RATIO = .4;
   const NON_COMPANY_TRADE_FACILITIES = {
     대도시: [
       { id: "trade-post", type: "교역소" },
@@ -119,7 +117,7 @@
   let getFoodUsage = () => ({ day: 1, snackUsed: false });
   let getPartnerMood = () => 50;
   let getMerchantCommentBonus = () => 0;
-  let getMerchantCommentMisreadChance = () => null;
+  let getMerchantCommentMisreadChance = () => 0.15;
   let getCompanyScoreMultiplier = () => 1;
   let getSettlementVisitToken = () => "";
   let getCityEventModifiers = () => ({ revision: 0, priceBySubcategory: {}, stockBySubcategory: {} });
@@ -3416,30 +3414,15 @@
       const falseIds = MERCHANT_COMMENT_MISREAD_DIALOGUES
         .filter(id => current.facilityType !== "좌판" || id !== "DL_G_005")
         .filter(id => !trueIds.includes(id));
-      const tier = clamp(Math.trunc(Number(definition.rarity) || 1), 1, 4);
-      const tierMisreadChance = 1 - (MERCHANT_COMMENT_ACCURACY_BY_TIER.get(tier) || .8);
-      const configuredMisreadChance = getMerchantCommentMisreadChance();
-      const hasConfiguredMisreadChance = configuredMisreadChance !== null
-        && configuredMisreadChance !== undefined
-        && configuredMisreadChance !== ""
-        && Number.isFinite(Number(configuredMisreadChance));
-      const misreadChance = hasConfiguredMisreadChance
-        ? clamp(Number(configuredMisreadChance), 0, 1)
-        : tierMisreadChance;
+      const misreadChance = clamp(Number(getMerchantCommentMisreadChance()) || 0, 0, 1);
       const useWrongComment = Math.random() < misreadChance && falseIds.length;
-      const pool = useWrongComment ? falseIds : prioritizedMerchantCommentIds(trueIds);
+      const pool = useWrongComment ? falseIds : trueIds;
       return {
         dialogueId: pool[Math.floor(Math.random() * pool.length)],
         itemName: knowledgeProfile(definition, lot).name,
         itemKey: lot.lotId
       };
     }).filter(entry => entry.dialogueId);
-  }
-
-  function prioritizedMerchantCommentIds(dialogueIds) {
-    if (dialogueIds.includes("DL_G_002")) return ["DL_G_002"];
-    const priceIds = dialogueIds.filter(id => id === "DL_G_003" || id === "DL_G_004");
-    return priceIds.length ? priceIds : dialogueIds;
   }
 
   async function runMerchantCommentary(sequence, plan) {
@@ -3464,10 +3447,11 @@
   function merchantCommentDialogueIds(lot, definition) {
     const ids = [];
     if (lot.quality === "고품질" || lot.quality === "명품") ids.push("DL_G_001");
-    const priceContext = merchantAdvicePriceContext(lot, definition);
-    if (lot.quality === "저품질" || priceContext.conditionRatio <= MERCHANT_COMMENT_BAD_DURABILITY_RATIO) ids.push("DL_G_002");
-    if (priceContext.marketRatio <= .8) ids.push("DL_G_003");
-    if (priceContext.marketRatio >= 1.2) ids.push("DL_G_004");
+    if (lot.quality === "저품질") ids.push("DL_G_002");
+    const preDurabilityValue = merchantSellValuation(lot, definition).preDurabilityValue;
+    const baseValue = Math.max(0, Number(definition.baseValue) || 0);
+    if (baseValue > 0 && preDurabilityValue <= baseValue * .8) ids.push("DL_G_003");
+    if (baseValue > 0 && preDurabilityValue >= baseValue * 1.2) ids.push("DL_G_004");
     if (lot.sourceType === "import" || lot.sourceType === "logistics") ids.push("DL_G_005");
     if (lot.sourceType === "production") ids.push("DL_G_006");
     const category = String(definition.category || "").replaceAll(" ", "");
@@ -3475,37 +3459,6 @@
     if (category === "향료" || category === "향신료") ids.push("DL_G_008");
     if (category === "귀중품") ids.push("DL_G_009");
     return [...new Set(ids)];
-  }
-
-  function merchantAdvicePriceContext(lot, definition) {
-    const valuation = merchantSellValuation(lot, definition);
-    const baseValue = Math.max(0, Number(definition?.baseValue) || 0);
-    const maximumDurability = Math.max(1, Number(valuation.durabilityMaximum) || Number(definition?.durability) || 1);
-    const currentDurability = clamp(Number(valuation.durabilityCurrent) || 0, 0, maximumDurability);
-    const conditionRatio = maximumDurability >= INDESTRUCTIBLE_DURABILITY
-      ? 1
-      : currentDurability / maximumDurability;
-    const qualityMultiplier = Math.max(.1, 1 + ((Number(valuation.qualityAdjustment) || 0) / 100));
-    const sourceMarketMultiplier = Math.max(.25, 1 + ((Number(valuation.distanceAdjustment) || 0) / 100));
-    const currentMarketMultiplier = Math.max(.25, Number(valuation.multiplier) || 1);
-    const importMultiplier = Math.max(.1, 1 + ((Number(valuation.importMarkup) || 0) / 100));
-    const durabilityMultiplier = Math.max(0, Number(valuation.durabilityPercent) || 0) / 100;
-    const adjustedReferenceValue = baseValue
-      * qualityMultiplier
-      * sourceMarketMultiplier
-      * importMultiplier
-      * durabilityMultiplier;
-    const currentMarketValue = baseValue
-      * qualityMultiplier
-      * currentMarketMultiplier
-      * importMultiplier
-      * durabilityMultiplier;
-    return {
-      conditionRatio,
-      adjustedReferenceValue,
-      currentMarketValue,
-      marketRatio: adjustedReferenceValue > 0 ? currentMarketValue / adjustedReferenceValue : 1
-    };
   }
 
   function waitForMerchantComment(milliseconds) {
@@ -3524,7 +3477,8 @@
 
   function close() {
     if (!elements.modal || elements.modal.hidden) return;
-    dismissMerchantCommentary();
+    merchantCommentSequence += 1;
+    cancelMerchantComments();
     window.ProjectWCargo.hideTooltip();
     hideWarningTooltip();
     elements.modal.hidden = true;
@@ -3552,11 +3506,6 @@
     offerFilters = { player: "all", merchant: "all" };
     merchantTravelFilterMode = "all";
     playerCatalogMode = "goods";
-  }
-
-  function dismissMerchantCommentary() {
-    merchantCommentSequence += 1;
-    cancelMerchantComments();
   }
 
   function isOpen() {
@@ -4025,7 +3974,6 @@
     restoreResumeState,
     refresh,
     focusMerchantItem,
-    dismissMerchantCommentary,
     reset,
     evaluateCargoAtSettlement,
     getInformationSignals,

@@ -4,6 +4,7 @@
 
   let getPlayerWallet = () => ({});
   let setPlayerWallet = () => {};
+  let getWorldTime = () => ({ day: 1, phaseIndex: 0 });
   let getAssetUrl = () => "";
   let notify = () => {};
   let getBargainProfile = () => ({ available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 5 });
@@ -18,6 +19,7 @@
   function init(options = {}) {
     getPlayerWallet = typeof options.getPlayerWallet === "function" ? options.getPlayerWallet : getPlayerWallet;
     setPlayerWallet = typeof options.setPlayerWallet === "function" ? options.setPlayerWallet : setPlayerWallet;
+    getWorldTime = typeof options.getWorldTime === "function" ? options.getWorldTime : getWorldTime;
     getAssetUrl = typeof options.getAssetUrl === "function" ? options.getAssetUrl : getAssetUrl;
     notify = typeof options.notify === "function" ? options.notify : notify;
     getBargainProfile = typeof options.getBargainProfile === "function" ? options.getBargainProfile : getBargainProfile;
@@ -664,8 +666,23 @@
     const currencyTransferred = selectedCurrencies.size > 0;
     const onPaid = session.onPaid;
     const paymentNoun = session.paymentNoun || "요구액";
+    const paidSettlement = session.settlement;
+    const paidMode = session.mode;
     setPlayerWallet(wallet);
     if (session.mode === "tax") completeBargainTrade(bargainContext());
+    if (paidMode === "tax" && result.tax > 0) {
+      const worldTime = getWorldTime() || {};
+      window.ProjectWMerchantPath?.recordReviewExpense?.("tax", {
+        amount: result.tax,
+        settlementId: paidSettlement?.id || "",
+        settlementName: paidSettlement?.name || "이름 없는 거점",
+        sourceLabel: "입장 관세소",
+        description: "입장 관세",
+        contractDay: worldTime.day,
+        phaseIndex: worldTime.phaseIndex,
+        completedAt: new Date().toISOString()
+      });
+    }
     if (currencyTransferred) window.ProjectWAudio?.playCurrencyCompletion?.("trade");
     else window.ProjectWAudio?.playEffect("trade");
     close(false);

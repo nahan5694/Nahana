@@ -89,7 +89,7 @@
   const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", "G_0280", NAHANA_EVENT_GIFT_ITEM_ID]);
   const MERCHANT_COMMENT_MISREAD_DIALOGUES = ["DL_G_001", "DL_G_002", "DL_G_003", "DL_G_004", "DL_G_005", "DL_G_006"];
   const MERCHANT_COMMENT_ACCURACY_BY_TIER = new Map([[1, .95], [2, .9], [3, .85], [4, .8]]);
-  const MERCHANT_COMMENT_BAD_DURABILITY_RATIO = .4;
+  const MERCHANT_COMMENT_BAD_DURABILITY_RATIO = .3;
   const NON_COMPANY_TRADE_FACILITIES = {
     대도시: [
       { id: "trade-post", type: "교역소" },
@@ -3427,19 +3427,13 @@
         ? clamp(Number(configuredMisreadChance), 0, 1)
         : tierMisreadChance;
       const useWrongComment = Math.random() < misreadChance && falseIds.length;
-      const pool = useWrongComment ? falseIds : prioritizedMerchantCommentIds(trueIds);
+      const pool = useWrongComment ? falseIds : trueIds;
       return {
         dialogueId: pool[Math.floor(Math.random() * pool.length)],
         itemName: knowledgeProfile(definition, lot).name,
         itemKey: lot.lotId
       };
     }).filter(entry => entry.dialogueId);
-  }
-
-  function prioritizedMerchantCommentIds(dialogueIds) {
-    if (dialogueIds.includes("DL_G_002")) return ["DL_G_002"];
-    const priceIds = dialogueIds.filter(id => id === "DL_G_003" || id === "DL_G_004");
-    return priceIds.length ? priceIds : dialogueIds;
   }
 
   async function runMerchantCommentary(sequence, plan) {
@@ -3486,20 +3480,12 @@
       ? 1
       : currentDurability / maximumDurability;
     const qualityMultiplier = Math.max(.1, 1 + ((Number(valuation.qualityAdjustment) || 0) / 100));
-    const sourceMarketMultiplier = Math.max(.25, 1 + ((Number(valuation.distanceAdjustment) || 0) / 100));
-    const currentMarketMultiplier = Math.max(.25, Number(valuation.multiplier) || 1);
-    const importMultiplier = Math.max(.1, 1 + ((Number(valuation.importMarkup) || 0) / 100));
+    const sourceMultiplier = Math.max(.25, 1 + ((Number(valuation.distanceAdjustment) || 0) / 100))
+      * Math.max(.1, 1 + ((Number(valuation.importMarkup) || 0) / 100));
     const durabilityMultiplier = Math.max(0, Number(valuation.durabilityPercent) || 0) / 100;
-    const adjustedReferenceValue = baseValue
-      * qualityMultiplier
-      * sourceMarketMultiplier
-      * importMultiplier
-      * durabilityMultiplier;
-    const currentMarketValue = baseValue
-      * qualityMultiplier
-      * currentMarketMultiplier
-      * importMultiplier
-      * durabilityMultiplier;
+    const adjustedReferenceValue = baseValue * qualityMultiplier * sourceMultiplier * durabilityMultiplier;
+    const currentMarketValue = adjustedReferenceValue
+      * Math.max(.25, 1 + ((Number(valuation.marketIndex) || 0) / 100));
     return {
       conditionRatio,
       adjustedReferenceValue,

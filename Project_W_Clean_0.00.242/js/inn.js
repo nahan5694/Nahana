@@ -992,16 +992,22 @@
     button.type = "button";
     button.dataset.tradeReviewIndex = String(index);
     button.className = `${index === tradeReviewIndex ? "is-active" : ""} ${tradeReviewViewedIds.has(String(entry.id)) ? "is-viewed" : "is-unread"}`.trim();
+    if (entry.kind === "expense") button.classList.add("is-expense", `is-${entry.expenseType}`);
     const label = document.createElement("span");
     const outcome = document.createElement("strong");
-    label.textContent = `${entry.itemName} · ${formatNumber(entry.quantity)}개`;
+    label.textContent = entry.kind === "expense"
+      ? `${entry.itemName} · ${formatNumber(entry.quantity)}건`
+      : `${entry.itemName} · ${formatNumber(entry.quantity)}개`;
     outcome.className = result ? "is-profit" : "is-loss";
-    outcome.textContent = `${result ? "+" : ""}${formatNumber(entry.profit)} 가치`;
+    outcome.textContent = entry.kind === "expense"
+      ? `합계 -${formatNumber(entry.total)} 가치`
+      : `${result ? "+" : ""}${formatNumber(entry.profit)} 가치`;
     button.append(label, outcome);
     return button;
   }
 
   function createTradeReviewDetail(entry) {
+    if (entry.kind === "expense") return createExpenseReviewDetail(entry);
     const fragment = document.createDocumentFragment();
     const header = document.createElement("header");
     const titleWrap = document.createElement("div");
@@ -1031,6 +1037,47 @@
       createFactorPanel("판매에서 크게 작용한 요소", entry.close?.reviewFactors, "sell")
     );
     fragment.append(header, summary, factors);
+    return fragment;
+  }
+
+  function createExpenseReviewDetail(entry) {
+    const fragment = document.createDocumentFragment();
+    const header = document.createElement("header");
+    const titleWrap = document.createElement("div");
+    const eyebrow = document.createElement("span");
+    const title = document.createElement("h4");
+    const total = document.createElement("strong");
+    eyebrow.textContent = `이전 복기 이후 · ${formatNumber(entry.quantity)}건`;
+    title.textContent = entry.expenseType === "tax" ? "최근에 지불한 관세" : "최근에 지불한 식비";
+    total.className = "is-loss";
+    total.textContent = `합계 -${formatNumber(entry.total)} 가치`;
+    titleWrap.append(eyebrow, title);
+    header.append(titleWrap, total);
+
+    const introduction = document.createElement("p");
+    introduction.className = "inn-expense-review-introduction";
+    introduction.textContent = entry.expenseType === "tax"
+      ? "거점에 들어가며 징수당한 관세를 지점별로 모았습니다."
+      : "주점 식사, 시장 간식과 여관 음식에 지불한 비용을 모았습니다.";
+
+    const list = document.createElement("section");
+    list.className = `inn-expense-review-list is-${entry.expenseType}`;
+    (Array.isArray(entry.details) ? entry.details : []).forEach(record => {
+      const row = document.createElement("article");
+      const location = document.createElement("div");
+      const place = document.createElement("strong");
+      const age = document.createElement("span");
+      const amount = document.createElement("b");
+      const description = document.createElement("small");
+      place.textContent = `${record.settlementName || "이름 없는 거점"} / ${record.sourceLabel || (entry.expenseType === "tax" ? "입장 관세소" : "식사")}`;
+      age.textContent = Number(record.ageDays) > 0 ? `${formatNumber(record.ageDays)}일 전` : "오늘";
+      amount.textContent = `-${formatNumber(record.amount)} 가치`;
+      description.textContent = record.description || (entry.expenseType === "tax" ? "입장 관세" : "식비");
+      location.append(place, age);
+      row.append(location, amount, description);
+      list.append(row);
+    });
+    fragment.append(header, introduction, list);
     return fragment;
   }
 

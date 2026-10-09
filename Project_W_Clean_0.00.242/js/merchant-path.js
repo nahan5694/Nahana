@@ -7,6 +7,7 @@
   const PEDDLER_REQUIREMENT_GROWTH = 1.237;
   const CONTRACT_START_DATE = { year: 1433, month: 4, day: 8 };
   const MAX_COMPLETED_JOURNEYS = 6;
+  const REVIEW_EXPENSE_TYPES = new Set(["tax", "food"]);
   const OUTLET_STATES = ["observed", "production", "excluded"];
   const LEVEL_THRESHOLDS = [0, 10, 20, 40, 80, 160, 320, 640];
   const EXCLUDED_CATEGORIES = new Set(["여행물품", "야영물품", "여행식량", "야영식량", "여행음식", "야영음식"]);
@@ -1124,12 +1125,13 @@
 
   function getPendingTradeReviews() {
     pruneTradeJourneys();
+    const reviewDay = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
     const definitionsById = new Map((window.ProjectWCargo?.getItemDefinitions?.() || []).map(definition => [String(definition.id), definition]));
     const entries = [];
     Object.entries(state.notebooks || {}).forEach(([itemId, source]) => {
       const notebook = ensureNotebookShape(source);
       notebook.journeys.forEach(record => {
-        if (record.status !== "sold" || !record.close || normalizeJourneyReview(record.review).completed) return;
+        if (!isTradeReviewEligible(record, reviewDay)) return;
         const definition = definitionsById.get(String(itemId));
         const profile = definition ? getDisplayProfile(definition) : null;
         const quantity = Math.max(1, Math.trunc(Number(record.quantity) || 1));
@@ -1146,17 +1148,102 @@
           returnRate: journeyReturnRate(record),
           distance: Math.max(0, Number(record.distance) || 0),
           elapsedDays: journeyElapsedDays(record),
+          saleDay: Math.max(1, Math.trunc(Number(record.close.contractDay) || 1)),
           purchase: { ...record.purchase, reviewFactors: normalizeReviewFactors(record.purchase?.reviewFactors) },
           close: { ...record.close, reviewFactors: normalizeReviewFactors(record.close?.reviewFactors) }
         });
       });
     });
-    return entries.sort((left, right) => (Number(left.close?.contractDay) || 0) - (Number(right.close?.contractDay) || 0));
+    const expenseRecords = normalizeReviewExpenses(state.reviewExpenses);
+    REVIEW_EXPENSE_TYPES.forEach(type => {
+      const records = expenseRecords.filter(record => record.type === type);
+      if (records.length) entries.push(createExpenseReviewEntry(type, records, reviewDay));
+    });
+    return entries.sort((left, right) => left.saleDay - right.saleDay || (left.kind === "expense" ? -1 : 1));
+  }
+
+  function recordReviewExpense(type, details = {}) {
+    const normalizedType = String(type || "").trim();
+    const amount = Math.max(0, Number(details.amount) || 0);
+    if (!REVIEW_EXPENSE_TYPES.has(normalizedType) || amount <= 0) return false;
+    const worldTime = getWorldTime() || {};
+    const record = normalizeReviewExpense({
+      id: `expense_${normalizedType}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: normalizedType,
+      amount,
+      settlementId: details.settlementId,
+      settlementName: details.settlementName,
+      sourceLabel: details.sourceLabel,
+      description: details.description,
+      contractDay: details.contractDay ?? worldTime.day,
+      phaseIndex: details.phaseIndex ?? worldTime.phaseIndex,
+      completedAt: details.completedAt || new Date().toISOString()
+    });
+    if (!record) return false;
+    state.reviewExpenses = normalizeReviewExpenses(state.reviewExpenses);
+    state.reviewExpenses.push(record);
+    persistState();
+    return true;
+  }
+
+  function createExpenseReviewEntry(type, records, reviewDay) {
+    const tax = type === "tax";
+    const details = [...records]
+      .sort((left, right) => left.contractDay - right.contractDay || left.phaseIndex - right.phaseIndex)
+      .map(record => ({
+        ...record,
+        ageDays: Math.max(0, reviewDay - record.contractDay)
+      }));
+    const total = details.reduce((sum, record) => sum + record.amount, 0);
+    const firstDay = Math.min(...details.map(record => record.contractDay));
+    const lastDay = Math.max(...details.map(record => record.contractDay));
+    return {
+      id: `expense:${type}`,
+      kind: "expense",
+      expenseType: type,
+      itemName: tax ? "지불한 관세" : "지불한 식비",
+      summaryLabel: tax ? "관세" : "식비",
+      quantity: details.length,
+      total,
+      profit: -total,
+      saleDay: lastDay,
+      elapsedDays: Math.max(0, lastDay - firstDay),
+      details
+    };
+  }
+
+  function normalizeReviewExpense(source) {
+    if (!source || typeof source !== "object") return null;
+    const type = String(source.type || "").trim();
+    const amount = Math.max(0, Number(source.amount) || 0);
+    if (!REVIEW_EXPENSE_TYPES.has(type) || amount <= 0) return null;
+    return {
+      id: String(source.id || `expense_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+      type,
+      amount,
+      settlementId: String(source.settlementId || ""),
+      settlementName: String(source.settlementName || "이름 없는 거점"),
+      sourceLabel: String(source.sourceLabel || (type === "tax" ? "입장 관세소" : "식사")),
+      description: String(source.description || ""),
+      contractDay: Math.max(1, Math.trunc(Number(source.contractDay) || 1)),
+      phaseIndex: Math.max(0, Math.trunc(Number(source.phaseIndex) || 0)),
+      completedAt: String(source.completedAt || "")
+    };
+  }
+
+  function normalizeReviewExpenses(source) {
+    return (Array.isArray(source) ? source : []).map(normalizeReviewExpense).filter(Boolean);
+  }
+
+  function isTradeReviewEligible(record, reviewDay) {
+    if (record?.status !== "sold" || !record.close || normalizeJourneyReview(record.review).completed) return false;
+    const saleDay = Math.max(1, Math.trunc(Number(record.close.contractDay) || 1));
+    return saleDay <= Math.max(1, Math.trunc(Number(reviewDay) || 1));
   }
 
   function completeTradeReviews(journeyIds = []) {
     const requested = new Set((Array.isArray(journeyIds) ? journeyIds : []).map(value => String(value || "")).filter(Boolean));
-    if (!requested.size) return { reviewed: 0, knowledgeGained: 0 };
+    if (!requested.size) return { reviewed: 0, knowledgeGained: 0, expenseGroupsReviewed: 0, expenseRecordsCleared: 0 };
     const currentDay = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
     let reviewed = 0;
     Object.entries(state.notebooks || {}).forEach(([itemId, source]) => {
@@ -1172,13 +1259,26 @@
       });
       trimJourneys(notebook);
     });
-    if (reviewed > 0) {
+    const reviewedExpenseTypes = new Set([...REVIEW_EXPENSE_TYPES]
+      .filter(type => requested.has(`expense:${type}`)));
+    const previousExpenseCount = normalizeReviewExpenses(state.reviewExpenses).length;
+    state.reviewExpenses = normalizeReviewExpenses(state.reviewExpenses)
+      .filter(record => !reviewedExpenseTypes.has(record.type));
+    const expenseRecordsCleared = previousExpenseCount - state.reviewExpenses.length;
+    if (reviewed > 0 || expenseRecordsCleared > 0) {
       persistState();
-      refresh();
-      window.dispatchEvent(new CustomEvent("projectw:knowledgechange", { detail: { tradeReviews: reviewed } }));
-      window.dispatchEvent(new CustomEvent("projectw:notebookchange", { detail: { tradeReviews: reviewed } }));
+      if (reviewed > 0) {
+        refresh();
+        window.dispatchEvent(new CustomEvent("projectw:knowledgechange", { detail: { tradeReviews: reviewed } }));
+        window.dispatchEvent(new CustomEvent("projectw:notebookchange", { detail: { tradeReviews: reviewed } }));
+      }
     }
-    return { reviewed, knowledgeGained: reviewed };
+    return {
+      reviewed,
+      knowledgeGained: reviewed,
+      expenseGroupsReviewed: reviewedExpenseTypes.size,
+      expenseRecordsCleared
+    };
   }
 
   function ensureNotebook(itemId) {
@@ -1598,7 +1698,7 @@
   }
 
   function createDefaultState() {
-    return { schemaVersion: 4, knowledge: {}, companyUsage: {}, notebooks: {}, peddler: { level: 1, xp: 0, points: 0, skills: [] } };
+    return { schemaVersion: 5, knowledge: {}, companyUsage: {}, notebooks: {}, reviewExpenses: [], peddler: { level: 1, xp: 0, points: 0, skills: [] } };
   }
 
   function loadState() {
@@ -1606,12 +1706,13 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return createDefaultState();
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4].includes(parsed?.schemaVersion) || typeof parsed.knowledge !== "object" || typeof parsed.companyUsage !== "object") return createDefaultState();
+      if (![1, 2, 3, 4, 5].includes(parsed?.schemaVersion) || typeof parsed.knowledge !== "object" || typeof parsed.companyUsage !== "object") return createDefaultState();
       return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         knowledge: parsed.knowledge,
         companyUsage: parsed.companyUsage,
         notebooks: typeof parsed.notebooks === "object" && parsed.notebooks ? parsed.notebooks : {},
+        reviewExpenses: normalizeReviewExpenses(parsed.reviewExpenses),
         peddler: {
           level: Math.max(1, Math.trunc(Number(parsed.peddler?.level) || 1)),
           xp: Math.max(0, Math.trunc(Number(parsed.peddler?.xp) || 0)),
@@ -1665,6 +1766,7 @@
     getInformationBonuses,
     getDeteriorationProtectionChances,
     getItemNotebook,
+    recordReviewExpense,
     getPendingTradeReviews,
     completeTradeReviews,
     prepareNotebookTutorial,

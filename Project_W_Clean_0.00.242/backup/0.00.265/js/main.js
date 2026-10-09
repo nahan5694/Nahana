@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.265";
+const GAME_VERSION = "0.00.264";
 const ACCOUNT_SCHEMA_VERSION = 44;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -4501,6 +4501,13 @@ async function presentSystemMiniDialogue(dialogueId, tone, duration, variables, 
     header.append(speaker, close);
     const message = document.createElement("p");
     renderFormattedText(message, replaceDialogueVariables(page.text, variables));
+    if ((tone === "bargain-success" || tone === "bargain-failure") && tradeModal && !tradeModal.hidden) {
+      recordShopSideDialogue({
+        kind: "흥정",
+        speaker: speaker.textContent,
+        text: message.textContent
+      });
+    }
     copy.append(header, message);
     popup.append(character, copy);
     const popupHost = tone === "bargain-success" || tone === "bargain-failure"
@@ -4704,7 +4711,9 @@ function closeShopSideDialogueReview() {
 function renderShopSideDialogueReview() {
   if (!tradeDialogueReviewList || !tradeDialogueReviewSummary) return;
   tradeDialogueReviewList.replaceChildren();
-  tradeDialogueReviewSummary.textContent = `이 점포에서 확인한 상품 조언 ${shopSideDialogueEntries.length}건`;
+  const adviceCount = shopSideDialogueEntries.filter(entry => entry.kind === "상품 조언").length;
+  const bargainCount = shopSideDialogueEntries.filter(entry => entry.kind === "흥정").length;
+  tradeDialogueReviewSummary.textContent = `상품 조언 ${adviceCount}건 · 흥정 대사 ${bargainCount}건`;
   shopSideDialogueEntries.forEach((entry, index) => {
     const article = document.createElement("article");
     const heading = document.createElement("header");

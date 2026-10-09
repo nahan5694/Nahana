@@ -1452,6 +1452,19 @@
       };
       setPartnerState(preview.after, record);
       setFoodUsage({ ...usage, day, [usageKey]: true });
+      const expenseSourceLabel = consumptionKind === "snack"
+        ? "시장 간식"
+        : vendor === "여관" ? "여관 음식" : "주점 식사";
+      window.ProjectWMerchantPath?.recordReviewExpense?.("food", {
+        amount: preview.value,
+        settlementId: settlement?.id || "",
+        settlementName: settlement?.name || "이름 없는 거점",
+        sourceLabel: expenseSourceLabel,
+        description: record.foods.map(food => `${food.name} ×${food.quantity}`).join(", "),
+        contractDay: day,
+        phaseIndex: record.phaseIndex,
+        completedAt: record.completedAt
+      });
       onConsumptionComplete(record);
       if (currencyTransferred) window.ProjectWAudio?.playCurrencyCompletion?.("trade");
       else window.ProjectWAudio?.playEffect("trade");
