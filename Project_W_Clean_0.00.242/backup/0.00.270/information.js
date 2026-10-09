@@ -1,5 +1,5 @@
 (function exposeInformationSystem() {
-  const STATE_SCHEMA_VERSION = 4;
+  const STATE_SCHEMA_VERSION = 3;
   const ROMAN_STEPS = ["", "I", "II", "III", "IV", "V", "VI"];
   const WEATHER_LABELS = ["맑음", "흐림", "비", "폭우", "눈", "폭설"];
   const REGIONS = ["북부", "중부", "남부"];
@@ -218,7 +218,7 @@
       typeMultiplier: Math.max(0, number(row["판매가치_배율"], 1)),
       sellable: text(row["판매_가능"]).toUpperCase() === "Y",
       special,
-      maximumAgeDays: informationMaximumAgeDays(row["유효기간"], special),
+      maximumAgeDays: Math.max(1, integer(row["유효기간"], isWeatherInformationSpecial(special) ? 5 : 12)),
       developer: text(row["개발자설명"])
     };
   }
@@ -299,8 +299,7 @@
   function normalizeState(value) {
     const source = value && typeof value === "object" ? value : {};
     const today = currentDay();
-    const repairLegacyMaximumAge = integer(source.schemaVersion, 0) < STATE_SCHEMA_VERSION;
-    const cards = array(source.cards).map(card => normalizeCard(card, { repairLegacyMaximumAge })).filter(card => {
+    const cards = array(source.cards).map(card => normalizeCard(card)).filter(card => {
       if (!card.id || !card.templateId || !card.instanceKey) return false;
       if (card.special === "WOLFEN_TRACK" && card.specialExpiresDay > 0) return today <= card.specialExpiresDay;
       return informationAgeDays(card, today) < card.maximumAgeDays;
@@ -319,12 +318,9 @@
     };
   }
 
-  function normalizeCard(card, { repairLegacyMaximumAge = false } = {}) {
+  function normalizeCard(card) {
     const special = text(card?.special);
-    let maximumAgeDays = informationMaximumAgeDays(card?.maximumAgeDays, special);
-    if (repairLegacyMaximumAge && maximumAgeDays === 1) {
-      maximumAgeDays = defaultInformationMaximumAgeDays(special);
-    }
+    const maximumAgeDays = Math.max(1, integer(card?.maximumAgeDays, isWeatherInformationSpecial(special) ? 5 : 12));
     return {
       id: text(card?.id),
       templateId: text(card?.templateId),
@@ -1374,16 +1370,6 @@
 
   function isWeatherInformationSpecial(value) {
     return value === "WEATHER_SNAPSHOT" || value === "ROUTE_WEATHER_SHARED";
-  }
-
-  function defaultInformationMaximumAgeDays(special) {
-    return isWeatherInformationSpecial(special) ? 5 : 12;
-  }
-
-  function informationMaximumAgeDays(value, special) {
-    const fallback = defaultInformationMaximumAgeDays(special);
-    const raw = text(value);
-    return raw ? Math.max(1, integer(raw, fallback)) : fallback;
   }
 
   function currentDay() {
