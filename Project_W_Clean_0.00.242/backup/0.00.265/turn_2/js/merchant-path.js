@@ -24,17 +24,11 @@
     { minimum: 1500, name: "단골 고객", benefit: "5~10%의 거래 혜택과 상회 정보 수집 기회 +1을 적용합니다.", merchantSellRange: [-10, -5], playerSellRange: [5, 10], informationBonus: 1 },
     { minimum: 3000, name: "상업 동반자", benefit: "10~20%의 거래 혜택과 상회 정보 수집 기회 +1을 적용합니다.", merchantSellRange: [-20, -10], playerSellRange: [10, 20], informationBonus: 1 }
   ];
-  const QUALITY_PURCHASE_RANGES = {
+  const QUALITY_RANGES = {
     저품질: [-30, -15],
     통상품질: [-15, 15],
     고품질: [15, 30],
     명품: [25, 75]
-  };
-  const QUALITY_SALE_RANGES = {
-    저품질: [-30, 0],
-    통상품질: [0, 25],
-    고품질: [25, 75],
-    명품: [75, 125]
   };
   const INFORMATION_ATTEMPT_SKILLS = new Map([
     ["여관", "PED_022"],
@@ -1654,15 +1648,12 @@
       showDistance: !excluded && level >= 6,
       showQualityNumber: !excluded && level >= 5,
       showBargainChanceBonus: !excluded && level >= 7,
-      qualityText: excluded ? "" : level >= 5
-        ? qualityWithNumber(quality, metadata.qualityRoll, metadata.qualityValueDirection)
-        : quality
+      qualityText: excluded ? "" : level >= 5 ? qualityWithNumber(quality, metadata.qualityRoll) : quality
     };
   }
 
-  function qualityWithNumber(quality, qualityRoll, direction = "playerSell") {
-    const ranges = direction === "merchantSell" ? QUALITY_PURCHASE_RANGES : QUALITY_SALE_RANGES;
-    const range = ranges[quality] || ranges.통상품질;
+  function qualityWithNumber(quality, qualityRoll) {
+    const range = QUALITY_RANGES[quality] || QUALITY_RANGES.통상품질;
     const roll = Math.max(0, Math.min(1, Number.isFinite(Number(qualityRoll)) ? Number(qualityRoll) : .5));
     const value = range[0] + ((range[1] - range[0]) * roll);
     return `${quality} ${value >= 0 ? "+" : ""}${formatNumber(value)}`;

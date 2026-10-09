@@ -442,7 +442,7 @@
       }
       if (weatherInfo) {
         const weatherDescription = weatherInfo.mode === "prophecy"
-          ? `가호 예지, 경로 ${weatherInfo.zones?.length || 0}개 기후 구역, 도착 시점 목적지 기후 ${weatherInfo.destination?.label || weatherInfo.label}${weatherInfo.wolfenDetected ? ", 울펜 용병단 감지" : ""}`
+          ? `가호 예지, 경로 ${weatherInfo.zones?.length || 0}개 기후 구역, 목적지 기후 ${weatherInfo.destination?.label || weatherInfo.label}${weatherInfo.wolfenDetected ? ", 울펜 용병단 감지" : ""}`
           : `경로 예측 기상상태 ${weatherInfo.label}`;
         marker.setAttribute("aria-label", `${marker.getAttribute("aria-label")}, ${weatherDescription}`);
       }
@@ -744,7 +744,7 @@
     badge.className = "prophecy-weather-badge";
     badge.textContent = "[ 가호 : 예지 ]";
     const title = document.createElement("strong");
-    title.textContent = "도착 시점 기상 예견";
+    title.textContent = "경로 전 구역 기후";
     const routeName = document.createElement("span");
     routeName.textContent = weatherInfo.sourceName || "연결 경로";
     heading.append(badge, title, routeName);
@@ -772,7 +772,7 @@
     const destinationRow = createProphecyWeatherRow({
       kind: "destination",
       name: "최종 목적지",
-      detail: [destination.name, destination.arrivalText].filter(Boolean).join(" · "),
+      detail: destination.name,
       label: destination.label
     });
     section.append(heading, list, destinationRow);

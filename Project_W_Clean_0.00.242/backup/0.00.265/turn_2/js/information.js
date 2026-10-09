@@ -1,5 +1,5 @@
 (function exposeInformationSystem() {
-  const STATE_SCHEMA_VERSION = 3;
+  const STATE_SCHEMA_VERSION = 2;
   const ROMAN_STEPS = ["", "I", "II", "III", "IV", "V", "VI"];
   const WEATHER_LABELS = ["맑음", "흐림", "비", "폭우", "눈", "폭설"];
   const REGIONS = ["북부", "중부", "남부"];
@@ -11,7 +11,6 @@
   const MIDRANGE_INFORMATION_DISTANCE = 25;
   const MIDRANGE_INFORMATION_WEIGHT_MULTIPLIER = 3;
   const DISTANT_INFORMATION_WEIGHT_MULTIPLIER = .35;
-  const LOCAL_FACILITY_WEATHER_WEIGHT_MULTIPLIER = 2;
   const GRADE_VI_EFFECTIVE_WEIGHT = 11;
   const INITIAL_INFORMATION_AGE_BANDS = [
     [
@@ -199,7 +198,6 @@
     const wrongEntries = wrongContents
       .map((content, index) => ({ content, title: wrongTitles[index] }))
       .filter(entry => entry.content);
-    const special = text(row["특수_처리"]);
     return {
       id: text(row.ID),
       category: text(row["분류"]),
@@ -217,8 +215,7 @@
       weight: Math.max(0, number(row["획득_가중치"], 1)),
       typeMultiplier: Math.max(0, number(row["판매가치_배율"], 1)),
       sellable: text(row["판매_가능"]).toUpperCase() === "Y",
-      special,
-      maximumAgeDays: Math.max(1, integer(row["유효기간"], isWeatherInformationSpecial(special) ? 5 : 12)),
+      special: text(row["특수_처리"]),
       developer: text(row["개발자설명"])
     };
   }
@@ -244,8 +241,7 @@
     return {
       grades: DEFAULT_GRADE_RULES.map(rule => rule ? { ...rule } : null),
       trusts: DEFAULT_TRUST_RULES.map(rule => rule ? { ...rule } : null),
-      ages: DEFAULT_AGE_RULES.map(rule => ({ ...rule })),
-      localFacilityWeatherWeightMultiplier: LOCAL_FACILITY_WEATHER_WEIGHT_MULTIPLIER
+      ages: DEFAULT_AGE_RULES.map(rule => ({ ...rule }))
     };
   }
 
@@ -268,9 +264,6 @@
           weight: rule.weight ?? book.trusts[step]?.weight ?? 1,
           label: rule.label || `신뢰도 ${ROMAN_STEPS[step]}`
         };
-      }
-      if (rule.id === "FACILITY_WEATHER_LOCAL" && rule.valueMultiplier != null) {
-        book.localFacilityWeatherWeightMultiplier = Math.max(0, rule.valueMultiplier);
       }
     });
     const ages = ruleRows.filter(rule => ["정보상태", "정보열화"].includes(rule.category)
@@ -302,7 +295,7 @@
     const cards = array(source.cards).map(card => normalizeCard(card)).filter(card => {
       if (!card.id || !card.templateId || !card.instanceKey) return false;
       if (card.special === "WOLFEN_TRACK" && card.specialExpiresDay > 0) return today <= card.specialExpiresDay;
-      return informationAgeDays(card, today) < card.maximumAgeDays;
+      return informationAgeDays(card, today) < 12;
     });
     return {
       schemaVersion: STATE_SCHEMA_VERSION,
@@ -319,15 +312,13 @@
   }
 
   function normalizeCard(card) {
-    const special = text(card?.special);
-    const maximumAgeDays = Math.max(1, integer(card?.maximumAgeDays, isWeatherInformationSpecial(special) ? 5 : 12));
     return {
       id: text(card?.id),
       templateId: text(card?.templateId),
       instanceKey: text(card?.instanceKey),
       category: text(card?.category),
       subcategory: text(card?.subcategory),
-      special,
+      special: text(card?.special),
       title: text(card?.title),
       correct: text(card?.correct),
       wrong: array(card?.wrong).map(text).filter(Boolean),
@@ -337,8 +328,7 @@
       typeMultiplier: Math.max(0, number(card?.typeMultiplier, 1)),
       sellable: Boolean(card?.sellable),
       acquiredDay: Math.max(1, integer(card?.acquiredDay, 1)),
-      initialAgeDays: clamp(integer(card?.initialAgeDays), 0, maximumAgeDays - 1),
-      maximumAgeDays,
+      initialAgeDays: clamp(integer(card?.initialAgeDays), 0, 11),
       trustRoll: clamp(number(card?.trustRoll, card?.truthRoll ?? .5), 0, 1),
       ageRoll: clamp(number(card?.ageRoll, card?.truthRoll ?? .5), 0, 1),
       intuitionRoll: clamp(number(card?.intuitionRoll, 1), 0, 1),
@@ -438,11 +428,8 @@
       trust,
       typeMultiplier: template.typeMultiplier,
       sellable: template.sellable,
-      maximumAgeDays: template.maximumAgeDays,
       acquiredDay: today,
-      initialAgeDays: template.special === "WOLFEN_TRACK" || isWeatherInformationSpecial(template.special)
-        ? 0
-        : rollInitialInformationAge(peddlerBonuses.sourceLevel),
+      initialAgeDays: template.special === "WOLFEN_TRACK" ? 0 : rollInitialInformationAge(peddlerBonuses.sourceLevel),
       trustRoll: Math.random(),
       ageRoll: Math.random(),
       intuitionRoll: Math.random(),
@@ -455,11 +442,6 @@
       target,
       specialExpiresDay: template.special === "WOLFEN_TRACK" ? today + randomInteger(3, 7) - 1 : 0
     });
-    if (isWeatherInformationSpecial(card.special)) {
-      state.cards = state.cards.filter(existing => !isWeatherInformationSpecial(existing.special)
-        || existing.target?.targetKind !== card.target?.targetKind
-        || existing.target?.targetId !== card.target?.targetId);
-    }
     state.cards.push(card);
     state.discoveredKeys.push(selected.instanceKey);
     state.discoveredKeys = [...new Set(state.discoveredKeys)];
@@ -489,14 +471,12 @@
     const push = (template, instanceKey, variables = {}, target = {}, multiplier = 1) => {
       if (!template || discovered.has(instanceKey)) return;
       const locality = informationLocalityMultiplier({ facility, placement, target, settlements, routes });
-      const facilityMultiplier = informationFacilitySpecialMultiplier(facility, template.special);
-      candidates.push({ template, instanceKey, variables, target, weight: Math.max(.01, template.weight * multiplier * locality * facilityMultiplier) });
+      candidates.push({ template, instanceKey, variables, target, weight: Math.max(.01, template.weight * multiplier * locality) });
     };
     const pushVariants = (variants, instanceKey, variables = {}, target = {}, multiplier = 1) => {
       const available = array(variants).filter(Boolean);
       if (!available.length || discovered.has(instanceKey)) return;
       const averageWeight = available.reduce((sum, variant) => sum + variant.weight, 0) / available.length;
-      const facilityMultiplier = informationFacilitySpecialMultiplier(facility, available[0].special);
       candidates.push({
         template: available[0],
         variants: available,
@@ -504,8 +484,7 @@
         variables,
         target,
         weight: Math.max(.01, averageWeight * multiplier
-          * informationLocalityMultiplier({ facility, placement, target, settlements, routes })
-          * facilityMultiplier)
+          * informationLocalityMultiplier({ facility, placement, target, settlements, routes }))
       });
     };
 
@@ -582,11 +561,6 @@
 
   function informationLocalityMultiplier({ facility = "", placement = null, target = {}, settlements = [], routes = [] } = {}) {
     if (!LOCAL_INFORMATION_FACILITIES.has(text(facility))) return 1;
-    if (target.targetKind === "region" && text(target.targetId)) {
-      return text(placement?.region) === text(target.targetId)
-        ? LOCAL_INFORMATION_WEIGHT_MULTIPLIER
-        : DISTANT_INFORMATION_WEIGHT_MULTIPLIER;
-    }
     const originId = text(placement?.id);
     const targetIds = informationTargetPlacementIds(target, settlements, routes);
     if (!originId || !targetIds.length) return 1;
@@ -594,12 +568,6 @@
     if (nearestDistance <= NEARBY_INFORMATION_DISTANCE) return LOCAL_INFORMATION_WEIGHT_MULTIPLIER;
     if (nearestDistance <= MIDRANGE_INFORMATION_DISTANCE) return MIDRANGE_INFORMATION_WEIGHT_MULTIPLIER;
     return DISTANT_INFORMATION_WEIGHT_MULTIPLIER;
-  }
-
-  function informationFacilitySpecialMultiplier(facility, special) {
-    return LOCAL_INFORMATION_FACILITIES.has(text(facility)) && isWeatherInformationSpecial(special)
-      ? ruleBook.localFacilityWeatherWeightMultiplier
-      : 1;
   }
 
   function informationTargetPlacementIds(target = {}, settlements = [], routes = []) {
@@ -660,7 +628,7 @@
         settlementId: target.settlementId,
         subcategory: target.subcategory,
         adjustment: shock,
-        expiresDay: currentDay() + Math.max(0, card.maximumAgeDays - informationAgeDays(card) - 1),
+        expiresDay: currentDay() + Math.max(0, 11 - informationAgeDays(card)),
         cardId: card.id
       });
       card.target.marketShock = shock;
@@ -751,7 +719,7 @@
       ageDays: informationAgeDays(card),
       remainingDays: card.special === "WOLFEN_TRACK" && card.specialExpiresDay > 0
         ? Math.max(0, card.specialExpiresDay - currentDay() + 1)
-        : Math.max(0, card.maximumAgeDays - informationAgeDays(card)),
+        : Math.max(0, 12 - informationAgeDays(card)),
       ageLabel: age.label,
       ageValueMultiplier: age.valueMultiplier,
       gradeLabel: card.grade ? `등급 ${ROMAN_STEPS[card.grade]}` : "특수 정보",
@@ -895,7 +863,7 @@
     if (!elements.grid || !elements.status) return;
     hideInformationDetailTooltip();
     elements.status.textContent = loadError || (definitions.length
-      ? `보유 정보 ${cards.length}장 · 정보마다 정해진 유효기간이 지나면 소멸합니다.`
+      ? `보유 정보 ${cards.length}장 · 정보는 12일차에 완전히 소멸합니다.`
       : "정보 시트를 불러오는 중입니다.");
     const entries = cards.map(card => createInformationListItem(card));
     elements.grid.replaceChildren(...(entries.length ? entries : [emptyMessage("아직 모은 정보가 없습니다.")]));
@@ -1357,10 +1325,6 @@
 
   function specialClass(value) {
     return text(value).toLowerCase().replaceAll("_", "-") || "general";
-  }
-
-  function isWeatherInformationSpecial(value) {
-    return value === "WEATHER_SNAPSHOT" || value === "ROUTE_WEATHER_SHARED";
   }
 
   function currentDay() {

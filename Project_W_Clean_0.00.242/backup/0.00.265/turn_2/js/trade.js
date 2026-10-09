@@ -1476,10 +1476,7 @@
     const eventGift = entry.itemId === NAHANA_EVENT_GIFT_ITEM_ID;
     const marketPurchaseBlocked = isMarketPurchaseBlocked(owner, entry.definition);
     const slotCount = eventGift ? 0 : Math.max(1, Math.trunc(Number(entry.definition.slotCount) || 1));
-    const knowledge = knowledgeProfile(entry.definition, {
-      ...entry,
-      qualityValueDirection: owner === "merchant" ? "merchantSell" : "playerSell"
-    });
+    const knowledge = knowledgeProfile(entry.definition, entry);
     const categoryClass = tradeCategoryClass(entry.definition.category);
     const stack = document.createElement("div");
     stack.className = `trade-item-stack ${categoryClass} ${slotCount > 1 ? "is-multi-slot" : ""}`;
@@ -2286,7 +2283,6 @@
     return {
       quality: entry.quality,
       qualityRoll: entry.qualityRoll,
-      qualityValueDirection: owner === "merchant" ? "merchantSell" : "playerSell",
       originId: entry.originId,
       originName: entry.originName,
       originDistance: entry.originDistance,
@@ -2304,10 +2300,7 @@
   function visibleTradeValueFactors(entry, owner = "player") {
     const definition = entry?.definition;
     if (!definition) return [];
-    const knowledge = knowledgeProfile(definition, {
-      ...entry,
-      qualityValueDirection: owner === "merchant" ? "merchantSell" : "playerSell"
-    });
+    const knowledge = knowledgeProfile(definition, entry);
     const valuation = owner === "merchant"
       ? merchantSellValuation(entry, definition)
       : playerSellValuation(entry, definition);

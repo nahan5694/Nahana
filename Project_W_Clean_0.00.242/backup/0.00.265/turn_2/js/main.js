@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.267";
-const ACCOUNT_SCHEMA_VERSION = 46;
+const GAME_VERSION = "0.00.265";
+const ACCOUNT_SCHEMA_VERSION = 44;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -89,8 +89,7 @@ const TUTORIAL_IDS = Object.freeze({
   INFORMATION_GATHERING: 22,
   SPIRIT_BLESSING: 23,
   GUILD_CONTRIBUTION: 24,
-  TRADE_REVIEW: 25,
-  PARTNER_SOOTHE: 26
+  TRADE_REVIEW: 25
 });
 const TUTORIAL_MAX_ID = Math.max(...Object.values(TUTORIAL_IDS));
 const ADVANCED_TRADE_CONTEXTS = ["trade:상회", "trade:교역소", "trade:좌판", "trade:시장"];
@@ -269,7 +268,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "말 상태", text: "위쪽 숫자는 말의 체력, 아래쪽 숫자는 허기입니다.\n커서를 올리면 현재 상태를 더 자세히 확인할 수 있습니다.", selector: ".road-condition-horse", shape: "diamond" },
       { title: "말 식량 먹이기", text: "먹이 버튼으로 등록된 건초나 말먹이를 사용합니다.\n옆의 수량은 현재 등록된 먹이의 남은 개수입니다.", selector: "#horse-feed-controls" },
-      { title: "채찍질", text: "이동 중 말의 엉덩이 부근을 누르면 채찍질합니다.\n말의 체력이 0~2 감소하는 대신 다음 지점까지 남은 시간이 0~1초 줄어듭니다. 체력이 33 이하라면 채찍질할 수 없습니다.", selector: "#horse-whip-hitbox", padding: 14 }
+      { title: "채찍질", text: "이동 중 말의 엉덩이 부근을 누르면 채찍질합니다.\n말의 체력이 0~2 감소하는 대신 다음 지점까지 남은 시간이 0~1초 줄어듭니다.", selector: "#horse-whip-hitbox", padding: 14 }
     ]
   },
   {
@@ -1615,7 +1614,7 @@ partnerSpiritBlessing?.addEventListener("click", () => {
 });
 partnerFeatureClose?.addEventListener("click", closePartnerFeature);
 partnerFeatureContent?.addEventListener("click", handlePartnerFeatureAction);
-partnerSnackOpen?.addEventListener("click", handlePartnerSnackAction);
+partnerSnackOpen?.addEventListener("click", openPartnerSnackPanel);
 partnerSnackClose?.addEventListener("click", closePartnerSnackPanel);
 partnerSnackList?.addEventListener("click", event => {
   const button = event.target.closest("button[data-partner-snack-instance]");
@@ -2865,7 +2864,7 @@ function loadAccount() {
     parsed.travel = normalizeTravelState(parsed.travel);
     parsed.worldTime = normalizeWorldTime(parsed.worldTime);
     parsed.weatherSystem = window.ProjectWWeather.normalizeState(parsed.weatherSystem);
-    parsed.journeyEnvironment = normalizeJourneyEnvironment(parsed.journeyEnvironment, parsed.travel.positionId);
+    parsed.journeyEnvironment = normalizeJourneyEnvironment(parsed.journeyEnvironment);
     parsed.horse = normalizeHorseState(parsed.horse);
     parsed.horseFeedItemId = LEGACY_HORSE_FEED_ID_MAP.get(parsed.horseFeedItemId) || parsed.horseFeedItemId;
     parsed.horseFeedItemId = HORSE_FEED_IDS.includes(parsed.horseFeedItemId) ? parsed.horseFeedItemId : HORSE_FEED_IDS[0];
@@ -4225,21 +4224,6 @@ function updatePartnerSnackUi(access = partnerAccessState()) {
   const snacks = partnerSnackItems();
   const partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const featureLocked = !isFeatureUnlocked("partnerSnack");
-  const angry = partnerIsAngry(partner);
-  if (angry) {
-    const sootheBlocked = account.foodUsage.sootheBlocked;
-    partnerSnackOpen.disabled = featureLocked || sootheBlocked;
-    partnerSnackOpen.classList.toggle("is-limit-exhausted", sootheBlocked);
-    partnerSnackOpen.classList.toggle("is-system-locked", featureLocked);
-    partnerSnackOpen.textContent = sootheBlocked ? "오늘 달래기 종료" : "달래기";
-    partnerSnackOpen.title = featureLocked
-      ? "극초반 여정을 마치면 사용할 수 있습니다."
-      : sootheBlocked
-        ? "오늘은 나하나가 더 이상 말을 걸지 말아 달라고 했습니다."
-        : "나하나를 달래 기분을 조금 회복합니다. 거절하면 오늘은 다시 시도할 수 없습니다.";
-    closePartnerSnackPanel();
-    return;
-  }
   const statusLocked = ["숙취", "과식", "고혈당", "속쓰림"].some(name => partnerHasStatus(partner, name));
   partnerSnackOpen.disabled = featureLocked || access.allLocked || statusLocked || used || !snacks.length;
   partnerSnackOpen.classList.toggle("is-limit-exhausted", used);
@@ -4257,39 +4241,6 @@ function updatePartnerSnackUi(access = partnerAccessState()) {
         ? "화물에서 간식으로 줄 물건을 고릅니다."
         : "Goods 시트에서 간식으로 지정된 보유 물건이 없습니다.";
   if (!partnerSnackPanel?.hidden) renderPartnerSnackList(snacks, used);
-}
-
-function partnerIsAngry(partner = account?.partner) {
-  const normalized = normalizePartnerState(partner, account?.partnerMoodAdjustment);
-  return normalized.mood <= 25 || partnerHasStatus(normalized, "화남");
-}
-
-function handlePartnerSnackAction() {
-  if (partnerIsAngry()) {
-    sootheAngryPartner();
-    return;
-  }
-  void openPartnerSnackPanel();
-}
-
-function sootheAngryPartner() {
-  if (!account || !partnerIsAngry()) return;
-  account.foodUsage = normalizeFoodUsage(account.foodUsage, account.worldTime);
-  if (!isFeatureUnlocked("partnerSnack") || account.foodUsage.sootheBlocked) {
-    updatePartnerUi();
-    return;
-  }
-  if (Math.random() < 0.1) {
-    account.foodUsage.sootheBlocked = true;
-    persistAccount();
-    updatePartnerUi();
-    showGameNotice("나하나가 오늘은 더 이상 말을 걸지 말아 달라고 했습니다.");
-    return;
-  }
-  const moodGain = changePartnerMood(1 + Math.floor(Math.random() * 2));
-  persistAccount();
-  updatePartnerUi();
-  showGameNotice(`나하나를 달랬습니다. · 기분 +${moodGain}`);
 }
 
 function renderPartnerSnackList(items = partnerSnackItems(), used = Boolean(account?.foodUsage?.snackUsed)) {
@@ -6967,7 +6918,7 @@ function normalizeTasteDrift(value) {
 }
 
 function createInitialFoodUsage() {
-  return { day: 1, mealUsed: false, snackUsed: false, sootheBlocked: false, tavernSoldOutBySettlement: {} };
+  return { day: 1, mealUsed: false, snackUsed: false, tavernSoldOutBySettlement: {} };
 }
 
 function createInitialCommonSenseUsage() {
@@ -7006,8 +6957,7 @@ function createInitialTutorialProgress() {
     waitingForTavernExit: false,
     waitingForInnExit: false,
     earlyTutorialBranchReached: false,
-    talkCardTutorialPending: false,
-    sootheTutorialPending: false
+    talkCardTutorialPending: false
   };
 }
 
@@ -7174,7 +7124,7 @@ function createInitialWagonState() {
 }
 
 function createInitialJourneyEnvironment() {
-  return { roadByDotId: {} };
+  return { roadStage: 0, precipitationType: "" };
 }
 
 function createInitialSettlementDialogueVisit() {
@@ -7276,13 +7226,12 @@ function romanGradeNumber(grade) {
 function normalizeFoodUsage(value, worldTime = account?.worldTime) {
   const day = normalizeWorldTime(worldTime).day;
   if (Math.max(1, Math.trunc(Number(value?.day) || 1)) !== day) {
-    return { day, mealUsed: false, snackUsed: false, sootheBlocked: false, tavernSoldOutBySettlement: {} };
+    return { day, mealUsed: false, snackUsed: false, tavernSoldOutBySettlement: {} };
   }
   return {
     day,
     mealUsed: Boolean(value?.mealUsed),
     snackUsed: Boolean(value?.snackUsed),
-    sootheBlocked: Boolean(value?.sootheBlocked),
     tavernSoldOutBySettlement: Object.fromEntries(Object.entries(value?.tavernSoldOutBySettlement || {})
       .map(([key, ids]) => [String(key), [...new Set((Array.isArray(ids) ? ids : []).map(id => String(id || "").trim()).filter(Boolean))]]))
   };
@@ -7356,8 +7305,7 @@ function normalizeTutorialProgress(value) {
     waitingForTavernExit: Boolean(value?.waitingForTavernExit),
     waitingForInnExit: Boolean(value?.waitingForInnExit),
     earlyTutorialBranchReached: Boolean(value?.earlyTutorialBranchReached),
-    talkCardTutorialPending: Boolean(value?.talkCardTutorialPending),
-    sootheTutorialPending: Boolean(value?.sootheTutorialPending)
+    talkCardTutorialPending: Boolean(value?.talkCardTutorialPending)
   };
 }
 
@@ -7620,21 +7568,8 @@ function syncMoodDrivenPartnerStatuses() {
   if (!account) return;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   enforcePartnerStatusTutorialGate();
-  const shouldBeAngry = account.partner.mood <= 25;
-  const progress = normalizeTutorialProgress(account.tutorialProgress);
-  if (shouldBeAngry
-    && !progress.completed.includes(TUTORIAL_IDS.PARTNER_SOOTHE)
-    && progress.activeId !== TUTORIAL_IDS.PARTNER_SOOTHE
-    && !progress.sootheTutorialPending) {
-    progress.sootheTutorialPending = true;
-    account.tutorialProgress = progress;
-    schedulePendingNarrativePresentation();
-  }
-  if (!shouldBeAngry && progress.sootheTutorialPending) {
-    progress.sootheTutorialPending = false;
-    account.tutorialProgress = progress;
-  }
   if (!canAcquirePartnerStatus("N_S_002")) return;
+  const shouldBeAngry = account.partner.mood <= 25;
   const hasAngry = account.partner.effects.includes("N_S_002");
   if (shouldBeAngry && !hasAngry) {
     account.partner.effects.push("N_S_002");
@@ -7811,24 +7746,12 @@ function normalizeWagonState(value) {
   };
 }
 
-function normalizeRoadSurfaceEntry(value) {
+function normalizeJourneyEnvironment(value) {
   const roadStage = Math.min(2, Math.max(0, Math.trunc(Number(value?.roadStage) || 0)));
   const precipitationType = value?.precipitationType === "snow" || value?.precipitationType === "wet"
     ? value.precipitationType
     : "";
   return { roadStage, precipitationType };
-}
-
-function normalizeJourneyEnvironment(value, legacyPlacementId = "") {
-  const source = value && typeof value === "object" ? value : {};
-  const roadByDotId = Object.fromEntries(Object.entries(source.roadByDotId || {})
-    .filter(([dotId]) => /^MAP_DOT_\d+$/.test(dotId))
-    .map(([dotId, entry]) => [dotId, normalizeRoadSurfaceEntry(entry)]));
-  if (!Object.keys(roadByDotId).length && /^MAP_DOT_\d+$/.test(String(legacyPlacementId || ""))) {
-    const legacy = normalizeRoadSurfaceEntry(source);
-    if (legacy.roadStage > 0) roadByDotId[String(legacyPlacementId)] = legacy;
-  }
-  return { roadByDotId };
 }
 
 function clampNumber(value, minimum, maximum, fallback = minimum) {
@@ -8125,13 +8048,10 @@ function completeTravelStep(travel) {
   // 다음 구간으로 넘어가지 않도록 공통 도착 잠금을 유지한다.
   travel.pendingRoadArrivalContinuation = true;
   travel.pendingRoadArrivalPhase = "before-route-event";
-  // 방금 지나온 구간에는 현재 시점의 날씨와 그 날씨로 갱신된 노면을 적용한다.
-  // 이후 시간과 날씨가 바뀌어도 이미 완료한 구간의 결과는 달라지지 않는다.
-  advanceRoadSurfaceState();
-  const completedSegmentConditions = getCurrentRoadConditions(travel.positionId);
-  advanceGameTime({ roadSurfaceAlreadyAdvanced: true });
+  advanceGameTime();
   window.ProjectWMerchantPath?.advanceTradeJourneyDistance?.(1);
-  applyTravelStepConsequences(travel.positionId, completedSegmentConditions);
+  advanceRoadSurfaceState();
+  applyTravelStepConsequences(travel.positionId);
   if (isNodeId(travel.positionId)) {
     window.ProjectWCityEvents.clearRouteEffects(travel.positionId);
     window.ProjectWRouteEvents.clearDestinationEffects(travel.positionId);
@@ -8209,7 +8129,6 @@ function hasPendingRoadArrivalPresentation() {
       || normalizeNahanaSituationEventState(account.nahanaSituationEvents).pendingIds.length)
     || talkCardGenerationInProgress > 0
     || Boolean(progress.talkCardTutorialPending)
-    || Boolean(progress.sootheTutorialPending && isFeatureUnlocked("partnerSnack"))
     || Boolean(activeTalkCardId)
     || nonRoutePause;
 }
@@ -8302,8 +8221,7 @@ function handleRouteEventResolved(event) {
   schedulePendingNarrativePresentation();
 }
 
-function advanceGameTime(options = {}) {
-  if (!options.roadSurfaceAlreadyAdvanced) advanceRoadSurfaceState();
+function advanceGameTime() {
   const time = normalizeWorldTime(account?.worldTime);
   const previousDay = time.day;
   time.phaseIndex += 1;
@@ -8346,11 +8264,7 @@ function currentTimePhase() {
 }
 
 function currentSeason() {
-  return seasonForWorldTime(account?.worldTime);
-}
-
-function seasonForWorldTime(value) {
-  const time = normalizeWorldTime(value);
+  const time = normalizeWorldTime(account?.worldTime);
   const month = contractCalendarDate(time.day).month;
   return SEASONS_BY_MONTH.get(month) || "봄";
 }
@@ -8393,40 +8307,27 @@ function wolfenRegionAtPlacement(placementId) {
   return window.ProjectWMapView.getPlacement(ownerNodeId)?.region || "";
 }
 
-function advanceRoadSurfaceState() {
-  if (!account) return;
-  const graph = window.ProjectWMapView.getWeatherGraphData?.();
-  if (!graph?.loaded) return;
-  const weatherSystem = ensureWeatherSystem();
+function advanceRoadSurfaceState(placementId = account?.travel?.positionId) {
   const environment = normalizeJourneyEnvironment(account?.journeyEnvironment);
-  const validDotIds = new Set((graph.dots || []).map(dot => dot.id));
-  Object.keys(environment.roadByDotId).forEach(dotId => {
-    if (!validDotIds.has(dotId)) delete environment.roadByDotId[dotId];
-  });
-  (graph.dots || []).forEach(dot => {
-    const road = normalizeRoadSurfaceEntry(environment.roadByDotId[dot.id]);
-    const weather = window.ProjectWWeather.getWeatherAt(weatherSystem, dot.id).label;
-    if (WET_WEATHER_TYPES.has(weather)) {
-      road.precipitationType = "wet";
-      road.roadStage = Math.min(2, road.roadStage + (weather === "폭우" ? 2 : 1));
-    } else if (SNOW_WEATHER_TYPES.has(weather)) {
-      road.precipitationType = "snow";
-      road.roadStage = Math.min(2, road.roadStage + (weather === "폭설" ? 2 : 1));
-    } else {
-      road.roadStage = Math.max(0, road.roadStage - 1);
-      if (road.roadStage === 0) road.precipitationType = "";
-    }
-    if (road.roadStage > 0) environment.roadByDotId[dot.id] = road;
-    else delete environment.roadByDotId[dot.id];
-  });
+  const weather = weatherAtPlacement(placementId).label;
+  if (WET_WEATHER_TYPES.has(weather)) {
+    environment.precipitationType = "wet";
+    environment.roadStage = Math.min(2, environment.roadStage + 1);
+  } else if (SNOW_WEATHER_TYPES.has(weather)) {
+    environment.precipitationType = "snow";
+    environment.roadStage = Math.min(2, environment.roadStage + 1);
+  } else {
+    environment.roadStage = Math.max(0, environment.roadStage - 1);
+    if (environment.roadStage === 0) environment.precipitationType = "";
+  }
   account.journeyEnvironment = environment;
 }
 
-function applyTravelStepConsequences(placementId, conditionsOverride = null) {
+function applyTravelStepConsequences(placementId) {
   account.horse = normalizeHorseState(account.horse);
   account.wagon = normalizeWagonState(account.wagon);
-  const conditions = conditionsOverride || getCurrentRoadConditions(placementId);
-  const healthLoss = Math.max(0, Math.round(calculateHorseHealthLoss(placementId, conditions) * partnerHorseHealthConsumptionMultiplier()));
+  const conditions = getCurrentRoadConditions(placementId);
+  const healthLoss = Math.max(0, Math.round(calculateHorseHealthLoss(placementId) * partnerHorseHealthConsumptionMultiplier()));
   const hungerLoss = Math.max(0, Math.round((Math.floor(Math.random() * 10) + 6) * partnerHorseHungerConsumptionMultiplier()));
 
   account.horse.health = Math.max(0, account.horse.health - healthLoss);
@@ -8515,7 +8416,7 @@ function applyTravelMoodChange(conditions) {
   }
 
   const streakCount = weatherType ? (previous.type === weatherType ? previous.count + 1 : 1) : 0;
-  if (weatherType) weatherChange -= Math.min(3, Math.max(0, streakCount - 1));
+  if (weatherType) weatherChange -= Math.max(0, streakCount - 1);
   account.partnerWeatherStreak = weatherType
     ? { type: weatherType, count: streakCount }
     : createInitialPartnerWeatherStreak();
@@ -8581,11 +8482,11 @@ function addWagonEffect(effect) {
   return true;
 }
 
-function calculateHorseHealthLoss(placementId = account?.travel?.positionId, conditionsOverride = null) {
+function calculateHorseHealthLoss(placementId = account?.travel?.positionId) {
   const load = window.ProjectWCargo.getLoadSummary();
   const loadRatio = load.maxWeight > 0 ? Math.max(0, load.weight / load.maxWeight) : 0;
   const loadHealthLoss = Math.floor(loadRatio / 0.25);
-  const conditions = conditionsOverride || getCurrentRoadConditions(placementId);
+  const conditions = getCurrentRoadConditions(placementId);
   const environmentHealthLoss = conditions.environments.reduce((maximum, environment) => {
     return Math.max(maximum, ENVIRONMENT_HEALTH_LOSS.get(environment) ?? 0);
   }, 0);
@@ -8634,16 +8535,13 @@ function getCurrentRoadConditions(placementId = account?.travel?.positionId) {
   const connection = getCurrentRouteConnection();
   const baseRoadSurface = connection.routeType === "trade" ? "관리된 길" : "거친 길";
   const journeyEnvironment = normalizeJourneyEnvironment(account?.journeyEnvironment);
-  const roadEnvironment = /^MAP_DOT_\d+$/.test(String(placementId || ""))
-    ? normalizeRoadSurfaceEntry(journeyEnvironment.roadByDotId[placementId])
-    : normalizeRoadSurfaceEntry(null);
   const weather = weatherAtPlacement(placementId);
   const weatherOwner = window.ProjectWMapView.getPlacement(weather.ownerNodeId);
   const region = placement?.region || weatherOwner?.region || "중부";
   const roadSurfaces = [baseRoadSurface];
-  if (roadEnvironment.roadStage === 1) roadSurfaces.push("젖은 길");
-  if (roadEnvironment.roadStage >= 2) {
-    roadSurfaces.push(roadEnvironment.precipitationType === "snow" ? "눈덮힌 길" : "진흙 길");
+  if (journeyEnvironment.roadStage === 1) roadSurfaces.push("젖은 길");
+  if (journeyEnvironment.roadStage >= 2) {
+    roadSurfaces.push(journeyEnvironment.precipitationType === "snow" ? "눈덮힌 길" : "진흙 길");
   }
   return {
     placement,
@@ -8653,7 +8551,7 @@ function getCurrentRoadConditions(placementId = account?.travel?.positionId) {
     routeType: connection.routeType,
     baseRoadSurface,
     roadSurfaces,
-    roadStage: roadEnvironment.roadStage,
+    roadStage: journeyEnvironment.roadStage,
     season: currentSeason(),
     weather: weather.label,
     weatherOwnerNodeId: weather.ownerNodeId
@@ -10132,6 +10030,7 @@ async function collectFacilityInformation(type, requestedPlacement = null, optio
     const consumesTime = !["상업조합", "상회"].includes(type);
     if (consumesTime) {
       advanceGameTime();
+      advanceRoadSurfaceState();
     }
     account.informationUsage = normalizeInformationUsage(account.informationUsage, account.worldTime);
     persistAccount();
@@ -10194,6 +10093,7 @@ function advanceUntilNextMorning() {
   const startingDay = normalizeWorldTime(account.worldTime).day;
   do {
     advanceGameTime();
+    advanceRoadSurfaceState();
   } while (normalizeWorldTime(account.worldTime).day === startingDay || currentTimePhase() !== "아침");
 }
 
@@ -11237,25 +11137,40 @@ function buildDepartureWeatherInfo(routes) {
       return;
     }
 
-    const prediction = predictRouteArrivalWeather(route);
-    const zones = prediction.zones;
+    const zones = [];
+    routeDotIds.forEach(placementId => {
+      const placement = window.ProjectWMapView.getPlacement(placementId);
+      const weather = weatherAtPlacement(placementId);
+      const ownerNodeId = weather.ownerNodeId || placementId;
+      const previous = zones.at(-1);
+      if (previous?.ownerNodeId === ownerNodeId) {
+        previous.dotCount += 1;
+        return;
+      }
+      zones.push({
+        ownerNodeId,
+        name: placement?.name || "이름 없는 경로",
+        label: weather.label,
+        dotCount: 1
+      });
+    });
+    const destinationWeather = weatherAtPlacement(route.node.id);
     const wolfenPositionId = window.ProjectWWolfenCompany.getPosition?.() || "";
     const wolfenDetected = Boolean(wolfenPositionId && route.path.includes(wolfenPositionId));
     const wolfenPlacement = wolfenDetected ? window.ProjectWMapView.getPlacement(wolfenPositionId) : null;
     weatherInfo.set(route.node.id, {
       mode: "prophecy",
-      label: prediction.destination.label,
+      label: destinationWeather.label,
       sourceName: firstDot?.name || `${route.node.name || "목적지"} 방면`,
       zones: zones.map((zone, index) => ({
         name: `${index + 1}구역`,
-        routeName: `${zone.name} · ${zone.arrivalText}`,
+        routeName: zone.name,
         label: zone.label,
         dotCount: zone.dotCount
       })),
       destination: {
         name: route.node.name || "최종 목적지",
-        label: prediction.destination.label,
-        arrivalText: prediction.destination.arrivalText
+        label: destinationWeather.label
       },
       wolfenDetected,
       wolfenRouteName: wolfenPlacement?.name || "선택한 경로",
@@ -11265,64 +11180,6 @@ function buildDepartureWeatherInfo(routes) {
     });
   });
   return weatherInfo;
-}
-
-function predictRouteArrivalWeather(route) {
-  const graph = window.ProjectWMapView.getWeatherGraphData?.();
-  const initialWeather = ensureWeatherSystem();
-  if (!graph?.loaded || !initialWeather || !Array.isArray(route?.path)) {
-    const fallback = weatherAtPlacement(route?.node?.id);
-    return { zones: [], destination: { label: fallback.label, arrivalText: "도착 시점" } };
-  }
-  let forecastWeather = window.ProjectWWeather.normalizeState(initialWeather);
-  const forecastTime = normalizeWorldTime(account?.worldTime);
-  const startDay = forecastTime.day;
-  const zones = [];
-  const advanceForecastTime = () => {
-    forecastTime.phaseIndex += 1;
-    if (forecastTime.phaseIndex >= TIME_PHASES.length) {
-      forecastTime.phaseIndex = 0;
-      forecastTime.day += 1;
-    }
-    forecastWeather = window.ProjectWWeather.advanceTime(forecastWeather, graph, {
-      season: seasonForWorldTime(forecastTime),
-      times: 1
-    });
-  };
-  const arrivalText = () => {
-    const dayOffset = Math.max(0, forecastTime.day - startDay);
-    return `${dayOffset ? `${dayOffset}일 후` : "오늘"} ${TIME_PHASES[forecastTime.phaseIndex]}`;
-  };
-  let destination = { label: weatherAtPlacement(route.node.id).label, arrivalText: "도착 시점" };
-  for (let index = 1; index < route.path.length; index += 1) {
-    const placementId = route.path[index];
-    const placement = window.ProjectWMapView.getPlacement(placementId);
-    advanceForecastTime();
-    const weather = window.ProjectWWeather.getWeatherAt(forecastWeather, placementId);
-    if (index >= route.path.length - 1 || placement?.kind === "node") {
-      destination = { label: weather.label, arrivalText: arrivalText() };
-      break;
-    }
-    const previous = zones.at(-1);
-    if (previous?.ownerNodeId === weather.ownerNodeId && previous.label === weather.label) {
-      previous.dotCount += 1;
-      previous.arrivalText = arrivalText();
-    } else {
-      zones.push({
-        ownerNodeId: weather.ownerNodeId || placementId,
-        name: placement?.name || "이름 없는 경로",
-        label: weather.label,
-        dotCount: 1,
-        arrivalText: arrivalText()
-      });
-    }
-    if (["저녁", "밤"].includes(TIME_PHASES[forecastTime.phaseIndex])) {
-      const campStartDay = forecastTime.day;
-      do advanceForecastTime();
-      while (forecastTime.day === campStartDay || TIME_PHASES[forecastTime.phaseIndex] !== "아침");
-    }
-  }
-  return { zones, destination };
 }
 
 function chooseDepartureRoute(route) {
@@ -11714,14 +11571,9 @@ function updateRoadConditionUi() {
   roadConditionPanel.hidden = !visible;
   horseFeedControls.hidden = !visible;
   if (horseWhipHitbox) {
-    const horse = normalizeHorseState(account?.horse);
-    const lowHealth = horse.health <= 33;
     horseWhipHitbox.hidden = !visible;
-    horseWhipHitbox.disabled = !travel?.moving || lowHealth;
-    horseWhipHitbox.setAttribute("aria-label", lowHealth
-      ? "말의 체력이 33 이하라 채찍질할 수 없습니다"
-      : travel?.moving ? "말 채찍질" : "이동 중에만 채찍질할 수 있습니다");
-    horseWhipHitbox.title = lowHealth ? "말의 체력이 33 이하라 채찍질할 수 없습니다." : "";
+    horseWhipHitbox.disabled = !travel?.moving;
+    horseWhipHitbox.setAttribute("aria-label", travel?.moving ? "말 채찍질" : "이동 중에만 채찍질할 수 있습니다");
   }
   if (!visible) {
     if (roadWheelReplace) roadWheelReplace.hidden = true;
@@ -11776,16 +11628,12 @@ function updateRoadConditionUi() {
 function whipHorse(event) {
   const travel = account?.travel;
   if (!travel?.moving || travel.mode !== "road" || isTravelClockPaused()) return;
-  account.horse = normalizeHorseState(account.horse);
-  if (account.horse.health <= 33) {
-    updateRoadConditionUi();
-    return;
-  }
   const currentRate = clampNumber(Number(travel.progressRate), 0.1, MAX_TRAVEL_RATE, 1);
   const remainingProgress = liveSegmentRemainingMs(travel);
   const healthLoss = Math.floor(Math.random() * 3);
   const timeReductionSeconds = Math.floor(Math.random() * 2);
 
+  account.horse = normalizeHorseState(account.horse);
   account.horse.health = Math.max(0, account.horse.health - healthLoss);
   travel.segmentRemainingMs = Math.max(0, remainingProgress - (timeReductionSeconds * 1000 * currentRate));
   travel.progressRate = calculateTravelRate(currentScene, travel);
@@ -12656,34 +12504,6 @@ function maybeStartPendingTalkCardTutorial() {
   return true;
 }
 
-function maybeStartPendingSootheTutorial() {
-  if (!account) return false;
-  const progress = normalizeTutorialProgress(account.tutorialProgress);
-  if (!progress.sootheTutorialPending || !shouldStartTutorial(TUTORIAL_IDS.PARTNER_SOOTHE)) return false;
-  if (!isFeatureUnlocked("partnerSnack")) return false;
-  if (!partnerIsAngry()) {
-    progress.sootheTutorialPending = false;
-    account.tutorialProgress = progress;
-    persistAccount();
-    return false;
-  }
-  if (gameEntryInProgress || talkCardGenerationInProgress > 0
-    || pendingSystemMiniDialogueCount > 0 || pendingRoadDialogueCount > 0
-    || activeTalkCardId || activeNahanaSituationEventId || tutorialRuntime || advancedTutorialRuntime
-    || (tutorialLayer && !tutorialLayer.hidden) || (advancedTutorialLayer && !advancedTutorialLayer.hidden)) return false;
-  const modalOpen = !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
-    || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
-    || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
-    || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
-  if (modalOpen || travelPauseReasons.has("route-event-check") || travelPauseReasons.has("route-event")) return false;
-  if (currentScene !== "partner") showScene("partner", 1, true);
-  if (!startTutorial(TUTORIAL_IDS.PARTNER_SOOTHE)) return false;
-  account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
-  account.tutorialProgress.sootheTutorialPending = false;
-  persistAccount();
-  return true;
-}
-
 function narrativePresentationBlocked(options = {}) {
   if (!account || gameScreen.hidden || gameEntryInProgress
     || (activeNahanaSituationEventId && !options.ignoreSituationEvent)
@@ -12709,7 +12529,6 @@ function continuePendingNarrativePresentation() {
   if (account.travel?.mode === "camp" && shouldStartTutorial(2)
     && !narrativePresentationBlocked({ ignoreTalkCardTutorialPending: true })
     && maybeStartFirstCampTutorial()) return true;
-  if (maybeStartPendingSootheTutorial()) return true;
   if (maybeStartPendingTalkCardTutorial()) return true;
   if (narrativePresentationBlocked()) return false;
   const eventState = normalizeNahanaEventState(account.nahanaEvents);
@@ -13030,10 +12849,6 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["중요한 가격 요인", "교역 항목에는 10% 이상 작용한 가격 요인이 복수로 표시됩니다. ◆는 가장 큰 요소이며, 초록 ▲는 이익에 도움을 준 요인, 빨간 ▼는 손실을 키운 요인입니다.", "#inn-trade-review-detail", false, { padding: 12 }],
       ["다른 거래도 확인", "왼쪽 목록에 복기할 거래가 여러 개라면 눌러서 결과를 바꿔 볼 수 있습니다. 아직 열어보지 않은 거래는 은은하게 강조됩니다.", "#inn-trade-review-list", false, { padding: 10 }],
       ["복기 종료", "복기 종료를 누르면 거래에는 결과 뱃지와 거래지식 1이 적용되고, 확인한 관세·식비는 목록에서 정리됩니다. 화면이 어두워지며 숙박을 계속합니다.", "#inn-trade-review-finish", true, { padding: 10 }]
-    ],
-    [TUTORIAL_IDS.PARTNER_SOOTHE]: [
-      ["화난 나하나 달래기", "나하나가 화난 상태라면 간식 주기 버튼이 달래기로 바뀝니다.\n달래기에 성공하면 기분이 1~2 회복됩니다.", "#partner-snack-open", false, { padding: 12 }],
-      ["오늘은 거절할 수도 있습니다", "달래기를 거절하면 오늘은 더 시도할 수 없습니다.\n다음 날에도 화난 상태라면 다시 달랠 수 있습니다.", "#partner-snack-open", false, { padding: 12 }]
     ]
   };
   const entry = configurations[tutorialId]?.[step];

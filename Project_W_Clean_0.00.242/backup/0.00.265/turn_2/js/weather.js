@@ -1,5 +1,6 @@
 (function exposeWeatherSystem() {
   const UPDATE_INTERVAL_TIMES = 3;
+  const WEATHER_LABELS = new Set(["맑음", "흐림", "비", "폭우", "눈", "폭설"]);
   const ENVIRONMENT_WET_BIAS = new Map([
     ["온난", 0],
     ["다습", 8],
@@ -26,12 +27,13 @@
 
   function createState() {
     return {
-      version: 2,
+      version: 1,
       seed: createSeed(),
       elapsedTimes: 0,
       updateCount: 0,
       nodeWeather: {},
-      dotOwners: {}
+      dotOwners: {},
+      manualOverrideNodeIds: []
     };
   }
 
@@ -46,13 +48,17 @@
     Object.entries(source.dotOwners && typeof source.dotOwners === "object" ? source.dotOwners : {}).forEach(([dotId, nodeId]) => {
       if (/^MAP_DOT_\d+$/.test(dotId) && /^MAP_NODE_\d+$/.test(String(nodeId))) dotOwners[dotId] = String(nodeId);
     });
+    const manualOverrideNodeIds = Array.isArray(source.manualOverrideNodeIds)
+      ? [...new Set(source.manualOverrideNodeIds.map(String).filter(nodeId => /^MAP_NODE_\d+$/.test(nodeId)))]
+      : [];
     return {
-      version: 2,
+      version: 1,
       seed: String(source.seed || createSeed()),
       elapsedTimes: clamp(Math.trunc(Number(source.elapsedTimes) || 0), 0, UPDATE_INTERVAL_TIMES - 1),
       updateCount: Math.max(0, Math.trunc(Number(source.updateCount) || 0)),
       nodeWeather,
-      dotOwners
+      dotOwners,
+      manualOverrideNodeIds
     };
   }
 
@@ -68,6 +74,7 @@
     Object.keys(state.nodeWeather).forEach(nodeId => {
       if (!validNodeIds.has(nodeId)) delete state.nodeWeather[nodeId];
     });
+    state.manualOverrideNodeIds = state.manualOverrideNodeIds.filter(nodeId => validNodeIds.has(nodeId));
     graph.nodes.forEach(node => {
       if (state.nodeWeather[node.id]) return;
       const distribution = stationaryDistribution(wetBiasFor(node, season));
@@ -80,8 +87,13 @@
 
     const adjacency = buildAdjacency(graph);
     if (isFresh) smoothInitialWeather(state, graph.nodes, adjacency, season);
+    const manualOverrides = new Set(state.manualOverrideNodeIds);
     graph.nodes.forEach(node => {
       const weather = normalizeWeatherState(state.nodeWeather[node.id]);
+      if (manualOverrides.has(node.id)) {
+        state.nodeWeather[node.id] = weather;
+        return;
+      }
       state.nodeWeather[node.id] = {
         severity: weather.severity,
         type: enforcePrecipitationType(
@@ -149,6 +161,34 @@
     };
   }
 
+  function setWeatherAt(value, graph, placementId, label, options = {}) {
+    if (!WEATHER_LABELS.has(String(label))) return ensureState(value, graph, options);
+    const state = ensureState(value, graph, options);
+    const id = String(placementId || "");
+    const ownerId = /^MAP_NODE_\d+$/.test(id) ? id : state.dotOwners[id];
+    if (!ownerId || !state.nodeWeather[ownerId]) return state;
+    const node = graph.nodes.find(candidate => candidate.id === ownerId);
+    const weather = weatherStateFromLabel(String(label));
+    const precipitationType = options.forcePrecipitationType
+      ? weather.type
+      : enforcePrecipitationType(
+        weather.type,
+        weather.severity,
+        node,
+        normalizeSeason(options.season),
+        seededUnit(`${state.seed}|manual-type|${state.updateCount}|${ownerId}`)
+      );
+    state.nodeWeather[ownerId] = {
+      severity: weather.severity,
+      type: precipitationType
+    };
+    const manualOverrides = new Set(state.manualOverrideNodeIds);
+    if (options.forcePrecipitationType) manualOverrides.add(ownerId);
+    else manualOverrides.delete(ownerId);
+    state.manualOverrideNodeIds = [...manualOverrides];
+    return state;
+  }
+
   function updateNodeWeather(state, graph, season) {
     if (!graph?.loaded || !graph.nodes?.length) return;
     const adjacency = buildAdjacency(graph);
@@ -177,6 +217,7 @@
     });
 
     state.nodeWeather = next;
+    state.manualOverrideNodeIds = [];
     state.updateCount = updateIndex;
     Object.keys(state.dotOwners).forEach(dotId => {
       if (!nodesById.has(state.dotOwners[dotId])) delete state.dotOwners[dotId];
@@ -349,6 +390,15 @@
     return state.severity === 3 ? "폭우" : "비";
   }
 
+  function weatherStateFromLabel(label) {
+    if (label === "맑음") return { severity: 0, type: "" };
+    if (label === "흐림") return { severity: 1, type: "" };
+    if (label === "눈") return { severity: 2, type: "snow" };
+    if (label === "폭설") return { severity: 3, type: "snow" };
+    if (label === "폭우") return { severity: 3, type: "rain" };
+    return { severity: 2, type: "rain" };
+  }
+
   function normalizeWeatherState(value) {
     const severity = clamp(Math.trunc(Number(value?.severity) || 0), 0, 3);
     const type = severity >= 2 && value?.type === "snow" ? "snow" : severity >= 2 ? "rain" : "";
@@ -411,6 +461,7 @@
     normalizeState,
     ensureState,
     advanceTime,
-    getWeatherAt
+    getWeatherAt,
+    setWeatherAt
   };
 }());
