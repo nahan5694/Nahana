@@ -442,7 +442,7 @@
       acquiredDay: today,
       initialAgeDays: template.special === "WOLFEN_TRACK" || isWeatherInformationSpecial(template.special)
         ? 0
-        : rollInitialInformationAge(peddlerBonuses.sourceLevel, template.maximumAgeDays),
+        : rollInitialInformationAge(peddlerBonuses.sourceLevel),
       trustRoll: Math.random(),
       ageRoll: Math.random(),
       intuitionRoll: Math.random(),
@@ -463,15 +463,9 @@
     state.cards.push(card);
     state.discoveredKeys.push(selected.instanceKey);
     state.discoveredKeys = [...new Set(state.discoveredKeys)];
-    const normalizedState = normalizeState(state);
-    const storedCard = normalizedState.cards.find(entry => entry.id === card.id);
-    if (!storedCard) {
-      console.error("새로 획득한 정보가 저장 정리 과정에서 제거되었습니다.", card);
-      return { acquired: false, attempted: true, message: "정보를 기록하지 못했습니다. 다시 시도해 주세요." };
-    }
-    applyAcquisitionEffect(storedCard);
-    storeState(normalizedState);
-    const presentedCard = presentCard(storedCard);
+    applyAcquisitionEffect(card);
+    storeState(state);
+    const presentedCard = presentCard(card);
     showAcquiredInformation(presentedCard);
     return {
       acquired: true,
@@ -791,14 +785,11 @@
     return Math.max(0, integer(card?.initialAgeDays) + (Math.max(1, integer(day, 1)) - Math.max(1, integer(card?.acquiredDay, 1))));
   }
 
-  function rollInitialInformationAge(sourceLevel = 0, maximumAgeDays = 12) {
+  function rollInitialInformationAge(sourceLevel = 0) {
     const level = clamp(integer(sourceLevel), 0, INITIAL_INFORMATION_AGE_BANDS.length - 1);
     const band = weightedEntry(INITIAL_INFORMATION_AGE_BANDS[level], entry => entry.weight)
       || INITIAL_INFORMATION_AGE_BANDS[0][0];
-    // A time-consuming collection can cross midnight immediately after acquisition.
-    // Keep at least one full day of validity after that transition.
-    const maximumInitialAge = Math.max(0, integer(maximumAgeDays, 12) - 2);
-    return Math.min(randomInteger(band.minimum, band.maximum), maximumInitialAge);
+    return randomInteger(band.minimum, band.maximum);
   }
 
   function normalizePeddlerInformationBonuses(value) {

@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.270";
+const GAME_VERSION = "0.00.267";
 const ACCOUNT_SCHEMA_VERSION = 46;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -6042,7 +6042,7 @@ function partnerCompanyScoreMultiplier() {
 
 function partnerEntryTariffMultiplier() {
   return activePartnerBuffTierValue([
-    ["N_Buff_035", 0], ["N_Buff_034", 0.33], ["N_Buff_033", 0.67]
+    ["N_Buff_035", 0], ["N_Buff_034", 0.34], ["N_Buff_033", 0.67]
   ], 1);
 }
 
@@ -11101,7 +11101,7 @@ async function enterSettlement() {
   const cityEventTariffPoints = window.ProjectWCityEvents.getModifiers(placement).entryTariffPoints;
   const effectivePlacement = {
     ...placement,
-    entryTariffRate: Math.max(0, ((Number(placement.entryTariffRate) || 0) + cityEventTariffPoints) * routeTariffMultiplier * tariffMultiplier)
+    entryTariffRate: Math.max(0, (((Number(placement.entryTariffRate) || 0) * tariffMultiplier) + cityEventTariffPoints) * routeTariffMultiplier)
   };
   const taxable = ["대도시", "도시", "관문"].includes(placement.category)
     && (Number(effectivePlacement.entryTariffRate) > 0 || borderTaxRate > 0);

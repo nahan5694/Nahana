@@ -824,8 +824,7 @@
     const raw = String(value ?? "").trim();
     const number = Number(raw.replace("%", ""));
     if (!Number.isFinite(number)) return 0;
-    // Map data and every entry-tax caller already use percentage points:
-    // 2 means 2%, while 0.66 means 0.66% after a tariff reduction.
+    if (!raw.includes("%") && number > 0 && number < 1) return number * 100;
     return Math.max(0, number);
   }
 
