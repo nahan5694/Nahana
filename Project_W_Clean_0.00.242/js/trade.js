@@ -148,7 +148,6 @@
   let offerFilters = { player: "all", merchant: "all" };
   let merchantTravelFilterMode = "all";
   let playerCatalogMode = "goods";
-  let warningTooltipText = "";
   let merchantCommentSequence = 0;
   const merchantCommentPlans = new Map();
   let elements = {};
@@ -217,9 +216,6 @@
       previewSlots: document.querySelector("#trade-preview-slots"),
       previewWeight: document.querySelector("#trade-preview-weight"),
       confirm: document.querySelector("#trade-confirm"),
-      merchantWarning: document.querySelector("#trade-merchant-warning"),
-      warningInfo: document.querySelector("#trade-warning-info"),
-      warningTooltip: document.querySelector("#trade-warning-tooltip"),
       restock: document.querySelector("#trade-restock-status"),
       travelFilter: document.querySelector("#trade-travel-filter"),
       travelHideFilter: document.querySelector("#trade-travel-hide-filter"),
@@ -235,10 +231,6 @@
     elements.travelFilter?.addEventListener("click", toggleTravelFilter);
     elements.travelHideFilter?.addEventListener("click", toggleTravelHideFilter);
     elements.playerCatalogTabs.forEach(button => button.addEventListener("click", switchPlayerCatalog));
-    elements.warningInfo?.addEventListener("pointerenter", showWarningTooltip);
-    elements.warningInfo?.addEventListener("pointerleave", hideWarningTooltip);
-    elements.warningInfo?.addEventListener("focus", showWarningTooltip);
-    elements.warningInfo?.addEventListener("blur", hideWarningTooltip);
     elements.modal.addEventListener("click", handleClick);
     elements.modal.addEventListener("pointerdown", event => {
       if (event.target === elements.modal) close();
@@ -304,9 +296,6 @@
     elements.confirm.disabled = true;
     merchantTravelFilterMode = "all";
     playerCatalogMode = "goods";
-    if (elements.merchantWarning) elements.merchantWarning.hidden = true;
-    warningTooltipText = "";
-    hideWarningTooltip();
     clearLists();
     if (elements.playerOfferTitle) elements.playerOfferTitle.textContent = currencyOnly ? "내가 지불하는 화폐" : "내가 건네는 것";
     if (elements.merchantOfferTitle) elements.merchantOfferTitle.textContent = currencyOnly ? "환전상이 지급하는 화폐" : "상인이 건네는 것";
@@ -2559,12 +2548,12 @@
     const notesRequireGoods = proposal.player.notes.size <= 0 || proposal.merchant.goods.size > 0;
     const valid = balance.valid && cargoPreview.possible && notesRequireGoods;
     if (elements.playerCurrencyFill) {
-      const missingValue = playerCurrencyShortfall(balance);
+      const missingValue = balance.valid ? 0 : playerCurrencyShortfall(balance);
       elements.playerCurrencyFill.hidden = Boolean(current.currencyOnly);
       elements.playerCurrencyFill.disabled = current.currencyOnly || balance.merchantValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("player", missingValue, true);
     }
     if (elements.merchantCurrencyFill) {
-      const missingValue = Math.max(0, balance.playerMaximumValue - balance.merchantValue);
+      const missingValue = balance.valid ? 0 : Math.max(0, balance.playerMaximumValue - balance.merchantValue);
       elements.merchantCurrencyFill.hidden = Boolean(current.currencyOnly);
       elements.merchantCurrencyFill.disabled = current.currencyOnly || proposal.player.notes.size > 0 || balance.playerMaximumValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("merchant", missingValue, false);
     }
@@ -2580,10 +2569,6 @@
     }
     renderBalanceStatus(balance, { notesRequireGoods, cargoPreview, valid });
     elements.confirm.disabled = !valid;
-    const showMerchantWarning = balance.merchantDisadvantaged && balance.playerValue > 0 && balance.merchantValue > 0;
-    if (elements.merchantWarning) elements.merchantWarning.hidden = !showMerchantWarning;
-    warningTooltipText = balance.warningTooltip || "";
-    if (!showMerchantWarning) hideWarningTooltip();
   }
 
   function renderBalanceValue(balance) {
@@ -2592,18 +2577,18 @@
       elements.balanceValue.textContent = `${formatNumber(balance.playerValue)} ↔ ${formatNumber(balance.requiredPlayerValue)}`;
       return;
     }
-    if (balance.bargainUsedValue <= 0 || balance.rawPlayerValue <= 0) {
+    if (balance.bargainRecognizedValue <= 0 || balance.rawPlayerValue <= 0) {
       elements.balanceValue.textContent = `${formatNumber(balance.rawPlayerValue)} ↔ ${formatNumber(balance.merchantValue)}`;
       return;
     }
-    const adjustedValue = document.createElement("span");
-    adjustedValue.className = "trade-bargain-adjusted-value";
-    adjustedValue.textContent = formatNumber(balance.playerValue);
-    adjustedValue.dataset.bargainGainTooltip = `${formatNumber(balance.rawPlayerValue)} + ${formatNumber(balance.bargainUsedValue)}`;
-    adjustedValue.tabIndex = 0;
-    adjustedValue.setAttribute("aria-label", `실제 가치 ${formatNumber(balance.rawPlayerValue)}에 흥정 가치 ${formatNumber(balance.bargainUsedValue)}를 더해 ${formatNumber(balance.playerValue)}로 인정`);
+    const offeredValue = document.createElement("span");
+    offeredValue.className = "trade-bargain-adjusted-value";
+    offeredValue.textContent = formatNumber(balance.playerValue);
+    offeredValue.dataset.bargainGainTooltip = `원금 ${formatNumber(balance.rawPlayerValue)} + 흥정 이득 ${formatNumber(balance.bargainRecognizedValue)}`;
+    offeredValue.tabIndex = 0;
+    offeredValue.setAttribute("aria-label", `판정 가치 ${formatNumber(balance.playerValue)}. 원금 ${formatNumber(balance.rawPlayerValue)}에 흥정 이득 ${formatNumber(balance.bargainRecognizedValue)} 추가`);
     elements.balanceValue.replaceChildren(
-      adjustedValue,
+      offeredValue,
       document.createTextNode(` ↔ ${formatNumber(balance.merchantValue)}`)
     );
   }
@@ -2615,28 +2600,24 @@
     status.classList.remove("is-structured");
     status.replaceChildren();
 
-    if (!notesRequireGoods) {
-      status.textContent = "어음은 상회의 상품을 구입할 때만 사용할 수 있습니다. 화폐로 바꾸려면 대도시 상업조합을 이용하세요.";
-      return;
-    }
-    if (!cargoPreview.possible) {
-      status.textContent = "거래 후 필요한 화물칸이 부족합니다.";
-      return;
-    }
     if (current.currencyOnly || balance.playerValue <= 0 || balance.merchantValue <= 0) {
       status.textContent = balance.message;
       return;
     }
 
-    const availability = !balance.nonCurrencyAssetValid
-      ? "불가 · 비화폐 자산 부족"
-      : balance.merchantDisadvantaged
-        ? "불가 · 내가 건네는 가치 부족"
-        : balance.difference > 20
-          ? "불가 · 가치 차이 초과"
-          : cargoPreview.overweight
-            ? "가능 · 최대 중량 초과"
-            : "가능";
+    const availability = valid
+      ? cargoPreview.overweight ? "가능 · 최대 중량 초과" : "가능"
+      : !notesRequireGoods
+        ? "불가 · 어음 사용 조건"
+        : !cargoPreview.possible
+          ? "불가 · 화물칸 부족"
+          : !balance.nonCurrencyAssetValid
+            ? "불가 · 비화폐 자산 부족"
+            : current.currencyOnly && balance.merchantDisadvantaged
+              ? "불가 · 내가 건네는 가치 부족"
+              : balance.difference > 20
+                ? "불가 · 가치 차이 초과"
+                : "불가 · 거래 조건 미충족";
     const lines = [
       ["가치 차이", `${formatNumber(balance.difference)}%`, balance.difference <= 20],
       ["비화폐 자산", `${formatNumber(balance.nonCurrencyAssetRatio)}% / 45%`, balance.nonCurrencyAssetValid],
@@ -3068,6 +3049,7 @@
   function fillOfferWithCurrency(owner) {
     if (!current || current.currencyOnly) return;
     const balance = balanceResult(offerValue("player"), offerValue("merchant"));
+    if (balance.valid) return;
     const playerSide = owner === "player";
     let remaining = playerSide
       ? playerCurrencyShortfall(balance)
@@ -3260,6 +3242,12 @@
     return values;
   }
 
+  function proposalHasGoods() {
+    return ["player", "merchant"].some(owner => (
+      [...proposal[owner].goods.values()].some(quantity => Math.max(0, Math.trunc(Number(quantity) || 0)) > 0)
+    ));
+  }
+
   function offerValue(owner) {
     return offerBreakdown(owner).total;
   }
@@ -3278,11 +3266,12 @@
     const exchangeFeeRate = current?.currencyOnly ? calculateExchangeFeeRate() : 0;
     const exchangeFee = current?.currencyOnly ? Math.ceil(merchantValue * exchangeFeeRate / 100) : 0;
     const requiredPlayerValue = merchantValue + exchangeFee;
+    const bargainRecognizedValue = current?.currencyOnly ? 0 : bargainAllowance;
     const bargainUsedValue = current?.currencyOnly
       ? 0
       : Math.min(bargainAllowance, Math.max(0, requiredPlayerValue - rawPlayerValue));
-    const playerValue = rawPlayerValue + bargainUsedValue;
-    const playerMaximumValue = rawPlayerValue + bargainAllowance;
+    const playerValue = rawPlayerValue + bargainRecognizedValue;
+    const playerMaximumValue = playerValue;
     const combinedRawValue = rawPlayerValue + merchantValue;
     const nonCurrencyAssetValue = playerBreakdown.goods
       + merchantBreakdown.goods
@@ -3300,6 +3289,7 @@
         bargainBonusPercent,
         bargainBasisValue,
         bargainAllowance,
+        bargainRecognizedValue,
         bargainUsedValue,
         merchantValue,
         exchangeFee,
@@ -3310,16 +3300,13 @@
         nonCurrencyAssetValid,
         difference: 100,
         merchantDisadvantaged: false,
-        warningTooltip: "",
         message: "양쪽에 상품이나 화폐를 올려주세요."
       };
     }
     const difference = Math.abs(playerValue - requiredPlayerValue) / Math.max(playerValue, requiredPlayerValue) * 100;
     const merchantDisadvantaged = playerValue < requiredPlayerValue;
-    const valid = !merchantDisadvantaged && difference <= 20 && nonCurrencyAssetValid;
-    const warningTooltip = merchantDisadvantaged
-      ? `흥정으로 +${formatNumber(bargainUsedValue)}가치를 더 인정받았지만, 내가 건네는 가치가 아직 ${formatNumber(difference)}% 부족합니다.`
-      : "";
+    const valueRangeValid = difference <= 20 && (!current?.currencyOnly || !merchantDisadvantaged);
+    const valid = valueRangeValid && nonCurrencyAssetValid;
     return {
       valid,
       playerValue,
@@ -3328,6 +3315,7 @@
       bargainBonusPercent,
       bargainBasisValue,
       bargainAllowance,
+      bargainRecognizedValue,
       bargainUsedValue,
       merchantValue,
       exchangeFee,
@@ -3338,13 +3326,10 @@
       nonCurrencyAssetValid,
       difference,
       merchantDisadvantaged,
-      warningTooltip,
       message: !nonCurrencyAssetValid
         ? `비화폐 거래자산 ${formatNumber(nonCurrencyAssetRatio)}% · 일반 상점 거래는 상품과 정보가 양측 가치 합계의 45% 이상이어야 합니다.`
-        : merchantDisadvantaged
-        ? current?.currencyOnly
-          ? `환전 할증 ${formatNumber(exchangeFeeRate)}%를 포함한 가치보다 지불 가치가 낮습니다.`
-          : `내가 건네는 가치가 부족합니다.${bargainAllowance > bargainUsedValue ? ` · 흥정으로 더 인정받을 수 있는 가치 ${formatNumber(bargainAllowance - bargainUsedValue)}` : ""}`
+        : current?.currencyOnly && merchantDisadvantaged
+        ? `환전 할증 ${formatNumber(exchangeFeeRate)}%를 포함한 가치보다 지불 가치가 낮습니다.`
         : difference <= 20
           ? `가치 차이 ${formatNumber(difference)}% · 비화폐 거래자산 ${formatNumber(nonCurrencyAssetRatio)}% · 거래할 수 있습니다.`
           : `가치 차이 ${formatNumber(difference)}% · 20% 이내로 맞춰야 합니다.`
@@ -3379,7 +3364,7 @@
     elements.bargain.hidden = !availableFacility;
     if (!availableFacility) return;
     const profile = getBargainProfile(bargainContext());
-    const hasGoods = offerBreakdown("player").goods > 0 || offerBreakdown("merchant").goods > 0;
+    const hasGoods = proposalHasGoods();
     const count = elements.bargain.querySelector("span");
     if (count) count.textContent = `${profile.attemptsRemaining} / ${profile.attemptsMaximum}`;
     elements.bargain.disabled = !hasGoods || !profile.available || profile.attemptsRemaining <= 0;
@@ -3816,21 +3801,10 @@
     return new Promise(resolve => window.setTimeout(resolve, milliseconds));
   }
 
-  function showWarningTooltip() {
-    if (!elements.warningTooltip || !elements.warningInfo || !warningTooltipText) return;
-    elements.warningTooltip.textContent = warningTooltipText;
-    elements.warningTooltip.hidden = false;
-  }
-
-  function hideWarningTooltip() {
-    if (elements.warningTooltip) elements.warningTooltip.hidden = true;
-  }
-
   function close() {
     if (!elements.modal || elements.modal.hidden) return;
     dismissMerchantCommentary();
     window.ProjectWCargo.hideTooltip();
-    hideWarningTooltip();
     elements.modal.hidden = true;
     delete elements.modal.dataset.facilityType;
     elements.modal.classList.remove("is-currency-exchange");
