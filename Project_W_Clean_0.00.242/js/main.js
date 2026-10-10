@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.282";
-const ACCOUNT_SCHEMA_VERSION = 46;
+const GAME_VERSION = "0.00.283";
+const ACCOUNT_SCHEMA_VERSION = 47;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -140,7 +140,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "흥정 시도", text: "흥정에 성공하면 상품이 포함된 거래에서 내 쪽 가치가 더 높게 인정됩니다. 물건을 살 때는 덜 내고, 팔 때는 더 받을 수 있습니다.\n예를 들어 실제로 185가치를 올렸어도 190가치를 낸 것으로 인정받으면, 190가치와 거래할 수 있습니다. 화폐·정보·어음 자체의 가치는 바뀌지 않습니다.", selector: "#trade-bargain" },
       { title: "상품 지식과 흥정", text: "지식 7단계에 도달한 서로 다른 상품을 거래안에 올리면 최대 3종까지 흥정 성공 가능성이 높아집니다.\n적용 중인 상품 지식 보정은 흥정 버튼의 툴팁에서 확인할 수 있습니다.", selector: "#trade-bargain" },
-      { title: "성공을 이어갈수록", text: "흥정에 여러 번 성공하면 상인이 추가로 인정하는 가치가 쌓입니다. 대신 성공할 때마다 다음 성공 확률은 8%포인트 낮아집니다.\n달변가를 모두 익혀도 상품가의 10%까지만 추가로 인정받으며, 실제 이득은 상행 복기와 상행록에 기록됩니다." }
+      { title: "성공과 실패의 누적", text: "흥정에 성공하면 상품가 기준 양보 한도가 3% 늘고, 실패하면 지금까지 얻은 보정이 2% 줄어듭니다. 보정은 0% 아래로 내려가지 않으며 성공할 때마다 다음 성공 확률은 8%포인트 낮아집니다.\n달변가를 모두 익혀도 상품가의 10%까지만 추가로 인정받으며, 실제 이득은 상행 복기와 상행록에 기록됩니다." }
     ]
   },
   {
@@ -1302,7 +1302,7 @@ window.ProjectWEntryTax.init({
   attemptBargain,
   completeBargainTrade,
   showBargainDialogue: (dialogueId, success) => {
-    showBargainResultFeedback(success);
+    showBargainResultFeedback(success, { entryTax: true });
     return showSystemMiniDialogue(dialogueId, success ? "bargain-success" : "bargain-failure");
   },
   notify: showGameNotice
@@ -6065,7 +6065,7 @@ function partnerCompanyScoreMultiplier() {
   ], 1);
 }
 
-function partnerEntryTariffMultiplier() {
+function partnerGateTariffPaymentMultiplier() {
   return activePartnerBuffTierValue([
     ["N_Buff_035", 0], ["N_Buff_034", 0.33], ["N_Buff_033", 0.67]
   ], 1);
@@ -6271,17 +6271,22 @@ function recoverSpiritAfterSleep() {
   if (account.partner.lastSpiritRecoveryDay >= day) return;
   const recovery = companionSpiritDailyRecovery(account.partner.companionRank);
   const bonus = recovery.bonusChance > 0 && Math.random() < recovery.bonusChance ? 1 : 0;
+  const autoExtendedBuffs = account.partner.activeBuffs.filter(buff => buff.autoExtend);
+  autoExtendedBuffs.forEach(buff => { buff.expiresDay += 1; });
+  const extensionCost = autoExtendedBuffs.length;
   const maximum = companionSpiritMaximum(account.partner.companionRank);
-  account.partner.spirit = Math.min(maximum, account.partner.spirit + recovery.guaranteed + bonus);
+  account.partner.spirit = Math.min(maximum, account.partner.spirit + Math.max(0, recovery.guaranteed + bonus - extensionCost));
   account.partner.lastSpiritRecoveryDay = day;
   // R_E_002, R_E_003 늑대 습격은 사용 가능한 정령력을 자동 소비해 피해를 완화한다.
 }
 
 function companionSpiritDailyRecovery(rank) {
-  const maximum = companionSpiritMaximum(rank);
+  const normalizedRank = Math.min(MAX_COMPANION_RANK, Math.max(1, Number(rank) || 1));
+  const exactRecovery = 1 + (((normalizedRank - 1) / (MAX_COMPANION_RANK - 1)) * 4);
+  const guaranteed = normalizedRank >= MAX_COMPANION_RANK ? 5 : Math.floor(exactRecovery);
   return {
-    guaranteed: 1 + Math.floor(maximum / 4),
-    bonusChance: (maximum % 4) * .25
+    guaranteed,
+    bonusChance: normalizedRank >= MAX_COMPANION_RANK ? 0 : exactRecovery - guaranteed
   };
 }
 
@@ -6327,6 +6332,8 @@ function renderSpiritBlessingFeature(partner) {
   const maximumSpirit = companionSpiritMaximum(partner.companionRank);
   const availableNames = availableBuffNames(partner);
   const recovery = companionSpiritDailyRecovery(partner.companionRank);
+  const autoExtendCount = partner.activeBuffs.filter(buff => buff.autoExtend).length;
+  const autoExtendCapacity = recovery.guaranteed;
 
   const overview = document.createElement("section");
   overview.className = "partner-feature-overview spirit-overview is-compact";
@@ -6338,7 +6345,7 @@ function renderSpiritBlessingFeature(partner) {
   const resourceValue = document.createElement("strong");
   resourceValue.textContent = `${partner.spirit} / ${maximumSpirit}`;
   const recoveryLabel = document.createElement("small");
-  recoveryLabel.textContent = `일일 회복 +${recovery.guaranteed}${recovery.bonusChance > 0 ? ` · 추가 +1 확률 ${Math.round(recovery.bonusChance * 100)}%` : ""}`;
+  recoveryLabel.textContent = `일일 회복 +${recovery.guaranteed}${recovery.bonusChance > 0 ? ` · 추가 +1 확률 ${Math.round(recovery.bonusChance * 100)}%` : ""}${autoExtendCount > 0 ? ` · 자동연장 -${autoExtendCount}` : ""}`;
   resourceCopy.append(resourceLabel, resourceValue, recoveryLabel);
   const pips = document.createElement("div");
   pips.className = "partner-spirit-pips";
@@ -6377,7 +6384,19 @@ function renderSpiritBlessingFeature(partner) {
     const description = document.createElement("p");
     description.textContent = buff.effectDescription || buff.description;
     cardCopy.append(cardHeader, description);
-    card.append(seal, cardCopy);
+    const autoExtend = document.createElement("button");
+    autoExtend.type = "button";
+    autoExtend.className = `partner-buff-auto-extend ${buff.autoExtend ? "is-active" : ""}`;
+    autoExtend.dataset.partnerFeatureAction = "toggle-buff-auto-extend";
+    autoExtend.dataset.buffId = buff.id;
+    autoExtend.disabled = !buff.autoExtend && autoExtendCount >= autoExtendCapacity;
+    autoExtend.textContent = buff.autoExtend ? "자동연장 켜짐" : "자동연장";
+    autoExtend.title = buff.autoExtend
+      ? "매일 정령력 회복 1을 사용해 이 가호의 남은 기간을 하루 연장합니다."
+      : autoExtend.disabled
+        ? `확정 일일 회복량 +${autoExtendCapacity}을 모두 자동연장에 사용 중입니다.`
+        : "매일 정령력 회복 1을 사용해 이 가호의 남은 기간을 하루 연장합니다.";
+    card.append(seal, cardCopy, autoExtend);
     list.append(card);
   });
   activeSection.append(list);
@@ -6549,20 +6568,29 @@ function createPartnerFeatureSectionHeading(title, description) {
 }
 
 function companionBuffGradeChances(rank) {
-  const grade3 = Math.min(25, 5 + (Math.floor((Math.max(1, rank) - 1) / 2)));
-  return { 1: 75 - grade3, 2: 25, 3: grade3 };
+  const progress = (Math.min(MAX_COMPANION_RANK, Math.max(1, Number(rank) || 1)) - 1) / (MAX_COMPANION_RANK - 1);
+  const grade2 = Math.round(25 * Math.pow(progress, 1.5));
+  const grade3 = Math.round(25 * Math.pow(progress, 2.5));
+  return { 1: 100 - grade2 - grade3, 2: grade2, 3: grade3 };
 }
 
 function availableBuffNames(partner) {
+  return [...new Set(availableBuffDefinitions(partner).map(definition => definition.name))];
+}
+
+function availableBuffDefinitions(partner) {
   const activeNames = new Set((partner?.activeBuffs || []).map(buff => buff.name));
-  return [...new Set([...nahanaBuffDefinitions.values()].map(definition => definition.name))]
-    .filter(name => !activeNames.has(name));
+  const chance = companionBuffGradeChances(partner?.companionRank);
+  return [...nahanaBuffDefinitions.values()].filter(definition => (
+    !activeNames.has(definition.name) && (Number(chance[definition.gradeNumber]) || 0) > 0
+  ));
 }
 
 function handlePartnerFeatureAction(event) {
   const button = event.target.closest("[data-partner-feature-action]");
   if (!button || button.disabled) return;
   if (button.dataset.partnerFeatureAction === "obtain-buff") void acquireRandomSpiritBlessing();
+  if (button.dataset.partnerFeatureAction === "toggle-buff-auto-extend") togglePartnerBuffAutoExtend(button.dataset.buffId);
   if (button.dataset.partnerFeatureAction === "bless-category") {
     activeBlessCategory = button.dataset.category === "짐마차" ? "짐마차" : "수레바퀴";
     renderPartnerFeature();
@@ -6573,25 +6601,59 @@ function handlePartnerFeatureAction(event) {
   if (button.dataset.partnerFeatureAction === "acquire-blessing") acquirePartnerBlessing(button.dataset.blessingId);
 }
 
+function togglePartnerBuffAutoExtend(buffId) {
+  if (!account) return;
+  account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  const buff = account.partner.activeBuffs.find(entry => entry.id === String(buffId || ""));
+  if (!buff) return;
+  if (buff.autoExtend) {
+    buff.autoExtend = false;
+  } else {
+    const recovery = companionSpiritDailyRecovery(account.partner.companionRank);
+    const activeCount = account.partner.activeBuffs.filter(entry => entry.autoExtend).length;
+    if (activeCount >= recovery.guaranteed) {
+      showGameNotice(`확정 일일 회복량 +${recovery.guaranteed}보다 많은 가호를 자동연장할 수 없습니다.`);
+      return;
+    }
+    buff.autoExtend = true;
+  }
+  persistAccount();
+  renderPartnerFeature();
+}
+
 async function acquireRandomSpiritBlessing() {
   if (!account || spiritBlessingInProgress) return;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const partner = account.partner;
-  const names = availableBuffNames(partner);
-  if (!names.length || partner.spirit < 1) return;
-  const name = names[Math.floor(Math.random() * names.length)];
+  const definitions = availableBuffDefinitions(partner);
+  if (!definitions.length || partner.spirit < 1) return;
   const chance = companionBuffGradeChances(partner.companionRank);
-  const roll = Math.random() * 100;
-  const gradeNumber = roll < chance[3] ? 3 : roll < chance[3] + chance[2] ? 2 : 1;
-  const definition = [...nahanaBuffDefinitions.values()].find(entry => entry.name === name && entry.gradeNumber === gradeNumber)
-    || [...nahanaBuffDefinitions.values()].find(entry => entry.name === name);
+  const candidatesByGrade = new Map([1, 2, 3].map(gradeNumber => [
+    gradeNumber,
+    definitions.filter(definition => definition.gradeNumber === gradeNumber)
+  ]));
+  const availableWeights = [1, 2, 3].map(gradeNumber => ({
+    gradeNumber,
+    weight: candidatesByGrade.get(gradeNumber).length ? (Number(chance[gradeNumber]) || 0) : 0
+  }));
+  const totalWeight = availableWeights.reduce((sum, entry) => sum + entry.weight, 0);
+  if (totalWeight <= 0) return;
+  let roll = Math.random() * totalWeight;
+  const selectedGrade = availableWeights.find(entry => {
+    roll -= entry.weight;
+    return roll < 0;
+  })?.gradeNumber || 1;
+  const gradeCandidates = candidatesByGrade.get(selectedGrade);
+  const definition = gradeCandidates[Math.floor(Math.random() * gradeCandidates.length)];
   if (!definition) return;
+  const gradeNumber = definition.gradeNumber;
   const acquiredDay = normalizeWorldTime(account.worldTime).day;
   partner.spirit -= 1;
   partner.activeBuffs.push({
     ...definition,
     acquiredDay,
-    expiresDay: acquiredDay + gradeNumber + 2
+    expiresDay: acquiredDay + gradeNumber + 2,
+    autoExtend: false
   });
   persistAccount();
   spiritBlessingInProgress = true;
@@ -7123,7 +7185,7 @@ function unlockFeature(key) {
 window.ProjectWFeatureUnlocks = { isUnlocked: isFeatureUnlocked, unlock: unlockFeature };
 
 function createInitialBargainingState(day = 1) {
-  return { day: Math.max(1, Math.trunc(Number(day) || 1)), attemptsUsedByFacility: {}, successesByFacility: {} };
+  return { day: Math.max(1, Math.trunc(Number(day) || 1)), attemptsUsedByFacility: {}, successesByFacility: {}, bonusPercentByFacility: {} };
 }
 
 function normalizeBargainingState(value, worldTime = account?.worldTime) {
@@ -7131,12 +7193,19 @@ function normalizeBargainingState(value, worldTime = account?.worldTime) {
   if (!value || typeof value !== "object" || Math.max(1, Math.trunc(Number(value.day) || 1)) !== day) {
     return createInitialBargainingState(day);
   }
+  const successesByFacility = Object.fromEntries(Object.entries(value.successesByFacility || {})
+    .map(([key, count]) => [String(key), Math.max(0, Math.trunc(Number(count) || 0))]));
+  const bonusPercentByFacility = Object.fromEntries(Object.entries(value.bonusPercentByFacility || {})
+    .map(([key, percent]) => [String(key), Math.max(0, Number(percent) || 0)]));
+  Object.entries(successesByFacility).forEach(([key, successes]) => {
+    if (!Object.hasOwn(bonusPercentByFacility, key)) bonusPercentByFacility[key] = successes * 3;
+  });
   return {
     day,
     attemptsUsedByFacility: Object.fromEntries(Object.entries(value.attemptsUsedByFacility || {})
       .map(([key, count]) => [String(key), Math.max(0, Math.trunc(Number(count) || 0))])),
-    successesByFacility: Object.fromEntries(Object.entries(value.successesByFacility || {})
-      .map(([key, count]) => [String(key), Math.max(0, Math.trunc(Number(count) || 0))]))
+    successesByFacility,
+    bonusPercentByFacility
   };
 }
 
@@ -7145,17 +7214,20 @@ function bargainFacilityModifier(type) {
 }
 
 function getBargainProfile(context = {}) {
-  if (!account) return { available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 3, valueMaximum: 6, knowledgeItemBonus: 0 };
+  if (!account) return { available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 3, valuePerFailure: 2, valueMaximum: 6, knowledgeItemBonus: 0 };
   account.bargaining = normalizeBargainingState(account.bargaining, account.worldTime);
   const bonuses = window.ProjectWMerchantPath?.getBargainingBonuses?.() || { attempts: 0, chance: 0, valueCap: 6 };
   const facilityKey = String(context.facilityKey || "").trim();
+  const entryTax = String(context.facilityType || "") === "입장관세";
   const successes = Math.max(0, account.bargaining.successesByFacility[facilityKey] || 0);
-  const attemptsMaximum = Math.max(1, 1 + (Number(bonuses.attempts) || 0));
+  const attemptsMaximum = entryTax ? 1 : Math.max(1, 1 + (Number(bonuses.attempts) || 0));
   const attemptsUsed = Math.max(0, account.bargaining.attemptsUsedByFacility[facilityKey] || 0);
   const attemptsRemaining = Math.max(0, attemptsMaximum - attemptsUsed);
-  const valuePerSuccess = 3;
-  const valueMaximum = Math.max(6, Number(bonuses.valueCap) || 6);
-  const knowledgeItemBonus = Math.max(0, Number(context.knowledgeItemBonus) || 0);
+  const valuePerSuccess = entryTax ? 25 : 3;
+  const valuePerFailure = entryTax ? 0 : 2;
+  const valueMaximum = entryTax ? 25 : Math.max(6, Number(bonuses.valueCap) || 6);
+  const knowledgeItemBonus = entryTax ? 0 : Math.max(0, Number(context.knowledgeItemBonus) || 0);
+  const storedBonusPercent = Math.max(0, Number(account.bargaining.bonusPercentByFacility[facilityKey]) || 0);
   const chance = Math.max(0, Math.min(100,
     50 + bargainFacilityModifier(context.facilityType) + (Number(bonuses.chance) || 0) + knowledgeItemBonus - (successes * 8)
   ));
@@ -7167,8 +7239,9 @@ function getBargainProfile(context = {}) {
     successes,
     knowledgeItemBonus,
     valuePerSuccess,
+    valuePerFailure,
     valueMaximum,
-    bonusPercent: Math.min(valueMaximum, successes * valuePerSuccess)
+    bonusPercent: entryTax ? (successes > 0 ? 25 : 0) : Math.min(valueMaximum, storedBonusPercent)
   };
 }
 
@@ -7178,7 +7251,12 @@ function attemptBargain(context = {}) {
   const facilityKey = String(context.facilityKey || "");
   account.bargaining.attemptsUsedByFacility[facilityKey] = Math.max(0, account.bargaining.attemptsUsedByFacility[facilityKey] || 0) + 1;
   const success = Math.random() * 100 < profile.chance;
-  if (success) account.bargaining.successesByFacility[facilityKey] = profile.successes + 1;
+  if (success) {
+    account.bargaining.successesByFacility[facilityKey] = profile.successes + 1;
+    account.bargaining.bonusPercentByFacility[facilityKey] = Math.min(profile.valueMaximum, profile.bonusPercent + profile.valuePerSuccess);
+  } else if (profile.valuePerFailure > 0) {
+    account.bargaining.bonusPercentByFacility[facilityKey] = Math.max(0, profile.bonusPercent - profile.valuePerFailure);
+  }
   persistAccount();
   return { success, ...getBargainProfile(context) };
 }
@@ -7186,7 +7264,10 @@ function attemptBargain(context = {}) {
 function completeBargainTrade(context = {}) {
   if (!account) return;
   account.bargaining = normalizeBargainingState(account.bargaining, account.worldTime);
-  delete account.bargaining.successesByFacility[String(context.facilityKey || "")];
+  const facilityKey = String(context.facilityKey || "");
+  delete account.bargaining.successesByFacility[facilityKey];
+  delete account.bargaining.bonusPercentByFacility[facilityKey];
+  if (String(context.facilityType || "") === "입장관세") delete account.bargaining.attemptsUsedByFacility[facilityKey];
   persistAccount();
 }
 
@@ -7275,7 +7356,8 @@ function normalizeActiveBuff(value) {
     description: String(value?.description || "").trim(),
     effectDescription: String(value?.effectDescription || "").trim(),
     acquiredDay: Math.max(1, Math.trunc(Number(value?.acquiredDay) || 1)),
-    expiresDay: Math.max(1, Math.trunc(Number(value?.expiresDay) || 1))
+    expiresDay: Math.max(1, Math.trunc(Number(value?.expiresDay) || 1)),
+    autoExtend: Boolean(value?.autoExtend)
   };
 }
 
@@ -11120,13 +11202,12 @@ async function enterSettlement() {
     : null;
   const crossesBorder = Boolean(departure?.affiliation && placement.affiliation
     && departure.affiliation !== placement.affiliation);
-  const tariffMultiplier = partnerEntryTariffMultiplier();
   const routeTariffMultiplier = window.ProjectWRouteEvents.getDestinationTariffMultiplier(placement.id);
-  const borderTaxRate = (crossesBorder ? 5 : 0) * tariffMultiplier * routeTariffMultiplier;
+  const borderTaxRate = (crossesBorder ? 5 : 0) * routeTariffMultiplier;
   const cityEventTariffPoints = window.ProjectWCityEvents.getModifiers(placement).entryTariffPoints;
   const effectivePlacement = {
     ...placement,
-    entryTariffRate: Math.max(0, ((Number(placement.entryTariffRate) || 0) + cityEventTariffPoints) * routeTariffMultiplier * tariffMultiplier)
+    entryTariffRate: Math.max(0, ((Number(placement.entryTariffRate) || 0) + cityEventTariffPoints) * routeTariffMultiplier)
   };
   const taxable = ["대도시", "도시", "관문"].includes(placement.category)
     && (Number(effectivePlacement.entryTariffRate) > 0 || borderTaxRate > 0);
@@ -11135,6 +11216,7 @@ async function enterSettlement() {
     const opened = await window.ProjectWEntryTax.open({
       settlement: effectivePlacement,
       additionalRate: borderTaxRate,
+      finalAmountMultiplier: placement.category === "관문" ? partnerGateTariffPaymentMultiplier() : 1,
       departure,
       onPaid: () => {
         window.ProjectWRouteEvents.consumeDestinationTariffDiscount(placement.id);
@@ -12909,6 +12991,7 @@ function tutorialStepConfiguration(tutorialId, step) {
     4: [
       ["하이렌바흐 입장", "하이렌바흐 도시에 진입합니다.", "#road-action", true],
       ["화물로 납부", "입장관세는 화폐뿐 아니라 화물로도 납부할 수 있습니다.", "#entry-tax-cargo"],
+      ["관세 흥정", "입장관세 흥정은 패시브와 무관하게 한 번만 시도할 수 있습니다. 성공하면 세율이 아니라 최종 관세 지불 요구액이 25% 줄어듭니다.", "#entry-tax-bargain"],
       ["자동 납부안", "큰 단위 화폐부터 자동으로 납부안에 올려 둡니다.", "#entry-tax-offer"],
       ["관세 납부", "자동으로 등록된 화폐를 확인하고 관세를 납부하세요.", "#entry-tax-confirm", true]
     ],
@@ -13035,7 +13118,9 @@ function tutorialStepConfiguration(tutorialId, step) {
     ],
     [TUTORIAL_IDS.SPIRIT_BLESSING]: [
       ["정령의 가호 해금", "정령력을 사용해 여정에 도움이 되는 일시적인 가호를 얻을 수 있습니다. 정령의 가호를 열어보세요.", "#partner-spirit-blessing", true, { padding: 10 }],
-      ["정령력과 가호", "가호 하나를 얻을 때 정령력 1을 사용합니다. 높은 동행등급일수록 높은 등급의 가호가 나올 가능성이 커집니다.", ".partner-feature-panel", false, { padding: 14 }],
+      ["정령력과 가호", "가호 하나를 얻을 때 정령력 1을 사용합니다. 1등급에서는 I등급 가호만 나오며, 동행등급이 높아질수록 II·III등급 확률이 서서히 높아집니다.", ".partner-feature-panel", false, { padding: 14 }],
+      ["매일 회복", "정령력은 날짜가 바뀔 때 1등급에서 1, 50등급에서 5를 회복합니다. 중간 등급에서는 기본 회복량에 더해 확률로 1을 추가 회복합니다.", ".partner-spirit-resource", false, { padding: 12 }],
+      ["가호 자동연장", "가호별 자동연장을 켜면 매일 회복할 정령력 1을 사용해 남은 기간을 하루 연장합니다. 확정 일일 회복량을 넘는 수의 자동연장은 켤 수 없습니다.", ".active-buff-section", false, { padding: 12 }],
       ["첫 가호", "가호 획득을 눌러 정령력으로 첫 가호를 받아보세요.", ".partner-feature-confirm", true, { padding: 10 }]
     ],
     [TUTORIAL_IDS.GUILD_CONTRIBUTION]: [
@@ -13490,15 +13575,19 @@ function showGameNotice(message, tone = "") {
   }, displayDuration);
 }
 
-function showBargainResultFeedback(success) {
+function showBargainResultFeedback(success, options = {}) {
   if (!bargainResultNotice) return;
   window.clearTimeout(bargainResultNoticeTimer);
   window.clearTimeout(bargainResultNoticeHideTimer);
   bargainResultNotice.classList.remove("is-visible", "is-success", "is-failure");
   bargainResultNotice.classList.add(success ? "is-success" : "is-failure");
-  bargainResultNotice.textContent = success
-    ? "흥정 성공 · 상품가를 기준으로 상인의 양보 한도가 늘었습니다."
-    : "흥정 실패 · 추가 양보 한도를 얻지 못했습니다.";
+  bargainResultNotice.textContent = options.entryTax
+    ? success
+      ? "흥정 성공 · 최종 관세 요구액이 25% 할인되었습니다."
+      : "흥정 실패 · 관세 요구액은 변하지 않습니다."
+    : success
+      ? "흥정 성공 · 상품가를 기준으로 상인의 양보 한도가 늘었습니다."
+      : "흥정 실패 · 누적 흥정 보정이 2% 감소합니다. 보정은 0% 아래로 내려가지 않습니다.";
   bargainResultNotice.hidden = false;
   requestAnimationFrame(() => bargainResultNotice.classList.add("is-visible"));
   bargainResultNoticeTimer = window.setTimeout(() => {

@@ -134,7 +134,7 @@
   let hasPartnerHangover = () => false;
   let showMerchantComment = () => Promise.resolve();
   let cancelMerchantComments = () => {};
-  let getBargainProfile = () => ({ available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 3, valueMaximum: 6 });
+  let getBargainProfile = () => ({ available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 3, valuePerFailure: 2, valueMaximum: 6 });
   let attemptBargain = () => ({ success: false });
   let completeBargainTrade = () => {};
   let updateCompanyInformationButton = () => {};
@@ -3385,7 +3385,7 @@
     elements.bargain.disabled = !hasGoods || !profile.available || profile.attemptsRemaining <= 0;
     const knowledgeBonus = Math.max(0, Number(profile.knowledgeItemBonus) || 0);
     const tooltip = hasGoods
-      ? `성공 확률 ${formatNumber(profile.chance)}%${knowledgeBonus > 0 ? `\n상품 지식 보정 +${formatNumber(knowledgeBonus)}%` : ""}\n성공 시 상품가 기준 양보 한도 +${formatNumber(profile.valuePerSuccess)}% · 누적 상한 ${formatNumber(profile.valueMaximum)}%\n현재 거래 누적 성공 ${Math.max(0, Math.trunc(Number(profile.successes) || 0))}회`
+      ? `성공 확률 ${formatNumber(profile.chance)}%${knowledgeBonus > 0 ? `\n상품 지식 보정 +${formatNumber(knowledgeBonus)}%` : ""}\n성공 시 상품가 기준 +${formatNumber(profile.valuePerSuccess)}% · 실패 시 -${formatNumber(profile.valuePerFailure)}% · 최저 0%\n현재 흥정 보정 +${formatNumber(profile.bonusPercent)}% · 누적 상한 ${formatNumber(profile.valueMaximum)}%`
       : "거래안에 상품을 올리면 흥정할 수 있습니다. 화폐·정보·어음에는 양보 한도가 생기지 않습니다.";
     elements.bargain.dataset.bargainTooltip = tooltip;
     elements.bargain.setAttribute("aria-label", `흥정. ${tooltip.replaceAll("\n", ". ")}`);

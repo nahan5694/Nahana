@@ -7,7 +7,7 @@
   let getWorldTime = () => ({ day: 1, phaseIndex: 0 });
   let getAssetUrl = () => "";
   let notify = () => {};
-  let getBargainProfile = () => ({ available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 5 });
+  let getBargainProfile = () => ({ available: false, attemptsRemaining: 0, attemptsMaximum: 0, chance: 0, bonusPercent: 0, valuePerSuccess: 25 });
   let attemptBargain = () => ({ unavailable: true });
   let completeBargainTrade = () => {};
   let showBargainDialogue = () => {};
@@ -95,7 +95,11 @@
       currencies: [],
       cargoItems: [],
       valuation: null,
+      baseTaxDue: 0,
       taxDue: 0,
+      finalAmountMultiplier: Number.isFinite(Number(options.finalAmountMultiplier))
+        ? Math.max(0, Math.min(1, Number(options.finalAmountMultiplier)))
+        : 1,
       allowCargo: true,
       compulsory: false,
       paymentNoun: "입장관세",
@@ -148,7 +152,8 @@
       return total + (item.customsExcluded ? 0 : (valuationByInstanceId.get(item.instanceId) || 0));
     }, 0);
     session.valuation = { ...valuation, totalValue: taxableTotalValue };
-    session.taxDue = Math.max(0, Math.ceil(taxableTotalValue * (rate / 100)));
+    session.baseTaxDue = Math.max(0, Math.ceil(taxableTotalValue * (rate / 100)));
+    updateTaxDue();
     if (session.taxDue <= 0) {
       const onPaid = session.onPaid;
       close(false);
@@ -242,6 +247,7 @@
 
   function render() {
     if (!session) return;
+    updateTaxDue();
     renderCargo();
     renderCurrencies();
     renderOffer();
@@ -250,8 +256,10 @@
     const overpayment = Math.max(0, offered - session.taxDue);
     const overpayPercent = session.taxDue > 0 ? (overpayment / session.taxDue) * 100 : 0;
     elements.cargoTotal.textContent = formatNumber(session.valuation.totalValue);
-    elements.required.textContent = formatNumber(session.taxDue);
-    elements.offered.textContent = offered > rawOffered ? `${formatNumber(rawOffered)} → ${formatNumber(offered)}` : formatNumber(offered);
+    elements.required.textContent = session.baseTaxDue > session.taxDue
+      ? `${formatNumber(session.baseTaxDue)} → ${formatNumber(session.taxDue)}`
+      : formatNumber(session.taxDue);
+    elements.offered.textContent = formatNumber(offered);
     const availablePaymentValue = effectiveOfferedValue(totalAvailablePaymentValue());
     const affordable = availablePaymentValue >= session.taxDue;
     const enough = offered >= session.taxDue;
@@ -282,9 +290,13 @@
   }
 
   function effectiveOfferedValue(rawValue) {
-    if (session?.mode !== "tax") return Math.max(0, Number(rawValue) || 0);
-    const bonus = Math.max(0, Number(getBargainProfile(bargainContext())?.bonusPercent) || 0);
-    return Math.floor(Math.max(0, Number(rawValue) || 0) * (1 + (bonus / 100)));
+    return Math.max(0, Number(rawValue) || 0);
+  }
+
+  function updateTaxDue() {
+    if (session?.mode !== "tax") return;
+    const bargainDiscount = Math.max(0, Math.min(100, Number(getBargainProfile(bargainContext())?.bonusPercent) || 0));
+    session.taxDue = Math.max(0, Math.ceil(session.baseTaxDue * session.finalAmountMultiplier * (1 - (bargainDiscount / 100))));
   }
 
   function renderBargainControl() {
@@ -293,7 +305,7 @@
     const count = elements.bargain.querySelector("span");
     if (count) count.textContent = `${profile.attemptsRemaining} / ${profile.attemptsMaximum}`;
     elements.bargain.disabled = !profile.available || profile.attemptsRemaining <= 0;
-    const tooltip = `성공 확률 ${formatNumber(profile.chance)}%\n가치 보정 +${formatNumber(profile.valuePerSuccess)}%\n현재 거래 누적 성공 ${Math.max(0, Math.trunc(Number(profile.successes) || 0))}회`;
+    const tooltip = `성공 확률 ${formatNumber(profile.chance)}%\n성공 시 최종 관세 요구액 25% 할인\n관세 흥정은 패시브와 무관하게 1회만 시도할 수 있습니다.`;
     elements.bargain.dataset.bargainTooltip = tooltip;
     elements.bargain.setAttribute("aria-label", `흥정. ${tooltip.replaceAll("\n", ". ")}`);
     elements.bargain.classList.toggle("has-attempts", profile.available && profile.attemptsRemaining > 0);
@@ -305,7 +317,8 @@
     const result = attemptBargain(bargainContext());
     if (!result || result.unavailable) return;
     showBargainDialogue(result.success ? "DL_GH_001" : "DL_GH_002", result.success);
-    render();
+    if (result.success) autoSelect(false);
+    else render();
   }
 
   function renderCargo() {
@@ -549,9 +562,8 @@
     const currencies = [...session.currencies]
       .filter(currency => currencyValue(currency) > 0)
       .sort((left, right) => currencyValue(right) - currencyValue(left));
-    const profile = session.mode === "tax" ? getBargainProfile(bargainContext()) : { bonusPercent: 0 };
-    const rawTarget = Math.ceil(session.taxDue / (1 + (Math.max(0, Number(profile.bonusPercent) || 0) / 100)));
-    const remainingTarget = Math.max(0, rawTarget - selectedCargoValue());
+    updateTaxDue();
+    const remainingTarget = Math.max(0, session.taxDue - selectedCargoValue());
     selectedCurrencies = bestCurrencySelection(remainingTarget, currencies, wallet);
     if (withSound && selectedCurrencies.size) window.ProjectWAudio?.playEffect("coin");
     render();
