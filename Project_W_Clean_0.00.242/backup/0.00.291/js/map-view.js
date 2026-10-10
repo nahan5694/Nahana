@@ -15,8 +15,6 @@
   let getAssetUrl = () => "";
   let getInformationCards = () => [];
   let getCityEvents = () => [];
-  let getSettlementNotes = () => [];
-  let editSettlementNotes = () => {};
   let notify = () => {};
   let initialized = false;
   let loaded = false;
@@ -32,7 +30,6 @@
   let destinationSelection = null;
   let focusedSettlementId = "";
   let focusedSettlementTimer = 0;
-  let suppressMarkerClickUntil = 0;
   let searchRegion = "";
   let mapData = createEmptyData();
   const distanceCache = new Map();
@@ -47,8 +44,6 @@
     getAssetUrl = typeof options.getAssetUrl === "function" ? options.getAssetUrl : getAssetUrl;
     getInformationCards = typeof options.getInformationCards === "function" ? options.getInformationCards : getInformationCards;
     getCityEvents = typeof options.getCityEvents === "function" ? options.getCityEvents : getCityEvents;
-    getSettlementNotes = typeof options.getSettlementNotes === "function" ? options.getSettlementNotes : getSettlementNotes;
-    editSettlementNotes = typeof options.editSettlementNotes === "function" ? options.editSettlementNotes : editSettlementNotes;
     notify = typeof options.notify === "function" ? options.notify : notify;
 
     elements.root = document.querySelector("#map-view-ui");
@@ -326,13 +321,11 @@
   }
 
   function createSettlementSearchItem(settlement) {
-    const item = document.createElement("div");
-    item.className = "map-search-item";
-    item.classList.toggle("is-focused", settlement.id === focusedSettlementId);
-    item.dataset.settlementId = settlement.id;
-    const target = document.createElement("button");
-    target.type = "button";
-    target.className = "map-search-item-target";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "map-search-item";
+    button.classList.toggle("is-focused", settlement.id === focusedSettlementId);
+    button.dataset.settlementId = settlement.id;
     const icon = document.createElement("span");
     icon.className = "map-search-item-icon";
     icon.setAttribute("aria-hidden", "true");
@@ -351,20 +344,10 @@
     information.setAttribute("aria-label", `보유 정보 ${informationCount}개`);
     information.title = `보유 정보 ${informationCount}개`;
     information.classList.toggle("has-information", informationCount > 0);
-    const memo = document.createElement("button");
-    memo.type = "button";
-    memo.className = "map-search-note-button";
-    const noteCount = getSettlementNotes(settlement.id).length;
-    memo.classList.toggle("has-notes", noteCount > 0);
-    memo.textContent = "✎";
-    memo.title = noteCount ? `도시 메모 ${noteCount}개 편집` : "도시 메모 추가";
-    memo.setAttribute("aria-label", `${settlement.name || "거점"} 메모 ${noteCount ? "편집" : "추가"}`);
-    memo.addEventListener("click", () => editSettlementNotes(settlement.id));
-    meta.append(information, memo);
-    target.append(icon, copy);
-    target.addEventListener("click", () => focusSettlementFromSearch(settlement));
-    item.append(target, meta);
-    return item;
+    meta.append(information);
+    button.append(icon, copy, meta);
+    button.addEventListener("click", () => focusSettlementFromSearch(settlement));
+    return button;
   }
 
   function focusSettlementFromSearch(settlement) {
@@ -568,7 +551,6 @@
     }
 
     marker.setAttribute("aria-label", placement.kind === "node" ? `${placement.name || "이름 없는 거점"} 정보` : `${placement.name || "이름 없는 경로"} 정보`);
-    if (placement.kind === "node") attachSettlementNoteLongPress(marker, placement);
     if (destinationSelection) {
       const route = destinationSelection.routesByNodeId.get(placement.id);
       const weatherInfo = destinationSelection.weatherInfoByPlacementId.get(placement.id);
@@ -592,47 +574,6 @@
       attachTooltipEvents(marker, placement);
     }
     return marker;
-  }
-
-  function attachSettlementNoteLongPress(marker, placement) {
-    let timer = 0;
-    let pointerId = null;
-    let originX = 0;
-    let originY = 0;
-    const cancel = () => {
-      if (timer) window.clearTimeout(timer);
-      timer = 0;
-      pointerId = null;
-      marker.classList.remove("is-note-long-press");
-    };
-    marker.addEventListener("pointerdown", event => {
-      if (event.button !== 0 || event.isPrimary === false) return;
-      cancel();
-      pointerId = event.pointerId;
-      originX = event.clientX;
-      originY = event.clientY;
-      marker.classList.add("is-note-long-press");
-      marker.setPointerCapture?.(event.pointerId);
-      timer = window.setTimeout(() => {
-        timer = 0;
-        suppressMarkerClickUntil = Date.now() + 700;
-        marker.classList.remove("is-note-long-press");
-        hideTooltip();
-        editSettlementNotes(placement.id);
-      }, 620);
-    });
-    marker.addEventListener("pointermove", event => {
-      if (pointerId !== event.pointerId) return;
-      if (Math.hypot(event.clientX - originX, event.clientY - originY) > 10) cancel();
-    });
-    marker.addEventListener("pointerup", cancel);
-    marker.addEventListener("pointercancel", cancel);
-    marker.addEventListener("lostpointercapture", cancel);
-    marker.addEventListener("click", event => {
-      if (Date.now() >= suppressMarkerClickUntil) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }, true);
   }
 
   function createLabelMarker(placement) {
@@ -734,7 +675,6 @@
     elements.tooltip.replaceChildren(buildTooltipContents(placement));
     elements.tooltip.hidden = false;
     elements.tooltip.dataset.kind = placement.kind;
-    elements.tooltip.dataset.placementId = placement.id;
     showInformationTooltip(placement);
     positionTooltip(clientX, clientY);
   }
@@ -881,23 +821,6 @@
       if (Number(weatherInfo.borderTaxRate) > 0) fragment.append(buildBorderTaxPreview(weatherInfo));
     }
     fragment.append(description);
-    if (placement.kind === "node") {
-      const notes = getSettlementNotes(placement.id);
-      if (notes.length) {
-        const section = document.createElement("section");
-        section.className = "map-tooltip-notes";
-        const title = document.createElement("strong");
-        title.textContent = `도시 메모 ${notes.length}개`;
-        const list = document.createElement("ol");
-        notes.forEach(note => {
-          const item = document.createElement("li");
-          item.textContent = note;
-          list.append(item);
-        });
-        section.append(title, list);
-        fragment.append(section);
-      }
-    }
     return fragment;
   }
 
@@ -1082,7 +1005,6 @@
   function hideTooltip() {
     if (!initialized) return;
     elements.tooltip.hidden = true;
-    delete elements.tooltip.dataset.placementId;
     elements.tooltip.replaceChildren();
     elements.informationTooltip.hidden = true;
     elements.informationTooltip.replaceChildren();
@@ -1093,14 +1015,6 @@
     if (!initialized) return;
     renderMapImage();
     renderMapContents();
-  }
-
-  function refreshSettlementNotes(settlementId = "") {
-    if (!initialized) return;
-    renderSettlementSearchList();
-    const placement = mapData.placementsById.get(String(settlementId || ""));
-    if (!placement || elements.tooltip.hidden || elements.tooltip.dataset.placementId !== placement.id || !lastPointer) return;
-    showTooltip(placement, lastPointer.x, lastPointer.y);
   }
 
   function setPlayerPosition(placementId, nextPlacementId = "", segmentProgress = 0) {
@@ -1440,7 +1354,6 @@
     beginDestinationSelection,
     endDestinationSelection,
     resetSearchState,
-    refreshSettlementNotes,
     showPlacementTooltip,
     positionTooltip
   };

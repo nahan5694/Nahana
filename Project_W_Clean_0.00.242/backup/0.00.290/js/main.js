@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.291";
-const ACCOUNT_SCHEMA_VERSION = 48;
+const GAME_VERSION = "0.00.289";
+const ACCOUNT_SCHEMA_VERSION = 47;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -375,9 +375,9 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "화폐",
     contexts: ["wallet"],
     pages: [
-      { title: "지역별 화폐 가치", text: "화폐의 가치는 지역마다 다르며 시간이 흐르면서 완만하게 움직입니다.\n지갑에는 현재 지역에서 실제로 적용되는 화폐 가치가 표시됩니다.", selector: "#wallet-tabs" },
+      { title: "지역별 화폐 가치", text: "화폐의 가치는 지역마다 다르며 시간이 흐르면서 완만하게 움직입니다.\n지갑에는 마지막으로 확인한 시세가 표시됩니다.", selector: "#wallet-tabs" },
       { title: "주 유통 지역과 통용도", text: "화폐는 주로 유통되는 지역에서 가장 믿기 쉽습니다.\n다른 지역에서는 통용도에 따라 가치가 낮아질 수 있습니다.", selector: "#wallet-groups" },
-      { title: "시세 분석", text: "환전상 거리에서 은화 1개를 내면 현재 지역 화폐의 과거 12개월 월별 시세와 한 달 후 방향성 전망을 확인할 수 있습니다." }
+      { title: "시세 갱신", text: "환전상 거리에서 시세 확인을 의뢰하면 현재 지역의 지갑 가치 표시를 최신 정보로 갱신할 수 있습니다." }
     ]
   },
   {
@@ -888,14 +888,6 @@ const settlementFacilities = document.querySelector("#settlement-facilities");
 const settlementFacilitiesTitle = document.querySelector("#settlement-facilities-title");
 const settlementFacilitiesCategory = document.querySelector("#settlement-facilities-category");
 const settlementFacilityList = document.querySelector("#settlement-facility-list");
-const settlementNoteButton = document.querySelector("#settlement-note-button");
-const settlementNoteLayer = document.querySelector("#settlement-note-layer");
-const settlementNoteTitle = document.querySelector("#settlement-note-title");
-const settlementNoteRegion = document.querySelector("#settlement-note-region");
-const settlementNoteFields = document.querySelector("#settlement-note-fields");
-const settlementNoteStatus = document.querySelector("#settlement-note-status");
-const settlementNoteClose = document.querySelector("#settlement-note-close");
-const settlementNoteSave = document.querySelector("#settlement-note-save");
 const gameCursor = document.querySelector("#game-cursor");
 const partnerCharacter = document.querySelector("#partner-character");
 const partnerTouchPopup = document.querySelector("#partner-touch-popup");
@@ -1073,7 +1065,6 @@ let pendingNahanaEventOpeningId = "";
 let activeNahanaSituationEventId = "";
 const nahanaEventHardcodedDialoguesInFlight = new Set();
 let activeTalkCardId = "";
-let activeSettlementNoteId = "";
 let partnerAppetiteOpen = false;
 let roadTalkCardGenerationQueue = Promise.resolve();
 let talkCardGenerationInProgress = 0;
@@ -1098,8 +1089,6 @@ window.ProjectWMapView.init({
   getAssetUrl: assetId => assetMap.get(assetId) ?? "",
   getInformationCards: () => window.ProjectWInformation?.getCards?.() || [],
   getCityEvents: placement => window.ProjectWCityEvents?.getViewedSettlementEvents?.(placement) || [],
-  getSettlementNotes: settlementId => settlementNotesFor(settlementId),
-  editSettlementNotes: settlementId => openSettlementNoteEditor(settlementId),
   notify: showGameNotice
 });
 window.ProjectWCargo.init({
@@ -1729,32 +1718,6 @@ roadAction.addEventListener("focus", showSettlementExitTooltip);
 roadAction.addEventListener("blur", hideSettlementExitTooltip);
 settlementCommerceGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.CITY_COMMERCE));
 settlementNewsGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.CITY_NEWS));
-settlementNoteButton?.addEventListener("click", () => {
-  const settlementId = settlementNoteButton.dataset.settlementId
-    || account?.travel?.settlementId
-    || account?.travel?.positionId
-    || "";
-  openSettlementNoteEditor(settlementId);
-});
-settlementNoteButton?.addEventListener("pointerenter", event => showSettlementNoteTooltip(event.clientX, event.clientY));
-settlementNoteButton?.addEventListener("pointermove", event => window.ProjectWMapView.positionTooltip(event.clientX, event.clientY));
-settlementNoteButton?.addEventListener("pointerleave", () => window.ProjectWMapView.hideTooltip());
-settlementNoteButton?.addEventListener("focus", () => {
-  const rect = settlementNoteButton.getBoundingClientRect();
-  showSettlementNoteTooltip(rect.right, rect.top + (rect.height / 2));
-});
-settlementNoteButton?.addEventListener("blur", () => window.ProjectWMapView.hideTooltip());
-settlementNoteClose?.addEventListener("click", closeSettlementNoteEditor);
-settlementNoteSave?.addEventListener("click", saveSettlementNotes);
-settlementNoteLayer?.addEventListener("pointerdown", event => {
-  if (event.target === settlementNoteLayer) closeSettlementNoteEditor();
-});
-window.addEventListener("keydown", event => {
-  if (event.key !== "Escape" || !settlementNoteLayer || settlementNoteLayer.hidden) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  closeSettlementNoteEditor();
-}, true);
 window.addEventListener("projectw:cityeventsopen", handleCityNewsTutorialOpen);
 horseFeedButton.addEventListener("click", feedHorse);
 horseFeedChange.addEventListener("click", changeHorseFeed);
@@ -2080,7 +2043,6 @@ function chooseAnonymousName() {
     innErrandState: {},
     wagon: createInitialWagonState(),
     settlementDialogueVisit: createInitialSettlementDialogueVisit(),
-    settlementNotes: {},
     interfaceState: createInitialInterfaceState(),
     cityEvents: window.ProjectWCityEvents.createState(1),
     routeEvents: window.ProjectWRouteEvents.createState(),
@@ -2181,7 +2143,6 @@ function confirmName() {
       innErrandState: {},
       wagon: createInitialWagonState(),
       settlementDialogueVisit: createInitialSettlementDialogueVisit(),
-      settlementNotes: {},
       interfaceState: createInitialInterfaceState(),
       cityEvents: window.ProjectWCityEvents.createState(1),
       routeEvents: window.ProjectWRouteEvents.createState(),
@@ -3019,8 +2980,6 @@ function loadAccount() {
     parsed.innErrandState = normalizeInnErrandState(parsed.innErrandState);
     parsed.wagon = normalizeWagonState(parsed.wagon);
     parsed.settlementDialogueVisit = normalizeSettlementDialogueVisit(parsed.settlementDialogueVisit);
-    if (!parsed.settlementNotes) migrated = true;
-    parsed.settlementNotes = normalizeSettlementNotes(parsed.settlementNotes);
     if (!parsed.interfaceState) migrated = true;
     parsed.interfaceState = normalizeInterfaceState(parsed.interfaceState);
     if (!parsed.cityEvents) migrated = true;
@@ -7335,114 +7294,6 @@ function normalizeSettlementDialogueVisit(value) {
   };
 }
 
-function normalizeSettlementNoteText(value) {
-  return [...String(value || "").trim()].slice(0, 50).join("");
-}
-
-function normalizeSettlementNotes(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value)
-    .map(([settlementId, notes]) => [
-      String(settlementId || "").trim(),
-      (Array.isArray(notes) ? notes : [])
-        .map(normalizeSettlementNoteText)
-        .filter(Boolean)
-        .slice(0, 3)
-    ])
-    .filter(([settlementId, notes]) => settlementId && notes.length));
-}
-
-function settlementNotesFor(settlementId) {
-  const normalized = normalizeSettlementNotes(account?.settlementNotes);
-  return [...(normalized[String(settlementId || "").trim()] || [])];
-}
-
-function openSettlementNoteEditor(settlementId) {
-  const id = String(settlementId || "").trim();
-  const placement = window.ProjectWMapView.getPlacement(id);
-  if (!account || !placement || placement.kind !== "node" || !settlementNoteLayer || !settlementNoteFields) return;
-  activeSettlementNoteId = id;
-  window.ProjectWMapView.hideTooltip();
-  if (settlementNoteTitle) settlementNoteTitle.textContent = placement.name || "이름 없는 거점";
-  if (settlementNoteRegion) {
-    settlementNoteRegion.textContent = [placement.region, placement.category || "거점", "도시 메모"]
-      .filter(Boolean).join(" · ");
-  }
-  const notes = settlementNotesFor(id);
-  settlementNoteFields.replaceChildren(...[0, 1, 2].map(index => {
-    const label = document.createElement("label");
-    label.className = "settlement-note-field";
-    const title = document.createElement("span");
-    title.textContent = `메모 ${index + 1}`;
-    const input = document.createElement("textarea");
-    input.maxLength = 50;
-    input.rows = 2;
-    input.value = notes[index] || "";
-    input.placeholder = "이 거점에서 기억할 내용을 입력하세요.";
-    input.dataset.settlementNoteInput = String(index);
-    const count = document.createElement("small");
-    count.textContent = `${[...input.value].length} / 50`;
-    input.addEventListener("input", () => {
-      const clipped = [...input.value].slice(0, 50).join("");
-      if (clipped !== input.value) input.value = clipped;
-      count.textContent = `${[...input.value].length} / 50`;
-      updateSettlementNoteEditorStatus();
-    });
-    label.append(title, input, count);
-    return label;
-  }));
-  updateSettlementNoteEditorStatus();
-  settlementNoteLayer.hidden = false;
-  window.requestAnimationFrame(() => settlementNoteFields.querySelector("textarea")?.focus());
-}
-
-function updateSettlementNoteEditorStatus() {
-  if (!settlementNoteFields || !settlementNoteStatus) return;
-  const count = [...settlementNoteFields.querySelectorAll("textarea")]
-    .filter(input => normalizeSettlementNoteText(input.value)).length;
-  settlementNoteStatus.textContent = `등록할 메모 ${count} / 3`;
-}
-
-function saveSettlementNotes() {
-  if (!account || !activeSettlementNoteId || !settlementNoteFields) return;
-  const notes = [...settlementNoteFields.querySelectorAll("textarea")]
-    .map(input => normalizeSettlementNoteText(input.value))
-    .filter(Boolean)
-    .slice(0, 3);
-  account.settlementNotes = normalizeSettlementNotes(account.settlementNotes);
-  if (notes.length) account.settlementNotes[activeSettlementNoteId] = notes;
-  else delete account.settlementNotes[activeSettlementNoteId];
-  persistAccount();
-  window.ProjectWMapView.refreshSettlementNotes(activeSettlementNoteId);
-  const currentId = account.travel?.settlementId || account.travel?.positionId || "";
-  if (currentId === activeSettlementNoteId) updateSettlementNoteButton(window.ProjectWMapView.getPlacement(currentId));
-  showGameNotice(notes.length ? `${notes.length}개의 도시 메모를 저장했습니다.` : "도시 메모를 비웠습니다.");
-  closeSettlementNoteEditor();
-}
-
-function closeSettlementNoteEditor() {
-  if (!settlementNoteLayer) return;
-  settlementNoteLayer.hidden = true;
-  activeSettlementNoteId = "";
-}
-
-function updateSettlementNoteButton(placement) {
-  if (!settlementNoteButton) return;
-  const settlementId = String(placement?.id || "").trim();
-  const notes = settlementNotesFor(settlementId);
-  settlementNoteButton.dataset.settlementId = settlementId;
-  settlementNoteButton.classList.toggle("has-notes", notes.length > 0);
-  settlementNoteButton.setAttribute("aria-label", notes.length
-    ? `${placement?.name || "도시"} 메모 ${notes.length}개 편집`
-    : `${placement?.name || "도시"} 메모 추가`);
-}
-
-function showSettlementNoteTooltip(clientX, clientY) {
-  const settlementId = settlementNoteButton?.dataset.settlementId || "";
-  if (!settlementId) return;
-  window.ProjectWMapView.showPlacementTooltip(settlementId, clientX, clientY);
-}
-
 function normalizeWorldTime(value) {
   return {
     day: Math.max(1, Math.trunc(Number(value?.day) || 1)),
@@ -9378,7 +9229,6 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
   renderSettlementTutorialPrompts(placement);
   settlementFacilitiesTitle.textContent = placement?.name || fallbackName;
   settlementFacilitiesCategory.textContent = category ? `${category} 시설` : "거점 시설";
-  updateSettlementNoteButton(placement);
   if (!facilities.length) {
     settlementFacilityList.replaceChildren();
     settlementFacilities.hidden = true;
@@ -13238,7 +13088,7 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["내가 지불할 화폐", "왼쪽에서 환전상에게 건넬 화폐를 고릅니다.", "#trade-player-currencies", false, { padding: 10 }],
       ["받을 화폐 자동 구성", "내가 지불할 화폐를 올린 뒤 금화·은화·동화 중점을 누르면 선택한 종류를 우선해 받을 화폐를 자동으로 구성합니다.\n부족한 잔액은 다른 종류의 화폐로 보충합니다.", "#trade-exchange-focus", false, { padding: 10 }],
       ["받을 화폐", "오른쪽에서 환전상에게 받을 화폐를 고릅니다. 거래에는 환전 할증이 더해집니다.", "#trade-merchant-currencies", false, { padding: 10 }],
-      ["시세 분석", "가장 가치가 낮은 은화 1개를 내면 현재 가치와 과거 12개월의 월별 시세, 한 달 후 상승·하락·안정 전망을 확인합니다.\n같은 날에는 추가 비용 없이 다시 볼 수 있습니다.", "#trade-currency-rates", false, { padding: 10 }]
+      ["화폐 시세", "화폐 시세 버튼에서 정보비를 내고 현재 지역의 최신 화폐 가치를 갱신할 수 있습니다.", "#trade-currency-rates", false, { padding: 10 }]
     ],
     [TUTORIAL_IDS.TALK_CARD]: [
       ["새 대화 카드", "길 위에서 나하나와 나눌 대화 카드가 생겼습니다. 파트너뷰의 카드 슬롯에서 확인할 수 있습니다.", "#partner-card-hand", false, { padding: 12 }],

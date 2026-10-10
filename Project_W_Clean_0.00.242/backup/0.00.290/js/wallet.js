@@ -3,9 +3,7 @@
   const TYPE_ORDER = ["금화", "은화", "동화"];
   const TYPE_MARKS = { 금화: "금", 은화: "은", 동화: "동" };
   const MARKET_REGIONS = ["북부", "중부", "남부"];
-  const MARKET_SCHEMA_VERSION = 2;
-  const MARKET_HISTORY_MONTHS = 12;
-  const CONTRACT_START_DATE = { year: 1433, month: 4, day: 8 };
+  const MARKET_SCHEMA_VERSION = 1;
   const FALLBACK_CURRENCIES = [
     { id: "Cur_001", name: "알비온 금화", type: "금화", baseValue: 1500, region: "중부/남부", reliability: 100, circulation: 95, description: "텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다." },
     { id: "Cur_002", name: "네올 금화", type: "금화", baseValue: 1200, region: "북부/중부", reliability: 95, circulation: 90, description: "텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다." },
@@ -142,7 +140,7 @@
   }
 
   function calculateTotal() {
-    return currencies.reduce((total, currency) => total + (getCurrencyValue(currency) * getQuantity(currency.id)), 0);
+    return currencies.reduce((total, currency) => total + (getKnownCurrencyValue(currency) * getQuantity(currency.id)), 0);
   }
 
   function render() {
@@ -263,7 +261,7 @@
     button.type = "button";
     button.className = `wallet-currency ${quantity > 0 ? "is-owned" : "is-unowned"}`;
     button.dataset.currencyId = currency.id;
-    const regionalValue = getCurrencyValue(currency);
+    const regionalValue = getKnownCurrencyValue(currency);
     button.setAttribute("aria-label", `${currency.name}, ${quantity}개 보유, 가치 약 ${formatNumber(regionalValue)}`);
 
     const coin = document.createElement("span");
@@ -411,7 +409,7 @@
     type.textContent = currency.type;
     heading.append(title, type);
     const details = document.createElement("dl");
-    const regionalValue = getCurrencyValue(currency);
+    const regionalValue = getKnownCurrencyValue(currency);
     appendDetail(details, "가치", `약 ${formatNumber(regionalValue)}`);
     appendDetail(details, "보유 수량", `${formatNumber(quantity)}개`);
     appendDetail(details, "보유 가치", `약 ${formatNumber(regionalValue * quantity)}`);
@@ -645,148 +643,18 @@
     return applyCirculation(currency, Number(record?.internalValue) || Number(currency.baseValue) || 0, normalizedRegion);
   }
 
-  function calendarDateForDay(day) {
-    const date = new Date(Date.UTC(CONTRACT_START_DATE.year, CONTRACT_START_DATE.month - 1, CONTRACT_START_DATE.day));
-    date.setUTCDate(date.getUTCDate() + Math.max(0, Math.trunc(Number(day) || 1) - 1));
-    return date;
-  }
-
-  function monthKeyForDay(day) {
-    const date = calendarDateForDay(day);
-    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-  }
-
-  function shiftMonthKey(monthKey, offset) {
-    const [year, month] = String(monthKey || "").split("-").map(Number);
-    const date = new Date(Date.UTC(Number.isFinite(year) ? year : CONTRACT_START_DATE.year, (Number.isFinite(month) ? month : 1) - 1, 1));
-    date.setUTCMonth(date.getUTCMonth() + Math.trunc(Number(offset) || 0));
-    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-  }
-
-  function monthLabel(monthKey) {
-    const [year, month] = String(monthKey || "").split("-").map(Number);
-    return Number.isFinite(year) && Number.isFinite(month) ? `${year}년 ${month}월` : String(monthKey || "기록 없음");
-  }
-
-  function regionalValueBounds(currency, region) {
-    const bounds = currencyBounds(currency);
-    const regions = String(currency?.region || "")
-      .split(/[\/,·\s]+/)
-      .map(value => value.trim())
-      .filter(Boolean);
-    const circulation = clamp(Number.isFinite(Number(currency?.circulation)) ? Number(currency.circulation) : 100, 0, 100);
-    const multiplier = regions.includes(normalizeRegion(region)) ? 1 : circulation / 100;
-    return {
-      baseValue: Math.max(1, Math.round(bounds.baseValue * multiplier)),
-      minimum: Math.max(1, Math.round(bounds.minimum * multiplier)),
-      maximum: Math.max(1, Math.round(bounds.maximum * multiplier)),
-      band: Math.max(1, bounds.band * multiplier)
-    };
-  }
-
-  function syntheticMonthlyHistory(currency, region, currentValue, currentMonthKey) {
-    const bounds = regionalValueBounds(currency, region);
-    const reverse = [];
-    let cursor = clamp(Math.round(Number(currentValue) || bounds.baseValue), bounds.minimum, bounds.maximum);
-    for (let offset = 1; offset <= MARKET_HISTORY_MONTHS; offset += 1) {
-      const randomStep = (Math.random() - .5) * 2 * Math.max(1, bounds.band * .24);
-      const meanReversion = (bounds.baseValue - cursor) * .1;
-      cursor = clamp(Math.round(cursor - randomStep - meanReversion), bounds.minimum, bounds.maximum);
-      reverse.push({ monthKey: shiftMonthKey(currentMonthKey, -offset), value: cursor });
-    }
-    return reverse.reverse();
-  }
-
-  function normalizedMonthlyEntries(value) {
-    if (!Array.isArray(value)) return [];
-    const byMonth = new Map();
-    value.forEach(entry => {
-      const monthKey = /^\d{4}-\d{2}$/.test(String(entry?.monthKey || "")) ? String(entry.monthKey) : "";
-      const entryValue = Math.max(1, Math.round(Number(entry?.value) || 0));
-      if (monthKey) byMonth.set(monthKey, { monthKey, value: entryValue });
-    });
-    return [...byMonth.values()].sort((left, right) => left.monthKey.localeCompare(right.monthKey));
-  }
-
-  function ensureMonthlyHistory(state, currentDay) {
-    let changed = false;
-    const currentMonthKey = monthKeyForDay(currentDay);
-    state.monthlyHistory = state.monthlyHistory && typeof state.monthlyHistory === "object" ? state.monthlyHistory : {};
-    MARKET_REGIONS.forEach(region => {
-      state.monthlyHistory[region] = state.monthlyHistory[region] && typeof state.monthlyHistory[region] === "object"
-        ? state.monthlyHistory[region]
-        : {};
-      currencies.forEach(currency => {
-        const liveValue = liveValueFromState(state, currency, region);
-        const original = normalizedMonthlyEntries(state.monthlyHistory[region][currency.id]);
-        const byMonth = new Map(original.map(entry => [entry.monthKey, entry]));
-        if (original.length === 0) {
-          syntheticMonthlyHistory(currency, region, liveValue, currentMonthKey)
-            .forEach(entry => byMonth.set(entry.monthKey, entry));
-          changed = true;
-        }
-        const currentEntry = byMonth.get(currentMonthKey);
-        if (!currentEntry || currentEntry.value !== liveValue) {
-          byMonth.set(currentMonthKey, { monthKey: currentMonthKey, value: liveValue });
-          changed = true;
-        }
-        const entries = [...byMonth.values()]
-          .sort((left, right) => left.monthKey.localeCompare(right.monthKey))
-          .slice(-(MARKET_HISTORY_MONTHS + 1));
-        if (entries.length !== original.length
-          || entries.some((entry, index) => entry.monthKey !== original[index]?.monthKey || entry.value !== original[index]?.value)) changed = true;
-        state.monthlyHistory[region][currency.id] = entries;
-      });
-    });
-    return changed;
-  }
-
-  function currencyOutlook(state, currency, region) {
-    const record = state?.regions?.[normalizeRegion(region)]?.[currency.id];
-    const currentValue = Number(record?.internalValue) || Number(currency.baseValue) || 1;
-    const targetValue = Number(record?.targetValue) || currentValue;
-    const changePercent = (targetValue - currentValue) / Math.max(1, Number(currency.baseValue) || 1) * 100;
-    if (changePercent >= 1) return "상승";
-    if (changePercent <= -1) return "하락";
-    return "안정";
-  }
-
-  function buildCurrencyAnalysis(state, region, currentDay) {
-    const normalizedRegion = normalizeRegion(region);
-    const currentMonthKey = monthKeyForDay(currentDay);
-    return {
-      region: normalizedRegion,
-      day: currentDay,
-      monthKey: currentMonthKey,
-      rows: currencies.map(currency => {
-        const entries = normalizedMonthlyEntries(state.monthlyHistory?.[normalizedRegion]?.[currency.id])
-          .filter(entry => entry.monthKey < currentMonthKey)
-          .slice(-MARKET_HISTORY_MONTHS);
-        return {
-          currencyId: currency.id,
-          name: currency.name,
-          type: currency.type,
-          currentValue: liveValueFromState(state, currency, normalizedRegion),
-          outlook: currencyOutlook(state, currency, normalizedRegion),
-          history: entries.map(entry => ({ ...entry, label: monthLabel(entry.monthKey) }))
-        };
-      })
-    };
-  }
-
   function ensureMarketState(day = getWorldDay()) {
     const currentDay = Math.max(1, Math.trunc(Number(day) || 1));
     const stored = getMarketState();
     const state = stored && typeof stored === "object"
       ? stored
-      : { schemaVersion: MARKET_SCHEMA_VERSION, lastUpdatedDay: currentDay, regions: {}, knownQuotes: {}, monthlyHistory: {}, analysisReports: {} };
+      : { schemaVersion: MARKET_SCHEMA_VERSION, lastUpdatedDay: currentDay, regions: {}, knownQuotes: {} };
     let changed = !stored
       || Number(state.schemaVersion) !== MARKET_SCHEMA_VERSION
       || Number(state.lastUpdatedDay) !== currentDay;
     state.schemaVersion = MARKET_SCHEMA_VERSION;
     state.regions = state.regions && typeof state.regions === "object" ? state.regions : {};
     state.knownQuotes = state.knownQuotes && typeof state.knownQuotes === "object" ? state.knownQuotes : {};
-    state.analysisReports = state.analysisReports && typeof state.analysisReports === "object" ? state.analysisReports : {};
     MARKET_REGIONS.forEach(region => {
       const sourceRecords = state.regions[region] && typeof state.regions[region] === "object" ? state.regions[region] : {};
       const records = {};
@@ -811,7 +679,6 @@
       quote.day = Math.max(1, Math.trunc(Number(quote.day) || currentDay));
       state.knownQuotes[region] = quote;
     });
-    if ((dataSource !== "local" || loadPromise) && ensureMonthlyHistory(state, currentDay)) changed = true;
     state.lastUpdatedDay = currentDay;
     if (changed || stored !== state) setMarketState(state);
     return state;
@@ -827,7 +694,14 @@
   }
 
   function getKnownCurrencyValue(currencyOrId, region = getRegion()) {
-    return getCurrencyValue(currencyOrId, region);
+    const currency = typeof currencyOrId === "string"
+      ? currencies.find(entry => entry.id === currencyOrId)
+      : currencyOrId;
+    if (!currency) return 0;
+    const normalizedRegion = normalizeRegion(region);
+    const state = ensureMarketState();
+    const known = Number(state.knownQuotes?.[normalizedRegion]?.values?.[currency.id]);
+    return Number.isFinite(known) ? Math.max(1, Math.round(known)) : liveValueFromState(state, currency, normalizedRegion);
   }
 
   function refreshKnowledge(region = getRegion()) {
@@ -843,24 +717,6 @@
     setMarketState(state);
     render();
     return { ...state.knownQuotes[normalizedRegion], region: normalizedRegion };
-  }
-
-  function getCurrencyAnalysis(region = getRegion()) {
-    const normalizedRegion = normalizeRegion(region);
-    const currentDay = Math.max(1, Math.trunc(Number(getWorldDay()) || 1));
-    const state = ensureMarketState(currentDay);
-    const report = state.analysisReports?.[normalizedRegion];
-    return Number(report?.day) === currentDay ? structuredClone(report) : null;
-  }
-
-  function createCurrencyAnalysis(region = getRegion()) {
-    const normalizedRegion = normalizeRegion(region);
-    const currentDay = Math.max(1, Math.trunc(Number(getWorldDay()) || 1));
-    const state = ensureMarketState(currentDay);
-    const report = buildCurrencyAnalysis(state, normalizedRegion, currentDay);
-    state.analysisReports[normalizedRegion] = report;
-    setMarketState(state);
-    return structuredClone(report);
   }
 
   function advanceMarketToDay(day) {
@@ -924,8 +780,6 @@
     ensureMarketState,
     advanceMarketToDay,
     refreshKnowledge,
-    getCurrencyAnalysis,
-    createCurrencyAnalysis,
     getMarketSnapshot,
     getTrendSnapshot
   };

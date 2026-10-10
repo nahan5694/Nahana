@@ -149,8 +149,6 @@
   let merchantTravelFilterMode = "all";
   let playerCatalogMode = "goods";
   let merchantCommentSequence = 0;
-  let currencyAnalysisReport = null;
-  let currencyAnalysisView = "table";
   const merchantCommentPlans = new Map();
   let elements = {};
 
@@ -190,13 +188,6 @@
       modal: document.querySelector("#trade-modal"),
       snackButton: document.querySelector("#trade-snack-open"),
       currencyRatesButton: document.querySelector("#trade-currency-rates"),
-      currencyAnalysisLayer: document.querySelector("#currency-analysis-layer"),
-      currencyAnalysisClose: document.querySelector("#currency-analysis-close"),
-      currencyAnalysisRegion: document.querySelector("#currency-analysis-region"),
-      currencyAnalysisSummary: document.querySelector("#currency-analysis-summary"),
-      currencyAnalysisTable: document.querySelector("#currency-analysis-table"),
-      currencyAnalysisGraph: document.querySelector("#currency-analysis-graph"),
-      currencyAnalysisViewButtons: [...document.querySelectorAll("[data-currency-analysis-view]")],
       companyInformationButton: document.querySelector("#trade-company-information"),
       close: document.querySelector("#trade-close"),
       title: document.querySelector("#trade-title"),
@@ -232,14 +223,7 @@
     };
     if (!elements.modal || !elements.confirm) return;
     elements.snackButton?.addEventListener("click", openMarketSnack);
-    elements.currencyRatesButton?.addEventListener("click", purchaseCurrencyAnalysis);
-    elements.currencyAnalysisClose?.addEventListener("click", closeCurrencyAnalysis);
-    elements.currencyAnalysisViewButtons.forEach(button => button.addEventListener("click", () => {
-      setCurrencyAnalysisView(button.dataset.currencyAnalysisView);
-    }));
-    elements.currencyAnalysisLayer?.addEventListener("pointerdown", event => {
-      if (event.target === elements.currencyAnalysisLayer) closeCurrencyAnalysis();
-    });
+    elements.currencyRatesButton?.addEventListener("click", purchaseCurrencyRates);
     elements.companyInformationButton?.addEventListener("click", handleCompanyInformation);
     elements.close.addEventListener("click", close);
     elements.confirm.addEventListener("click", confirmTrade);
@@ -255,10 +239,6 @@
       if (event.key !== "Escape" || elements.modal.hidden) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (elements.currencyAnalysisLayer && !elements.currencyAnalysisLayer.hidden) {
-        closeCurrencyAnalysis();
-        return;
-      }
       close();
     });
   }
@@ -288,11 +268,10 @@
       const region = String(settlement.region || "중부").trim() || "중부";
       elements.currencyRatesButton.hidden = !currencyOnly;
       elements.currencyRatesButton.disabled = true;
-      elements.currencyRatesButton.dataset.tooltip = `가장 가치가 낮은 은화 1개를 내고 ${region}의 화폐별 현재 가치, 과거 12개월 시세, 한 달 후 방향성 전망을 확인합니다.`;
+      elements.currencyRatesButton.dataset.tooltip = `현재 지역(${region})의 최신 화폐 시세를 확인합니다. 환전상에게 정보비(보유중인 가장 가치가 낮은 은화)를 지불합니다.`;
       const status = elements.currencyRatesButton.querySelector("span");
-      if (status) status.textContent = "은화 1개";
+      if (status) status.textContent = `${region} 최신 정보`;
     }
-    if (elements.currencyAnalysisLayer) elements.currencyAnalysisLayer.hidden = true;
     if (elements.companyInformationButton) {
       elements.companyInformationButton.hidden = facilityType !== "상회";
       elements.companyInformationButton.disabled = true;
@@ -390,7 +369,7 @@
       ? { player: "currencies", merchant: "currencies" }
       : { player: "all", merchant: "all" };
     render();
-    if (elements.currencyRatesButton && currencyOnly) updateCurrencyAnalysisButton();
+    if (elements.currencyRatesButton && currencyOnly) elements.currencyRatesButton.disabled = false;
     if (elements.companyInformationButton && facilityType === "상회") {
       updateCompanyInformationButton(elements.companyInformationButton, companyName, settlement);
     }
@@ -450,29 +429,8 @@
     }
   }
 
-  function updateCurrencyAnalysisButton() {
-    if (!elements.currencyRatesButton || !current?.currencyOnly) return;
-    const region = String(current.settlement?.region || "중부").trim() || "중부";
-    const report = window.ProjectWWallet.getCurrencyAnalysis(region);
-    const status = elements.currencyRatesButton.querySelector("span");
-    elements.currencyRatesButton.disabled = false;
-    elements.currencyRatesButton.classList.toggle("is-purchased", Boolean(report));
-    elements.currencyRatesButton.dataset.tooltip = report
-      ? `${region}의 오늘 시세 분석표를 다시 봅니다. 추가 비용은 없습니다.`
-      : `가장 가치가 낮은 은화 1개를 내고 ${region}의 화폐별 현재 가치, 과거 12개월 시세, 한 달 후 방향성 전망을 확인합니다.`;
-    const title = elements.currencyRatesButton.querySelector("strong");
-    if (title) title.textContent = report ? "분석표 보기" : "시세 분석";
-    if (status) status.textContent = report ? "오늘 조사 완료" : "은화 1개";
-  }
-
-  function purchaseCurrencyAnalysis() {
+  function purchaseCurrencyRates() {
     if (!current?.currencyOnly) return;
-    const region = String(current.settlement?.region || "중부").trim() || "중부";
-    const purchased = window.ProjectWWallet.getCurrencyAnalysis(region);
-    if (purchased) {
-      openCurrencyAnalysis(purchased);
-      return;
-    }
     const wallet = normalizeWallet(getPlayerWallet());
     const silver = current.currencies
       .filter(currency => currency.type === "은화" && walletQuantity(wallet, currency.id) > 0)
@@ -481,7 +439,7 @@
         || Number(left.currency.baseValue || 0) - Number(right.currency.baseValue || 0)
         || left.currency.id.localeCompare(right.currency.id, "ko"))[0];
     if (!silver) {
-      notify("시세 분석비로 지불할 은화가 없습니다.");
+      notify("정보비로 지불할 은화가 없습니다.");
       return;
     }
     const currencyId = silver.currency.id;
@@ -493,247 +451,13 @@
       else proposal.player.currencies.delete(currencyId);
     }
     setPlayerWallet(wallet);
-    const report = window.ProjectWWallet.createCurrencyAnalysis(region);
+    const region = String(current.settlement?.region || "중부").trim() || "중부";
+    window.ProjectWWallet.refreshKnowledge(region);
     window.ProjectWAudio?.playEffect("coin");
     render();
-    updateCurrencyAnalysisButton();
-    elements.dataStatus.textContent = `${silver.currency.name} 1개를 지불하고 ${region} 화폐 시세 분석표를 받았습니다.`;
-    elements.dataStatus.hidden = false;
+    elements.dataStatus.textContent = `${silver.currency.name} 1개를 정보비로 지불하고 ${region} 화폐 시세를 갱신했습니다.`;
     elements.dataStatus.classList.remove("is-warning");
-    notify(`${region} 화폐 시세 분석표를 받았습니다.`);
-    openCurrencyAnalysis(report);
-  }
-
-  function openCurrencyAnalysis(report) {
-    if (!report || !elements.currencyAnalysisLayer || !elements.currencyAnalysisTable) return;
-    currencyAnalysisReport = report;
-    const rows = Array.isArray(report.rows) ? report.rows : [];
-    const monthKeys = rows.reduce((longest, row) => {
-      const history = Array.isArray(row.history) ? row.history : [];
-      return history.length > longest.length ? history : longest;
-    }, []);
-    if (elements.currencyAnalysisRegion) elements.currencyAnalysisRegion.textContent = `${report.region || "중부"} 환전상 보고서`;
-    if (elements.currencyAnalysisSummary) {
-      elements.currencyAnalysisSummary.textContent = `계약 ${formatNumber(report.day)}일차 조사 · 과거 12개월은 월별 가치이며, 한 달 후에는 방향성만 전망합니다.`;
-    }
-    const grid = document.createElement("div");
-    grid.className = "currency-analysis-grid";
-    const appendCell = (text, className = "", title = "") => {
-      const cell = document.createElement("span");
-      cell.className = className;
-      cell.textContent = text;
-      if (title) cell.title = title;
-      grid.append(cell);
-    };
-    appendCell("화폐", "currency-analysis-cell is-heading is-name");
-    monthKeys.forEach(entry => {
-      const label = String(entry.label || entry.monthKey || "");
-      const shortLabel = label.match(/(\d+)월/)?.[1];
-      appendCell(shortLabel ? `${shortLabel}월` : label, "currency-analysis-cell is-heading is-month", label);
-    });
-    appendCell("현재", "currency-analysis-cell is-heading is-current");
-    appendCell("한 달 후", "currency-analysis-cell is-heading is-outlook");
-    rows.forEach(row => {
-      const name = document.createElement("span");
-      name.className = "currency-analysis-cell is-name";
-      const icon = createCurrencyAnalysisIcon(row);
-      const copy = document.createElement("span");
-      copy.className = "currency-analysis-name-copy";
-      const strong = document.createElement("strong");
-      strong.textContent = row.name || row.currencyId || "화폐";
-      const type = document.createElement("small");
-      type.textContent = row.type || "";
-      copy.append(strong, type);
-      name.append(icon, copy);
-      grid.append(name);
-      const historyByMonth = new Map((Array.isArray(row.history) ? row.history : []).map(entry => [entry.monthKey, entry]));
-      monthKeys.forEach(month => {
-        const entry = historyByMonth.get(month.monthKey);
-        appendCell(entry ? formatNumber(entry.value) : "—", "currency-analysis-cell is-value", entry?.label || month.label || "");
-      });
-      appendCell(formatNumber(row.currentValue), "currency-analysis-cell is-current");
-      const outlook = String(row.outlook || "안정");
-      const symbol = outlook === "상승" ? "▲" : outlook === "하락" ? "▼" : "◆";
-      const outlookClass = outlook === "상승" ? "is-rise" : outlook === "하락" ? "is-fall" : "is-stable";
-      appendCell(`${symbol} ${outlook}`, `currency-analysis-cell is-outlook ${outlookClass}`);
-    });
-    elements.currencyAnalysisTable.replaceChildren(grid);
-    renderCurrencyAnalysisGraph(rows);
-    setCurrencyAnalysisView(currencyAnalysisView);
-    elements.currencyAnalysisLayer.hidden = false;
-    requestAnimationFrame(() => elements.currencyAnalysisClose?.focus());
-  }
-
-  function setCurrencyAnalysisView(view) {
-    currencyAnalysisView = view === "graph" ? "graph" : "table";
-    elements.currencyAnalysisViewButtons?.forEach(button => {
-      const active = button.dataset.currencyAnalysisView === currencyAnalysisView;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
-    if (elements.currencyAnalysisTable) elements.currencyAnalysisTable.hidden = currencyAnalysisView !== "table";
-    if (elements.currencyAnalysisGraph) elements.currencyAnalysisGraph.hidden = currencyAnalysisView !== "graph";
-  }
-
-  function createCurrencyAnalysisIcon(row) {
-    const container = document.createElement("span");
-    container.className = "currency-analysis-name-icon";
-    const source = currencyAssetUrl(row.currencyId);
-    if (source) {
-      const image = document.createElement("img");
-      image.src = source;
-      image.alt = "";
-      image.draggable = false;
-      container.append(image);
-    } else {
-      const fallback = document.createElement("span");
-      fallback.textContent = String(row.type || "화").slice(0, 1);
-      container.append(fallback);
-    }
-    return container;
-  }
-
-  function renderCurrencyAnalysisGraph(rows) {
-    if (!elements.currencyAnalysisGraph) return;
-    const list = document.createElement("div");
-    list.className = "currency-analysis-chart-list";
-    rows.forEach((row, rowIndex) => list.append(createCurrencyAnalysisChart(row, rowIndex)));
-    elements.currencyAnalysisGraph.replaceChildren(list);
-  }
-
-  function createCurrencyAnalysisChart(row, rowIndex) {
-    const card = document.createElement("article");
-    card.className = "currency-analysis-chart";
-    const outlook = String(row.outlook || "안정");
-    const symbol = outlook === "상승" ? "▲" : outlook === "하락" ? "▼" : "◆";
-    const outlookClass = outlook === "상승" ? "is-rise" : outlook === "하락" ? "is-fall" : "is-stable";
-    card.setAttribute("aria-label", `${row.name || "화폐"}, 현재 가치 ${formatNumber(row.currentValue)}, 한 달 후 ${outlook} 전망`);
-
-    const heading = document.createElement("header");
-    heading.className = "currency-analysis-chart-heading";
-    const copy = document.createElement("span");
-    const name = document.createElement("strong");
-    name.textContent = row.name || row.currencyId || "화폐";
-    const type = document.createElement("small");
-    type.textContent = row.type || "";
-    const currentValue = document.createElement("small");
-    currentValue.className = "currency-analysis-chart-current";
-    currentValue.textContent = `현재 ${formatNumber(row.currentValue)}`;
-    copy.append(name, type, currentValue);
-    heading.append(createCurrencyAnalysisIcon(row), copy);
-
-    const chart = document.createElement("div");
-    chart.className = "currency-analysis-svg-wrap";
-    chart.append(createCurrencyAnalysisSvg(row, rowIndex));
-
-    const outlookPanel = document.createElement("div");
-    outlookPanel.className = `currency-analysis-chart-outlook ${outlookClass}`;
-    const outlookLabel = document.createElement("small");
-    outlookLabel.textContent = "한 달 후";
-    const outlookValue = document.createElement("strong");
-    outlookValue.textContent = `${symbol} ${outlook}`;
-    outlookPanel.append(outlookLabel, outlookValue);
-    card.append(heading, chart, outlookPanel);
-    return card;
-  }
-
-  function createCurrencyAnalysisSvg(row, rowIndex) {
-    const namespace = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(namespace, "svg");
-    svg.classList.add("currency-analysis-svg");
-    svg.setAttribute("viewBox", "0 0 600 80");
-    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    svg.setAttribute("role", "img");
-    const title = document.createElementNS(namespace, "title");
-    title.textContent = `${row.name || "화폐"} 과거 12개월 월별 가치와 현재 가치`;
-    svg.append(title);
-
-    const history = Array.isArray(row.history) ? row.history : [];
-    const points = [...history.map(entry => ({
-      label: entry.label || entry.monthKey || "",
-      value: Number(entry.value) || 0
-    })), { label: "현재", value: Number(row.currentValue) || 0 }];
-    const values = points.map(point => point.value);
-    const minimum = Math.min(...values);
-    const maximum = Math.max(...values);
-    const range = Math.max(1, maximum - minimum);
-    const left = 12;
-    const right = 588;
-    const top = 7;
-    const bottom = 57;
-    const flatSeries = maximum === minimum;
-    const coordinates = points.map((point, index) => ({
-      ...point,
-      x: points.length <= 1 ? left : left + ((right - left) * index / (points.length - 1)),
-      y: flatSeries ? (top + bottom) / 2 : top + ((maximum - point.value) / range) * (bottom - top)
-    }));
-
-    [top, (top + bottom) / 2, bottom].forEach(y => {
-      const line = document.createElementNS(namespace, "line");
-      line.classList.add("chart-grid");
-      line.setAttribute("x1", left);
-      line.setAttribute("x2", right);
-      line.setAttribute("y1", y);
-      line.setAttribute("y2", y);
-      svg.append(line);
-    });
-
-    const gradientId = `currency-chart-area-${rowIndex}`;
-    const defs = document.createElementNS(namespace, "defs");
-    const gradient = document.createElementNS(namespace, "linearGradient");
-    gradient.id = gradientId;
-    gradient.setAttribute("x1", "0");
-    gradient.setAttribute("y1", "0");
-    gradient.setAttribute("x2", "0");
-    gradient.setAttribute("y2", "1");
-    [["0%", "#4d806c", ".48"], ["100%", "#4d806c", "0"]].forEach(([offset, color, opacity]) => {
-      const stop = document.createElementNS(namespace, "stop");
-      stop.setAttribute("offset", offset);
-      stop.setAttribute("stop-color", color);
-      stop.setAttribute("stop-opacity", opacity);
-      gradient.append(stop);
-    });
-    defs.append(gradient);
-    svg.append(defs);
-
-    const pointPath = coordinates.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
-    const area = document.createElementNS(namespace, "path");
-    area.classList.add("chart-area");
-    area.setAttribute("d", `${pointPath} L${right},${bottom} L${left},${bottom} Z`);
-    area.setAttribute("fill", `url(#${gradientId})`);
-    const line = document.createElementNS(namespace, "path");
-    line.classList.add("chart-line");
-    line.setAttribute("d", pointPath);
-    svg.append(area, line);
-
-    coordinates.forEach((point, index) => {
-      const circle = document.createElementNS(namespace, "circle");
-      circle.classList.add("chart-point");
-      if (index === coordinates.length - 1) circle.classList.add("is-current");
-      circle.setAttribute("cx", point.x);
-      circle.setAttribute("cy", point.y);
-      circle.setAttribute("r", index === coordinates.length - 1 ? 3.7 : 2.6);
-      const pointTitle = document.createElementNS(namespace, "title");
-      pointTitle.textContent = `${point.label} · 가치 ${formatNumber(point.value)}`;
-      circle.append(pointTitle);
-      svg.append(circle);
-      if (index % 2 === 0 || index === coordinates.length - 1) {
-        const label = document.createElementNS(namespace, "text");
-        label.setAttribute("x", point.x);
-        label.setAttribute("y", 73);
-        label.setAttribute("text-anchor", "middle");
-        label.textContent = point.label === "현재" ? "현재" : (String(point.label).match(/(\d+)월/)?.[0] || point.label);
-        svg.append(label);
-      }
-    });
-    return svg;
-  }
-
-  function closeCurrencyAnalysis() {
-    if (!elements.currencyAnalysisLayer) return;
-    elements.currencyAnalysisLayer.hidden = true;
-    currencyAnalysisReport = null;
-    elements.currencyRatesButton?.focus();
+    notify(`${region}의 최신 화폐 시세를 확인했습니다.`);
   }
 
   function ensureSettlementMerchants({ settlement, definitions, currencies, catalogSource, worldData, worldTime }) {
@@ -4079,7 +3803,6 @@
 
   function close() {
     if (!elements.modal || elements.modal.hidden) return;
-    if (elements.currencyAnalysisLayer) elements.currencyAnalysisLayer.hidden = true;
     dismissMerchantCommentary();
     window.ProjectWCargo.hideTooltip();
     elements.modal.hidden = true;
