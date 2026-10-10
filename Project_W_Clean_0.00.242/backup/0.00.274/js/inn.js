@@ -993,21 +993,16 @@
     button.dataset.tradeReviewIndex = String(index);
     button.className = `${index === tradeReviewIndex ? "is-active" : ""} ${tradeReviewViewedIds.has(String(entry.id)) ? "is-viewed" : "is-unread"}`.trim();
     if (entry.kind === "expense") button.classList.add("is-expense", `is-${entry.expenseType}`);
-    const order = document.createElement("b");
     const label = document.createElement("span");
     const outcome = document.createElement("strong");
-    order.className = "inn-trade-review-order";
-    order.textContent = String(index + 1);
     label.textContent = entry.kind === "expense"
-      ? `${entry.summaryLabel || entry.itemName} · ${formatNumber(entry.quantity)}건`
+      ? `${entry.itemName} · ${formatNumber(entry.quantity)}건`
       : `${entry.itemName} · ${formatNumber(entry.quantity)}개`;
-    outcome.className = entry.kind === "expense"
-      ? (Number(entry.total) > 0 ? "is-loss" : "is-neutral")
-      : (result ? "is-profit" : "is-loss");
+    outcome.className = result ? "is-profit" : "is-loss";
     outcome.textContent = entry.kind === "expense"
-      ? `합계 ${Number(entry.total) > 0 ? "-" : ""}${formatNumber(entry.total)} 가치`
+      ? `합계 -${formatNumber(entry.total)} 가치`
       : `${result ? "+" : ""}${formatNumber(entry.profit)} 가치`;
-    button.append(order, label, outcome);
+    button.append(label, outcome);
     return button;
   }
 
@@ -1054,8 +1049,8 @@
     const total = document.createElement("strong");
     eyebrow.textContent = `이전 복기 이후 · ${formatNumber(entry.quantity)}건`;
     title.textContent = entry.expenseType === "tax" ? "최근에 지불한 관세" : "최근에 지불한 식비";
-    total.className = Number(entry.total) > 0 ? "is-loss" : "is-neutral";
-    total.textContent = `합계 ${Number(entry.total) > 0 ? "-" : ""}${formatNumber(entry.total)} 가치`;
+    total.className = "is-loss";
+    total.textContent = `합계 -${formatNumber(entry.total)} 가치`;
     titleWrap.append(eyebrow, title);
     header.append(titleWrap, total);
 
@@ -1067,8 +1062,7 @@
 
     const list = document.createElement("section");
     list.className = `inn-expense-review-list is-${entry.expenseType}`;
-    const records = Array.isArray(entry.details) ? entry.details : [];
-    records.forEach(record => {
+    (Array.isArray(entry.details) ? entry.details : []).forEach(record => {
       const row = document.createElement("article");
       const location = document.createElement("div");
       const place = document.createElement("strong");
@@ -1083,11 +1077,6 @@
       row.append(location, amount, description);
       list.append(row);
     });
-    if (!records.length) {
-      list.append(emptyMessage(entry.expenseType === "tax"
-        ? "이번 복기에서 확인할 관세 지출이 없습니다."
-        : "이번 복기에서 확인할 식비 지출이 없습니다."));
-    }
     fragment.append(header, introduction, list);
     return fragment;
   }

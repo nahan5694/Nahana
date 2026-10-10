@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.275";
+const GAME_VERSION = "0.00.274";
 const ACCOUNT_SCHEMA_VERSION = 46;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -432,15 +432,6 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     ]
   },
   {
-    id: "path-trade-log",
-    label: "상행록",
-    contexts: ["merchant-path"],
-    pages: [
-      { title: "지난 상행 다시 보기", text: "5조 아래의 상행록에는 숙박 때 마친 상행 복기가 날짜별로 보관됩니다.\n오늘을 포함한 최근 10일의 기록을 다시 확인할 수 있습니다.", selector: "#merchant-path-trade-log" },
-      { title: "날짜와 항목을 차례로", text: "먼저 날짜를 고른 뒤 관세, 식비와 교역품 항목을 선택하세요.\n당시 복기에서 확인한 지출 내역과 거래 결과, 주요 가격 요인이 그대로 표시됩니다." }
-    ]
-  },
-  {
     id: "memorial-overview",
     label: "메모리얼",
     contexts: ["memorial"],
@@ -488,9 +479,9 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "상행 복기",
     contexts: ["inn"],
     pages: [
-      { title: "숙박 전에 돌아보는 상행", text: "숙박비를 지불하면 거래 유무와 관계없이 상행 복기를 진행합니다.\n1번 관세와 2번 식비를 먼저 확인한 뒤, 아직 복기하지 않은 완료 교역을 살펴봅니다.", selector: "#inn-lodging" },
+      { title: "숙박 전에 돌아보는 상행", text: "숙박비를 지불하면 아직 복기하지 않은 완료 교역과 최근 지출을 먼저 살펴봅니다.\n관세와 주점·간식·여관 음식의 식비도 이전 복기 이후 내역이 함께 누적됩니다.", selector: "#inn-lodging" },
       { title: "이익과 손실의 원인", text: "복기 화면은 구입가와 판매가, 최종 손익을 비교하고 가격에 크게 작용한 요소를 보여 줍니다.\n◆는 가장 큰 요소, ▲는 유리한 요소, ▼는 불리한 요소입니다." },
-      { title: "복기를 마치면", text: "복기 목록의 거래에는 이익 또는 손실 뱃지가 남고 해당 교역품의 거래지식이 1 오릅니다.\n완료한 화면은 행상인의 길 상행록에 최근 10일 동안 남으며, 복기 종료 후 기존 숙박으로 이어집니다." }
+      { title: "복기를 마치면", text: "복기 목록의 거래에는 이익 또는 손실 뱃지가 남고 해당 교역품의 거래지식이 1 오릅니다.\n확인한 관세와 식비는 복기 목록에서 정리되며, 복기 종료 후 기존 숙박으로 이어집니다." }
     ]
   },
   {
@@ -510,7 +501,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "숙박 계산서", text: "숙박에는 객실과 마굿간, 말 먹이와 세면용 물 비용이 포함됩니다.\n거점과 도시 소식에 따라 숙박비가 달라질 수 있습니다.", selector: "#inn-lodging" },
       { title: "식사와 기분", text: "오늘 주점이나 여관에서 식사했다면 숙박 후 나하나의 기분이 회복됩니다.\n식사하지 않았다면 붉은 경고와 함께 큰 기분 감소가 적용됩니다.", selector: ".inn-lodging-effect" },
-      { title: "밤을 마무리하기", text: "숙박비를 지불하면 거래가 없는 날에도 관세와 식비를 포함한 상행 복기를 진행합니다.\n복기를 마치면 다음 날 아침까지 쉬고 말의 체력과 허기가 회복됩니다." }
+      { title: "밤을 마무리하기", text: "숙박비를 지불한 뒤 완료된 교역이 있다면 상행 복기를 진행합니다.\n복기를 마치거나 대상이 없다면 다음 날 아침까지 쉬고 말의 체력과 허기가 회복됩니다." }
     ]
   }
 ]);
@@ -548,7 +539,6 @@ const ADVANCED_TUTORIAL_MENU_LABELS = Object.freeze({
   "path-company-score": "상회점수",
   "path-product-knowledge": "상품정보",
   "path-memo": "메모",
-  "path-trade-log": "상행록",
   "memorial-overview": "메모리얼",
   "information-reliability": "신뢰도",
   "information-duration": "남은기간",
@@ -12917,10 +12907,10 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["숙박", "숙박을 눌러 말과 나하나를 쉬게 하세요.", "#inn-lodging", true],
       ["숙박 계산서", "객실과 마굿간 비용을 확인한 뒤 현금으로 지불합니다.", ".inn-invoice-wrap", false, { padding: 18 }],
       ["숙박비 준비", "숙박비 지불을 눌러 자동 납부안을 확인하세요.", "#inn-lodging-pay", true],
-      ["숙박비 지불", "올려 둔 화폐로 숙박비를 지불하세요. 거래가 없는 날에도 잠들기 전에 상행 복기가 이어집니다.", "#inn-payment-confirm", true],
-      ["관세와 식비", "복기 목록의 1번 관세와 2번 식비는 지출이 없어도 항상 표시됩니다. 먼저 오늘의 고정 지출을 확인하세요.", "#inn-trade-review-list", false, { padding: 12 }],
-      ["완료한 교역", "구입과 판매를 모두 마친 교역이 있다면 3번부터 이어집니다. 상품을 선택하면 손익과 10% 이상 작용한 주요 요인을 확인할 수 있습니다.", "#inn-trade-review-list", false, { padding: 12 }],
-      ["복기 종료", "복기 종료를 누르면 교역품에는 결과 뱃지와 거래지식 1이 적용됩니다. 오늘의 복기는 상행록에 저장되고 화면이 어두워진 뒤 숙박으로 이어집니다.", "#inn-trade-review-finish", true, { padding: 10 }]
+      ["숙박비 지불", "올려 둔 화폐로 숙박비를 지불하세요. 완료한 교역이 있다면 잠들기 전에 상행 복기가 이어집니다.", "#inn-payment-confirm", true],
+      ["상행 복기", "구입부터 판매까지 끝낸 교역을 하나씩 돌아봅니다. 왼쪽 목록에서 거래를 바꾸며 각 결과를 확인할 수 있습니다.", "#inn-trade-review-view", false, { padding: 12 }],
+      ["가격을 움직인 원인", "구입과 판매에서 10% 이상 작용한 주요 요인이 표시됩니다. ◆는 가장 큰 요소, ▲는 유리한 요소, ▼는 불리한 요소입니다.", ".inn-trade-review-factors", false, { padding: 12 }],
+      ["복기 종료", "복기 종료를 누르면 그날 제시된 거래 전체에 결과 뱃지가 남고 상품마다 거래지식이 1 상승합니다. 화면이 어두워진 뒤 숙박으로 이어집니다.", "#inn-trade-review-finish", true, { padding: 10 }]
     ],
     7: [
       ["상태 확인", "파트너뷰로 이동해 나하나의 상태를 확인하세요.", partnerMoveSelector, true],
@@ -12969,13 +12959,12 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["보유 가치", "상단의 합계는 현재 알고 있는 가치로 계산한 대략적인 총액입니다.", ".wallet-window-total", false, { padding: 10 }]
     ],
     [TUTORIAL_IDS.MERCHANT_PATH]: [
-      ["행상인의 길", "1조부터 3조는 행상포인트로 능력을 익히고, 4조와 5조에서는 조합과 상품 지식을 확인합니다. 5조 아래에는 지난 복기를 보는 상행록이 있습니다.", ".merchant-path-articles", false, { padding: 12 }],
+      ["행상인의 길", "1조부터 3조는 행상포인트로 능력을 익히고, 4조와 5조에서는 조합과 상품 지식을 확인합니다.", ".merchant-path-articles", false, { padding: 12 }],
       ["상품 지식", "5조에서 교역품을 사고팔며 쌓은 지식 단계와 해금된 정보를 확인합니다.", "button[data-merchant-path-article='5']", false, { padding: 10 }],
       ["상품 상세 기록", "상품을 열면 취급처, 직접 적는 메모와 최근 교역 여정을 한곳에서 확인할 수 있습니다.", ".merchant-path-note-editor", false, { padding: 12 }],
       ["취급처", "직접 구입한 거점은 취급처 뱃지로 남습니다. 뱃지를 눌러 생산지로 추정하거나 생산지가 아닌 곳으로 제외 표시할 수 있습니다.", ".merchant-path-outlet-history", false, { padding: 10 }],
       ["메모", "상품마다 짧은 메모를 세 개까지 남길 수 있습니다. 직접 알아낸 특징과 다음 거래 계획을 기록해 두세요.", ".merchant-path-note-fields", false, { padding: 10 }],
       ["거래 기록", "구입과 판매를 모두 마친 교역만 기록됩니다. 한 번에 사고판 수량은 한 묶음으로 표시되며, 운송 거리와 손익, 상행 복기 결과를 함께 확인할 수 있습니다.", ".merchant-path-trade-history", false, { padding: 10 }],
-      ["상행록", "5조 아래의 상행록에서는 최근 10일 동안 완료한 복기를 날짜별로 다시 볼 수 있습니다. 날짜를 고른 뒤 관세, 식비와 교역 결과를 차례로 확인합니다.", "#merchant-path-trade-log", false, { padding: 10 }],
       ["화물뷰에서 빠르게 확인", "메모와 거래 기록은 화물의 툴팁에도 표시됩니다. 화물을 길게 누르면 행상인의 길의 해당 상품 기록으로 바로 이동합니다.", "#cargo-grid", false, { padding: 12 }]
     ],
     [TUTORIAL_IDS.MEMORIAL]: [
@@ -13037,11 +13026,11 @@ function tutorialStepConfiguration(tutorialId, step) {
       }]
     ],
     [TUTORIAL_IDS.TRADE_REVIEW]: [
-      ["첫 상행 복기", "숙박비를 지불하면 거래가 없는 날에도 상행 복기가 시작됩니다. 1번 관세와 2번 식비는 지출이 없어도 항상 자리를 지킵니다.", "#inn-trade-review-view", false, { padding: 12 }],
-      ["관세와 식비", "서로 다른 색의 두 고정 항목에서 합계와 지점별 지출 내역을 확인합니다. 완료한 교역품은 그 뒤에 이어집니다.", "#inn-trade-review-list", false, { padding: 12 }],
-      ["중요한 가격 요인", "3번 이후의 교역품 항목을 열면 10% 이상 작용한 가격 요인이 복수로 표시됩니다. ◆는 가장 큰 요소이며, 초록 ▲는 이익에 도움을 준 요인, 빨간 ▼는 손실을 키운 요인입니다.", "#inn-trade-review-list", false, { padding: 12 }],
-      ["교역품 복기", "완료한 교역이 있다면 3번부터 표시됩니다. 항목을 눌러 구입·판매 가격과 손익, 주요 가격 요인을 확인할 수 있습니다.", "#inn-trade-review-list", false, { padding: 10 }],
-      ["복기 종료", "복기 종료를 누르면 거래에는 결과 뱃지와 거래지식 1이 적용됩니다. 이날 화면은 상행록에 10일간 남고, 화면이 어두워지며 숙박을 계속합니다.", "#inn-trade-review-finish", true, { padding: 10 }]
+      ["첫 상행 복기", "숙박비를 지불한 뒤, 완료한 교역과 최근에 지불한 관세·식비를 잠들기 전에 돌아봅니다. 거래와 지출은 복기를 마칠 때까지 누적됩니다.", "#inn-trade-review-view", false, { padding: 12 }],
+      ["교역과 지출", "교역 항목에서는 구입·판매 가격과 손익을 비교합니다. 관세와 식비 항목에서는 합계와 지점별 지출 내역을 확인할 수 있습니다.", "#inn-trade-review-detail", false, { padding: 12 }],
+      ["중요한 가격 요인", "교역 항목에는 10% 이상 작용한 가격 요인이 복수로 표시됩니다. ◆는 가장 큰 요소이며, 초록 ▲는 이익에 도움을 준 요인, 빨간 ▼는 손실을 키운 요인입니다.", "#inn-trade-review-detail", false, { padding: 12 }],
+      ["다른 거래도 확인", "왼쪽 목록에 복기할 거래가 여러 개라면 눌러서 결과를 바꿔 볼 수 있습니다. 아직 열어보지 않은 거래는 은은하게 강조됩니다.", "#inn-trade-review-list", false, { padding: 10 }],
+      ["복기 종료", "복기 종료를 누르면 거래에는 결과 뱃지와 거래지식 1이 적용되고, 확인한 관세·식비는 목록에서 정리됩니다. 화면이 어두워지며 숙박을 계속합니다.", "#inn-trade-review-finish", true, { padding: 10 }]
     ],
     [TUTORIAL_IDS.PARTNER_SOOTHE]: [
       ["화난 나하나 달래기", "나하나가 화난 상태라면 간식 주기 버튼이 달래기로 바뀝니다.\n달래기에 성공하면 기분이 1~2 회복됩니다.", "#partner-snack-open", false, { padding: 12 }],

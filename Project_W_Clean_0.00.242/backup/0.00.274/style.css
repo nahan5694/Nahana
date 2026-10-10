@@ -6438,29 +6438,6 @@ button.map-marker:active { cursor: grabbing; }
   box-shadow: inset 0 1px #e7c7975e, 0 3px 8px #40281442;
 }
 .merchant-path-articles button.is-active > span { border-color: #edcf9a5e; color: #f2d8a7; }
-.merchant-path-articles .merchant-path-trade-log-button {
-  position: relative;
-  margin-top: 14px;
-  border-color: #69577b80;
-  background: linear-gradient(100deg, #eee1c8, #d8c4a4);
-}
-.merchant-path-articles .merchant-path-trade-log-button::before {
-  position: absolute;
-  top: -9px;
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: #7754325c;
-  content: "";
-}
-.merchant-path-articles .merchant-path-trade-log-button > span { border-color: #765b846b; color: #725279; }
-.merchant-path-articles .merchant-path-trade-log-button.is-active {
-  border-color: #52375f;
-  background: linear-gradient(100deg, #65466f, #85658e);
-  color: #fff1df;
-  box-shadow: inset 0 1px #ead2ef63, 0 3px 8px #40281442;
-}
-.merchant-path-articles .merchant-path-trade-log-button.is-active > span { border-color: #ead2ef5c; color: #efd9ef; }
 .merchant-path-articles button.has-peddler-points { position: relative; }
 .merchant-path-articles button.has-peddler-points::after {
   position: absolute;
@@ -6574,106 +6551,6 @@ button.map-marker:active { cursor: grabbing; }
 .merchant-path-content::-webkit-scrollbar { width: 9px; height: 7px; }
 .merchant-path-content::-webkit-scrollbar-track { border-radius: 2px; background: #ead6ae; }
 .merchant-path-content::-webkit-scrollbar-thumb { border: 2px solid #ead6ae; border-radius: 4px; background: #876039; }
-.merchant-path-trade-log {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 12px;
-  min-height: 100%;
-}
-.merchant-path-trade-log-dates,
-.merchant-path-trade-log-screen,
-.merchant-path-trade-log-entries,
-.merchant-path-trade-log-detail {
-  min-width: 0;
-  min-height: 0;
-  border: 1px solid #7d5a396b;
-  background: #f4e2bfbd;
-}
-.merchant-path-trade-log-dates { display: grid; align-content: start; gap: 6px; padding: 8px; }
-.merchant-path-trade-log-dates > header { display: grid; gap: 2px; padding: 4px 3px 8px; border-bottom: 1px solid #7652334f; }
-.merchant-path-trade-log-dates > header strong { color: #51351f; font-size: .72rem; }
-.merchant-path-trade-log-dates > header small { color: #85694d; font-size: .53rem; font-weight: 800; }
-.merchant-path-trade-log-dates > button {
-  display: grid;
-  gap: 3px;
-  min-height: 48px;
-  padding: 8px 9px;
-  border: 1px solid #80603e69;
-  border-left: 4px solid #8b6541;
-  border-radius: 3px;
-  background: #ecd4a9a8;
-  color: #5d4028;
-  text-align: left;
-}
-.merchant-path-trade-log-dates > button strong { font-size: .68rem; }
-.merchant-path-trade-log-dates > button span { color: #7b6045; font-size: .52rem; font-weight: 800; }
-.merchant-path-trade-log-dates > button.is-active { border-color: #5c3e24; border-left-color: #765080; background: #f8e8c9; box-shadow: inset 0 0 0 1px #fff7e2; }
-.merchant-path-trade-log-screen { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.merchant-path-trade-log-screen > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 13px; border-bottom: 1px solid #78553659; background: #e7c99899; }
-.merchant-path-trade-log-screen > header > div { display: grid; gap: 2px; }
-.merchant-path-trade-log-screen > header span { color: #7c6043; font-size: .55rem; font-weight: 850; }
-.merchant-path-trade-log-screen > header h4 { margin: 0; color: #4c301b; font-size: .9rem; }
-.merchant-path-trade-log-screen > header > strong { color: #71503a; font-size: .62rem; }
-.merchant-path-trade-log-review { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 9px; min-height: 0; padding: 9px; }
-.merchant-path-trade-log-entries { display: grid; align-content: start; gap: 6px; padding: 7px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #876039 #ead6ae; }
-.merchant-path-trade-log-entries > button {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 2px 7px;
-  min-height: 54px;
-  padding: 7px 8px;
-  border: 1px solid #80603e69;
-  border-left: 4px solid #8b6541;
-  border-radius: 3px;
-  background: #f0dbb4b8;
-  color: #5a3c24;
-  text-align: left;
-}
-.merchant-path-trade-log-entries > button > b { grid-row: 1 / 3; display: grid; place-items: center; border-right: 1px solid #7855374a; color: #896946; font-size: .6rem; }
-.merchant-path-trade-log-entries > button > span { overflow: hidden; font-size: .6rem; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
-.merchant-path-trade-log-entries > button > strong { font-size: .58rem; }
-.merchant-path-trade-log-entries > button.is-tax { border-left-color: #6b5681; background: #e6dbe6ad; }
-.merchant-path-trade-log-entries > button.is-food { border-left-color: #a27537; background: #efddb4ba; }
-.merchant-path-trade-log-entries > button.is-active { border-color: #634224; box-shadow: inset 0 0 0 1px #fff5de, 0 0 8px #7c583634; filter: brightness(1.04); }
-.merchant-path-trade-log-detail { padding: 13px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #876039 #ead6ae; }
-.merchant-path-log-expense,
-.merchant-path-log-goods { display: grid; gap: 12px; }
-.merchant-path-log-expense > header,
-.merchant-path-log-goods > header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding-bottom: 10px; border-bottom: 1px solid #79563652; }
-.merchant-path-log-expense > header > div,
-.merchant-path-log-goods > header > div { display: grid; gap: 3px; }
-.merchant-path-log-expense header span,
-.merchant-path-log-goods header span { color: #7b5e42; font-size: .55rem; font-weight: 850; }
-.merchant-path-log-expense h5,
-.merchant-path-log-goods h5 { margin: 0; color: #4e311d; font-size: .9rem; }
-.merchant-path-log-expense header > strong,
-.merchant-path-log-goods header > strong { font-size: .72rem; white-space: nowrap; }
-.merchant-path-log-expense-list { display: grid; gap: 6px; }
-.merchant-path-log-expense-list > article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 54px; padding: 8px 10px; border: 1px solid #80603e61; border-left: 4px solid #6b5681; background: #f5e4c5c7; }
-.merchant-path-log-expense.is-food .merchant-path-log-expense-list > article { border-left-color: #a27537; }
-.merchant-path-log-expense-list > article > div { display: grid; gap: 3px; min-width: 0; }
-.merchant-path-log-expense-list article strong { overflow: hidden; color: #315f82; font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
-.merchant-path-log-expense-list article span { color: #795d43; font-size: .53rem; font-weight: 750; }
-.merchant-path-log-expense-list article > b { color: #a03d38; font-size: .65rem; white-space: nowrap; }
-.merchant-path-log-route,
-.merchant-path-log-factors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-.merchant-path-log-route > article,
-.merchant-path-log-factors > article { display: grid; gap: 4px; padding: 10px; border: 1px solid #80603e61; background: #f7e7c9b8; }
-.merchant-path-log-route article > span { color: #765333; font-size: .52rem; font-weight: 900; }
-.merchant-path-log-route article > strong { overflow: hidden; color: #30668a; font-size: .64rem; text-overflow: ellipsis; white-space: nowrap; }
-.merchant-path-log-route article > b { color: #285f83; font-size: .7rem; }
-.merchant-path-log-route article > small { color: #725238; font-size: .52rem; font-weight: 800; }
-.merchant-path-log-factors article > strong { color: #573820; font-size: .6rem; }
-.merchant-path-log-factors ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.merchant-path-log-factors li { display: grid; grid-template-columns: 19px minmax(0, 1fr) auto; gap: 5px; padding: 5px 6px; border-left: 3px solid currentColor; background: #f6e7c7a8; font-size: .53rem; font-weight: 850; }
-.merchant-path-log-factors li.is-positive { color: #2e7445; }
-.merchant-path-log-factors li.is-negative { color: #a33d38; }
-.merchant-path-log-factors li.is-neutral { display: block; color: #7d6a56; line-height: 1.45; }
-.merchant-path-log-factors li.is-primary > b { color: #754497; text-shadow: 0 0 6px #b684d0; }
-.merchant-path-log-factors li > em { font-style: normal; white-space: nowrap; }
-.merchant-path-trade-log .is-profit { color: #287041; }
-.merchant-path-trade-log .is-loss { color: #a03d38; }
-.merchant-path-trade-log .is-neutral { color: #776955; }
 .merchant-path-peddler { display: grid; gap: 14px; }
 .merchant-path-peddler-overview {
   display: grid;
@@ -7915,13 +7792,6 @@ button.map-marker:active { cursor: grabbing; }
   .merchant-path-knowledge-row > p { font-size: .5rem; }
   .merchant-path-note-toggle { min-width: 52px; padding-inline: 5px; font-size: .5rem; }
   .merchant-path-note-editor { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .merchant-path-trade-log { grid-template-columns: 122px minmax(0, 1fr); gap: 7px; }
-  .merchant-path-trade-log-review { grid-template-columns: 158px minmax(0, 1fr); gap: 6px; padding: 6px; }
-  .merchant-path-trade-log-dates,
-  .merchant-path-trade-log-entries { gap: 4px; padding: 5px; }
-  .merchant-path-trade-log-dates > button,
-  .merchant-path-trade-log-entries > button { min-height: 45px; padding: 6px; }
-  .merchant-path-trade-log-detail { padding: 9px; }
   .modal-layer { padding: 0; }
   .dialog-character { right: auto; left: 50%; bottom: 184px; height: 59vh; max-width: 64%; transform: translateX(-50%); }
   .dialog-card.is-log-open .dialog-character { left: 24%; max-width: 42%; }
@@ -11618,8 +11488,7 @@ button.is-limit-exhausted:disabled span { color: #6c6862 !important; }
 .inn-trade-review-list > button {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 4px 8px;
+  gap: 5px;
   min-height: 60px;
   padding: 9px 10px;
   border-left: 5px solid #89623a;
@@ -11631,9 +11500,11 @@ button.is-limit-exhausted:disabled span { color: #6c6862 !important; }
   background: linear-gradient(110deg, #f5e1b9, #d7b276);
   box-shadow: inset 0 0 0 2px #fff0ce87, 0 0 13px #8f5bb143;
 }
-.inn-trade-review-list > button.is-expense.is-tax { border-left-color: #735784; background: linear-gradient(110deg, #eee1eb, #d8c2dc); }
-.inn-trade-review-list > button.is-expense.is-food { border-left-color: #9a7138; background: linear-gradient(110deg, #f2e2c4, #ddc18d); }
-.inn-trade-review-list > button.is-expense.is-active { border-color: #624827; box-shadow: inset 0 0 0 2px #fff0ce87, 0 0 13px #8f5bb143; filter: brightness(1.04); }
+.inn-trade-review-list > button.is-expense { border-left-color: #7e5a8d; }
+.inn-trade-review-list > button.is-expense.is-food { border-left-color: #99723d; }
+.inn-trade-review-list > button.is-expense.is-active {
+  background: linear-gradient(110deg, #f3e5c8, #d6b88a);
+}
 .inn-trade-review-list > button.is-unread::after {
   position: absolute;
   top: 7px;
@@ -11643,15 +11514,12 @@ button.is-limit-exhausted:disabled span { color: #6c6862 !important; }
   font-size: .55rem;
   filter: drop-shadow(0 0 5px #e4ae3f);
 }
-.inn-trade-review-order { grid-row: 1 / 3; display: grid; place-items: center; border-right: 1px solid #76543845; color: #846340; font-size: .64rem; }
-.inn-trade-review-list > button span { grid-column: 2; padding-right: 12px; font-size: .66rem; font-weight: 900; }
-.inn-trade-review-list > button strong { grid-column: 2; font-size: .72rem; }
+.inn-trade-review-list > button span { padding-right: 12px; font-size: .66rem; font-weight: 900; }
+.inn-trade-review-list > button strong { font-size: .72rem; }
 .inn-trade-review-list .is-profit,
 .inn-trade-review-detail .is-profit { color: #287041; }
 .inn-trade-review-list .is-loss,
 .inn-trade-review-detail .is-loss { color: #a03d38; }
-.inn-trade-review-list .is-neutral,
-.inn-trade-review-detail .is-neutral { color: #776955; }
 .inn-trade-review-detail {
   display: grid;
   align-content: start;

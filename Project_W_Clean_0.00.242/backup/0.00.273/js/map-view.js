@@ -29,8 +29,6 @@
   let wolfenMarkerDetails = { remainingDays: 0, expiresDay: 0 };
   let destinationSelection = null;
   let focusedSettlementId = "";
-  let focusedSettlementTimer = 0;
-  let searchRegion = "";
   let mapData = createEmptyData();
   const distanceCache = new Map();
   const elements = {};
@@ -63,7 +61,6 @@
     elements.searchInput = document.querySelector("#map-search-input");
     elements.searchCount = document.querySelector("#map-search-count");
     elements.searchList = document.querySelector("#map-search-list");
-    elements.searchRegionButtons = [...document.querySelectorAll("[data-map-search-region]")];
     elements.tabs = [...elements.root.querySelectorAll("[data-map-tab]")];
     if (Object.values(elements).some(value => value == null)) return;
 
@@ -73,10 +70,6 @@
     elements.searchToggle.addEventListener("click", () => setSettlementSearchOpen(elements.searchPanel.hidden));
     elements.searchClose.addEventListener("click", () => setSettlementSearchOpen(false));
     elements.searchInput.addEventListener("input", renderSettlementSearchList);
-    elements.searchRegionButtons.forEach(button => button.addEventListener("click", () => {
-      searchRegion = String(button.dataset.mapSearchRegion || "");
-      renderSettlementSearchList();
-    }));
     window.addEventListener("resize", () => {
       if (!elements.tooltip.hidden && lastPointer) positionTooltip(lastPointer.x, lastPointer.y);
     });
@@ -302,13 +295,7 @@
     const query = normalizeSearchText(elements.searchInput.value);
     const settlements = [...mapData.nodes]
       .filter(settlement => !query || normalizeSearchText(settlement.name).includes(query))
-      .filter(settlement => !searchRegion || settlement.region === searchRegion)
       .sort((left, right) => String(left.name).localeCompare(String(right.name), "ko"));
-    elements.searchRegionButtons.forEach(button => {
-      const active = String(button.dataset.mapSearchRegion || "") === searchRegion;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
     elements.searchCount.textContent = `${settlements.length}곳`;
     if (!settlements.length) {
       const empty = document.createElement("p");
@@ -326,10 +313,6 @@
     button.className = "map-search-item";
     button.classList.toggle("is-focused", settlement.id === focusedSettlementId);
     button.dataset.settlementId = settlement.id;
-    const icon = document.createElement("span");
-    icon.className = "map-search-item-icon";
-    icon.setAttribute("aria-hidden", "true");
-    appendAssetVisual(icon, settlement);
     const copy = document.createElement("span");
     const name = document.createElement("strong");
     name.textContent = settlement.name || "이름 없는 거점";
@@ -338,20 +321,19 @@
     copy.append(name, region);
     const meta = document.createElement("span");
     meta.className = "map-search-item-meta";
+    const category = document.createElement("b");
+    category.textContent = settlement.category || "거점";
     const information = document.createElement("em");
     const informationCount = informationCardsForPlacement(settlement).length;
-    information.textContent = String(informationCount);
-    information.setAttribute("aria-label", `보유 정보 ${informationCount}개`);
-    information.title = `보유 정보 ${informationCount}개`;
+    information.textContent = `정보 ${informationCount}`;
     information.classList.toggle("has-information", informationCount > 0);
-    meta.append(information);
-    button.append(icon, copy, meta);
+    meta.append(category, information);
+    button.append(copy, meta);
     button.addEventListener("click", () => focusSettlementFromSearch(settlement));
     return button;
   }
 
   function focusSettlementFromSearch(settlement) {
-    clearSettlementSearchFocus(false);
     focusedSettlementId = settlement.id;
     const mapId = mapIdForRegion(settlement.region) || mapIdForY(settlement.y);
     setCurrentMap(mapId);
@@ -359,28 +341,6 @@
       const marker = elements.placements.querySelector(`[data-map-view-placement-id="${settlement.id}"]`);
       marker?.focus({ preventScroll: true });
     });
-    focusedSettlementTimer = window.setTimeout(() => clearSettlementSearchFocus(), 3000);
-  }
-
-  function clearSettlementSearchFocus(refreshList = true) {
-    if (focusedSettlementTimer) window.clearTimeout(focusedSettlementTimer);
-    focusedSettlementTimer = 0;
-    const marker = focusedSettlementId
-      ? elements.placements.querySelector(`[data-map-view-placement-id="${focusedSettlementId}"]`)
-      : null;
-    marker?.classList.remove("is-search-focused");
-    if (marker && document.activeElement === marker) marker.blur();
-    focusedSettlementId = "";
-    if (refreshList) renderSettlementSearchList();
-  }
-
-  function resetSearchState() {
-    clearSettlementSearchFocus(false);
-    searchRegion = "";
-    elements.searchInput.value = "";
-    setSettlementSearchOpen(false);
-    hideTooltip();
-    renderSettlementSearchList();
   }
 
   function normalizeSearchText(value) {
@@ -1353,7 +1313,6 @@
     setWolfenMarker,
     beginDestinationSelection,
     endDestinationSelection,
-    resetSearchState,
     showPlacementTooltip,
     positionTooltip
   };

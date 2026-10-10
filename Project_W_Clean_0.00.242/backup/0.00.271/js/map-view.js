@@ -28,9 +28,6 @@
   let wolfenMarkerAssetUrl = "";
   let wolfenMarkerDetails = { remainingDays: 0, expiresDay: 0 };
   let destinationSelection = null;
-  let focusedSettlementId = "";
-  let focusedSettlementTimer = 0;
-  let searchRegion = "";
   let mapData = createEmptyData();
   const distanceCache = new Map();
   const elements = {};
@@ -57,26 +54,12 @@
     elements.destinationPicker = document.querySelector("#map-destination-picker");
     elements.destinationMessage = document.querySelector("#map-destination-message");
     elements.destinationCancel = document.querySelector("#map-destination-cancel");
-    elements.searchToggle = document.querySelector("#map-search-toggle");
-    elements.searchPanel = document.querySelector("#map-search-panel");
-    elements.searchClose = document.querySelector("#map-search-close");
-    elements.searchInput = document.querySelector("#map-search-input");
-    elements.searchCount = document.querySelector("#map-search-count");
-    elements.searchList = document.querySelector("#map-search-list");
-    elements.searchRegionButtons = [...document.querySelectorAll("[data-map-search-region]")];
     elements.tabs = [...elements.root.querySelectorAll("[data-map-tab]")];
     if (Object.values(elements).some(value => value == null)) return;
 
     elements.placements.classList.add("map-view-placement-layer");
     elements.tabs.forEach(tab => tab.addEventListener("click", () => setCurrentMap(tab.dataset.mapId)));
     elements.destinationCancel.addEventListener("click", cancelDestinationSelection);
-    elements.searchToggle.addEventListener("click", () => setSettlementSearchOpen(elements.searchPanel.hidden));
-    elements.searchClose.addEventListener("click", () => setSettlementSearchOpen(false));
-    elements.searchInput.addEventListener("input", renderSettlementSearchList);
-    elements.searchRegionButtons.forEach(button => button.addEventListener("click", () => {
-      searchRegion = String(button.dataset.mapSearchRegion || "");
-      renderSettlementSearchList();
-    }));
     window.addEventListener("resize", () => {
       if (!elements.tooltip.hidden && lastPointer) positionTooltip(lastPointer.x, lastPointer.y);
     });
@@ -87,10 +70,7 @@
 
   function load() {
     if (!initialized) return Promise.resolve(false);
-    if (loaded) {
-      renderSettlementSearchList();
-      return Promise.resolve(true);
-    }
+    if (loaded) return Promise.resolve(true);
     if (loadPromise) return loadPromise;
 
     setDataStatus("Citys·Routes·Map 데이터를 불러오는 중입니다.", false);
@@ -117,7 +97,6 @@
         distanceCache.clear();
         loaded = true;
         setDataStatus("", true);
-        renderSettlementSearchList();
         focusPlayerPosition();
         return true;
       })
@@ -284,107 +263,6 @@
     });
     renderMapImage();
     renderMapContents();
-    renderSettlementSearchList();
-  }
-
-  function setSettlementSearchOpen(open) {
-    const expanded = Boolean(open);
-    elements.searchPanel.hidden = !expanded;
-    elements.searchToggle.classList.toggle("is-active", expanded);
-    elements.searchToggle.setAttribute("aria-expanded", String(expanded));
-    if (!expanded) return;
-    renderSettlementSearchList();
-    window.requestAnimationFrame(() => elements.searchInput.focus({ preventScroll: true }));
-  }
-
-  function renderSettlementSearchList() {
-    if (!initialized || !elements.searchList) return;
-    const query = normalizeSearchText(elements.searchInput.value);
-    const settlements = [...mapData.nodes]
-      .filter(settlement => !query || normalizeSearchText(settlement.name).includes(query))
-      .filter(settlement => !searchRegion || settlement.region === searchRegion)
-      .sort((left, right) => String(left.name).localeCompare(String(right.name), "ko"));
-    elements.searchRegionButtons.forEach(button => {
-      const active = String(button.dataset.mapSearchRegion || "") === searchRegion;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
-    elements.searchCount.textContent = `${settlements.length}곳`;
-    if (!settlements.length) {
-      const empty = document.createElement("p");
-      empty.className = "map-search-empty";
-      empty.textContent = loaded ? "일치하는 거점이 없습니다." : "지도 데이터를 불러오고 있습니다.";
-      elements.searchList.replaceChildren(empty);
-      return;
-    }
-    elements.searchList.replaceChildren(...settlements.map(createSettlementSearchItem));
-  }
-
-  function createSettlementSearchItem(settlement) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "map-search-item";
-    button.classList.toggle("is-focused", settlement.id === focusedSettlementId);
-    button.dataset.settlementId = settlement.id;
-    const icon = document.createElement("span");
-    icon.className = "map-search-item-icon";
-    icon.setAttribute("aria-hidden", "true");
-    appendAssetVisual(icon, settlement);
-    const copy = document.createElement("span");
-    const name = document.createElement("strong");
-    name.textContent = settlement.name || "이름 없는 거점";
-    const region = document.createElement("small");
-    region.textContent = settlement.region || "지역 미상";
-    copy.append(name, region);
-    const meta = document.createElement("span");
-    meta.className = "map-search-item-meta";
-    const information = document.createElement("em");
-    const informationCount = informationCardsForPlacement(settlement).length;
-    information.textContent = String(informationCount);
-    information.setAttribute("aria-label", `보유 정보 ${informationCount}개`);
-    information.title = `보유 정보 ${informationCount}개`;
-    information.classList.toggle("has-information", informationCount > 0);
-    meta.append(information);
-    button.append(icon, copy, meta);
-    button.addEventListener("click", () => focusSettlementFromSearch(settlement));
-    return button;
-  }
-
-  function focusSettlementFromSearch(settlement) {
-    clearSettlementSearchFocus(false);
-    focusedSettlementId = settlement.id;
-    const mapId = mapIdForRegion(settlement.region) || mapIdForY(settlement.y);
-    setCurrentMap(mapId);
-    window.requestAnimationFrame(() => {
-      const marker = elements.placements.querySelector(`[data-map-view-placement-id="${settlement.id}"]`);
-      marker?.focus({ preventScroll: true });
-    });
-    focusedSettlementTimer = window.setTimeout(() => clearSettlementSearchFocus(), 3000);
-  }
-
-  function clearSettlementSearchFocus(refreshList = true) {
-    if (focusedSettlementTimer) window.clearTimeout(focusedSettlementTimer);
-    focusedSettlementTimer = 0;
-    const marker = focusedSettlementId
-      ? elements.placements.querySelector(`[data-map-view-placement-id="${focusedSettlementId}"]`)
-      : null;
-    marker?.classList.remove("is-search-focused");
-    if (marker && document.activeElement === marker) marker.blur();
-    focusedSettlementId = "";
-    if (refreshList) renderSettlementSearchList();
-  }
-
-  function resetSearchState() {
-    clearSettlementSearchFocus(false);
-    searchRegion = "";
-    elements.searchInput.value = "";
-    setSettlementSearchOpen(false);
-    hideTooltip();
-    renderSettlementSearchList();
-  }
-
-  function normalizeSearchText(value) {
-    return String(value || "").trim().replace(/\s+/g, "").toLocaleLowerCase("ko-KR");
   }
 
   function renderMapImage() {
@@ -534,7 +412,6 @@
     marker.className = `map-marker map-marker-${placement.kind} is-view-marker`;
     marker.setAttribute("aria-describedby", "map-tooltip map-information-tooltip");
     marker.classList.toggle("is-metropolis", placement.category === "대도시");
-    marker.classList.toggle("is-search-focused", placement.id === focusedSettlementId);
     marker.dataset.mapViewPlacementId = placement.id;
     setMarkerPosition(marker, placement);
 
@@ -1215,7 +1092,6 @@
 
   function beginDestinationSelection(routes, options = {}) {
     if (!initialized) return;
-    setSettlementSearchOpen(false);
     const validRoutes = (Array.isArray(routes) ? routes : [])
       .filter(route => route?.node?.kind === "node" && Array.isArray(route.path) && route.path.length >= 2);
     const routesByNodeId = new Map(validRoutes.map(route => [route.node.id, route]));
@@ -1353,7 +1229,6 @@
     setWolfenMarker,
     beginDestinationSelection,
     endDestinationSelection,
-    resetSearchState,
     showPlacementTooltip,
     positionTooltip
   };

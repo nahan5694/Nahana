@@ -7,7 +7,6 @@
   const PEDDLER_REQUIREMENT_GROWTH = 1.237;
   const CONTRACT_START_DATE = { year: 1433, month: 4, day: 8 };
   const MAX_COMPLETED_JOURNEYS = 6;
-  const TRADE_REVIEW_HISTORY_DAYS = 10;
   const REVIEW_EXPENSE_TYPES = new Set(["tax", "food"]);
   const OUTLET_STATES = ["observed", "production", "excluded"];
   const LEVEL_THRESHOLDS = [0, 10, 20, 40, 80, 160, 320, 640];
@@ -84,9 +83,6 @@
   let selectedArticleFourSection = 1;
   let selectedCategory = "";
   let selectedMemoItemId = "";
-  let showingTradeLog = false;
-  let selectedTradeLogId = "";
-  let selectedTradeLogEntryIndex = 0;
   let definitions = [];
   let peddlerDefinitions = [];
   let peddlerLoadPromise = null;
@@ -101,7 +97,6 @@
       modal: document.querySelector("#merchant-path-modal"),
       close: document.querySelector("#merchant-path-close"),
       articleButtons: [...document.querySelectorAll("[data-merchant-path-article]")],
-      tradeLog: document.querySelector("#merchant-path-trade-log"),
       articleNumber: document.querySelector("#merchant-path-article-number"),
       articleTitle: document.querySelector("#merchant-path-article-title"),
       articleDescription: document.querySelector("#merchant-path-article-description"),
@@ -120,15 +115,8 @@
     elements.articleButtons.forEach(button => button.addEventListener("click", () => {
       selectedArticle = clampInt(button.dataset.merchantPathArticle, 1, 5);
       selectedMemoItemId = "";
-      showingTradeLog = false;
       render();
     }));
-    elements.tradeLog?.addEventListener("click", () => {
-      showingTradeLog = true;
-      selectedMemoItemId = "";
-      selectedTradeLogEntryIndex = 0;
-      render();
-    });
     elements.categoryTabs?.addEventListener("click", event => {
       const button = event.target.closest("[data-merchant-path-category]");
       if (!button) return;
@@ -140,19 +128,6 @@
       const skillButton = event.target.closest("[data-peddler-skill]");
       if (skillButton) {
         acquirePeddlerSkill(skillButton.dataset.peddlerSkill);
-        return;
-      }
-      const logDateButton = event.target.closest("[data-trade-log-id]");
-      if (logDateButton) {
-        selectedTradeLogId = String(logDateButton.dataset.tradeLogId || "");
-        selectedTradeLogEntryIndex = 0;
-        renderTradeLog();
-        return;
-      }
-      const logEntryButton = event.target.closest("[data-trade-log-entry-index]");
-      if (logEntryButton) {
-        selectedTradeLogEntryIndex = Math.max(0, Math.trunc(Number(logEntryButton.dataset.tradeLogEntryIndex) || 0));
-        renderTradeLog();
         return;
       }
       const button = event.target.closest("[data-merchant-path-article-four-section]");
@@ -191,7 +166,6 @@
     const normalizedItemId = String(itemId || "").trim();
     if (!normalizedItemId) return false;
     selectedArticle = 5;
-    showingTradeLog = false;
     selectedMemoItemId = normalizedItemId;
     await open();
     const definition = definitions.find(entry => entry.id === normalizedItemId);
@@ -224,7 +198,7 @@
 
   function getResumeState() {
     if (!elements.modal || elements.modal.hidden) return null;
-    return { selectedArticle, selectedArticleFourSection, selectedCategory, selectedMemoItemId, showingTradeLog, selectedTradeLogId, selectedTradeLogEntryIndex };
+    return { selectedArticle, selectedArticleFourSection, selectedCategory, selectedMemoItemId };
   }
 
   async function restoreResumeState(snapshot = {}) {
@@ -232,9 +206,6 @@
     selectedArticleFourSection = clampInt(snapshot.selectedArticleFourSection, 1, 2);
     selectedCategory = String(snapshot.selectedCategory || "").trim();
     selectedMemoItemId = String(snapshot.selectedMemoItemId || "").trim();
-    showingTradeLog = Boolean(snapshot.showingTradeLog);
-    selectedTradeLogId = String(snapshot.selectedTradeLogId || "").trim();
-    selectedTradeLogEntryIndex = Math.max(0, Math.trunc(Number(snapshot.selectedTradeLogEntryIndex) || 0));
     await open();
     return Boolean(elements.modal && !elements.modal.hidden);
   }
@@ -250,9 +221,6 @@
     selectedArticleFourSection = 1;
     selectedCategory = "";
     selectedMemoItemId = "";
-    showingTradeLog = false;
-    selectedTradeLogId = "";
-    selectedTradeLogEntryIndex = 0;
     close();
   }
 
@@ -260,24 +228,12 @@
     if (!elements.modal || elements.modal.hidden) return;
     const article = ARTICLES.find(entry => entry.id === selectedArticle) || ARTICLES[4];
     elements.articleButtons.forEach(button => {
-      const active = !showingTradeLog && Number(button.dataset.merchantPathArticle) === selectedArticle;
+      const active = Number(button.dataset.merchantPathArticle) === selectedArticle;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
       const articleId = Number(button.dataset.merchantPathArticle);
       button.classList.toggle("has-peddler-points", articleId <= 3 && getPeddlerProfile().points > 0);
     });
-    elements.tradeLog?.classList.toggle("is-active", showingTradeLog);
-    elements.tradeLog?.setAttribute("aria-pressed", String(showingTradeLog));
-    if (showingTradeLog) {
-      elements.articleNumber.textContent = "기록";
-      elements.articleTitle.textContent = "상행록";
-      elements.articleDescription.textContent = "최근 10일 동안 마친 상행 복기를 날짜별로 다시 확인합니다.";
-      elements.info.hidden = true;
-      elements.categoryTabs.hidden = true;
-      hideKnowledgeGuide();
-      renderTradeLog();
-      return;
-    }
     elements.articleNumber.textContent = `${article.id}조`;
     elements.articleTitle.textContent = article.title;
     elements.articleDescription.textContent = article.description;
@@ -450,230 +406,6 @@
     list.className = "merchant-path-knowledge-list";
     items.forEach(definition => list.append(createKnowledgeRow(definition)));
     elements.content.replaceChildren(items.length ? list : createEmpty("이 카테고리에 등록된 교역품이 없습니다."));
-  }
-
-  function renderTradeLog() {
-    const history = getTradeReviewHistory();
-    elements.categoryTabs.hidden = true;
-    if (!history.length) {
-      selectedTradeLogId = "";
-      selectedTradeLogEntryIndex = 0;
-      elements.content.replaceChildren(createEmpty("최근 10일 동안 완료한 상행 복기가 없습니다."));
-      return;
-    }
-    if (!history.some(record => record.id === selectedTradeLogId)) selectedTradeLogId = history[0].id;
-    const active = history.find(record => record.id === selectedTradeLogId) || history[0];
-    selectedTradeLogEntryIndex = Math.min(Math.max(0, selectedTradeLogEntryIndex), Math.max(0, active.entries.length - 1));
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "merchant-path-trade-log";
-    const dateRail = document.createElement("nav");
-    dateRail.className = "merchant-path-trade-log-dates";
-    dateRail.setAttribute("aria-label", "상행 복기 날짜");
-    const dateHeading = document.createElement("header");
-    const dateTitle = document.createElement("strong");
-    const dateHelp = document.createElement("small");
-    dateTitle.textContent = "최근 10일";
-    dateHelp.textContent = "복기를 마친 날짜";
-    dateHeading.append(dateTitle, dateHelp);
-    dateRail.append(dateHeading, ...history.map(record => createTradeLogDateButton(record, record.id === active.id)));
-
-    const screen = document.createElement("section");
-    screen.className = "merchant-path-trade-log-screen";
-    const screenHeader = document.createElement("header");
-    const headingCopy = document.createElement("div");
-    const relativeDay = document.createElement("span");
-    const heading = document.createElement("h4");
-    const count = document.createElement("strong");
-    relativeDay.textContent = relativeReviewDay(active.ageDays);
-    heading.textContent = "상행 복기";
-    count.textContent = `교역 ${formatNumber(active.entries.filter(entry => entry.kind !== "expense").length)}건`;
-    headingCopy.append(relativeDay, heading);
-    screenHeader.append(headingCopy, count);
-
-    const reviewLayout = document.createElement("div");
-    reviewLayout.className = "merchant-path-trade-log-review";
-    const entryRail = document.createElement("nav");
-    entryRail.className = "merchant-path-trade-log-entries";
-    entryRail.setAttribute("aria-label", `${relativeReviewDay(active.ageDays)} 복기 항목`);
-    entryRail.append(...active.entries.map((entry, index) => createTradeLogEntryButton(entry, index, index === selectedTradeLogEntryIndex)));
-    const detail = document.createElement("article");
-    detail.className = "merchant-path-trade-log-detail";
-    detail.append(createTradeLogDetail(active.entries[selectedTradeLogEntryIndex]));
-    reviewLayout.append(entryRail, detail);
-    screen.append(screenHeader, reviewLayout);
-    wrapper.append(dateRail, screen);
-    elements.content.replaceChildren(wrapper);
-  }
-
-  function createTradeLogDateButton(record, active) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.tradeLogId = record.id;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-pressed", String(active));
-    const day = document.createElement("strong");
-    const summary = document.createElement("span");
-    const tradeCount = record.entries.filter(entry => entry.kind !== "expense").length;
-    const expenseTotal = record.entries
-      .filter(entry => entry.kind === "expense")
-      .reduce((sum, entry) => sum + Math.max(0, Number(entry.total) || 0), 0);
-    day.textContent = relativeReviewDay(record.ageDays);
-    summary.textContent = `교역 ${formatNumber(tradeCount)} · 지출 ${formatNumber(expenseTotal)}`;
-    button.append(day, summary);
-    return button;
-  }
-
-  function createTradeLogEntryButton(entry, index, active) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.tradeLogEntryIndex = String(index);
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-pressed", String(active));
-    if (entry.kind === "expense") button.classList.add("is-expense", `is-${entry.expenseType}`);
-    const order = document.createElement("b");
-    const label = document.createElement("span");
-    const result = document.createElement("strong");
-    order.textContent = String(index + 1);
-    label.textContent = entry.kind === "expense"
-      ? `${entry.summaryLabel || entry.itemName} · ${formatNumber(entry.quantity)}건`
-      : `${entry.itemName} · ${formatNumber(entry.quantity)}개`;
-    const profit = Number(entry.profit) || 0;
-    result.className = profit > 0 ? "is-profit" : profit < 0 ? "is-loss" : "is-neutral";
-    result.textContent = entry.kind === "expense"
-      ? `${Number(entry.total) > 0 ? "-" : ""}${formatNumber(entry.total)} 가치`
-      : `${profit > 0 ? "+" : ""}${formatNumber(profit)} 가치`;
-    button.append(order, label, result);
-    return button;
-  }
-
-  function createTradeLogDetail(entry) {
-    if (!entry) return createEmpty("확인할 복기 항목이 없습니다.");
-    return entry.kind === "expense" ? createTradeLogExpenseDetail(entry) : createTradeLogGoodsDetail(entry);
-  }
-
-  function createTradeLogExpenseDetail(entry) {
-    const wrapper = document.createElement("div");
-    wrapper.className = `merchant-path-log-expense is-${entry.expenseType}`;
-    const header = document.createElement("header");
-    const copy = document.createElement("div");
-    const eyebrow = document.createElement("span");
-    const title = document.createElement("h5");
-    const total = document.createElement("strong");
-    eyebrow.textContent = `${formatNumber(entry.quantity)}건 기록`;
-    title.textContent = entry.expenseType === "tax" ? "지불한 관세" : "지불한 식비";
-    total.className = Number(entry.total) > 0 ? "is-loss" : "is-neutral";
-    total.textContent = `합계 ${Number(entry.total) > 0 ? "-" : ""}${formatNumber(entry.total)} 가치`;
-    copy.append(eyebrow, title);
-    header.append(copy, total);
-    const list = document.createElement("section");
-    list.className = "merchant-path-log-expense-list";
-    const records = Array.isArray(entry.details) ? entry.details : [];
-    if (!records.length) {
-      list.append(createEmpty(entry.expenseType === "tax" ? "이날 복기할 관세 지출이 없습니다." : "이날 복기할 식비 지출이 없습니다."));
-    } else {
-      records.forEach(record => {
-        const row = document.createElement("article");
-        const location = document.createElement("div");
-        const place = document.createElement("strong");
-        const description = document.createElement("span");
-        const amount = document.createElement("b");
-        place.textContent = `${record.settlementName || "이름 없는 거점"} / ${record.sourceLabel || (entry.expenseType === "tax" ? "입장 관세소" : "식사")}`;
-        description.textContent = record.description || (entry.expenseType === "tax" ? "입장 관세" : "식비");
-        amount.textContent = `-${formatNumber(record.amount)} 가치`;
-        location.append(place, description);
-        row.append(location, amount);
-        list.append(row);
-      });
-    }
-    wrapper.append(header, list);
-    return wrapper;
-  }
-
-  function createTradeLogGoodsDetail(entry) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "merchant-path-log-goods";
-    const header = document.createElement("header");
-    const copy = document.createElement("div");
-    const eyebrow = document.createElement("span");
-    const title = document.createElement("h5");
-    const result = document.createElement("strong");
-    const profit = Number(entry.profit) || 0;
-    eyebrow.textContent = `${formatNumber(entry.quantity)}개 · ${formatNumber(entry.elapsedDays)}일 · ${formatNumber(entry.distance)} 거리`;
-    title.textContent = entry.itemName || "이름 없는 교역품";
-    result.className = profit > 0 ? "is-profit" : profit < 0 ? "is-loss" : "is-neutral";
-    result.textContent = `${profit > 0 ? "+" : ""}${formatNumber(profit)} 가치 · ${Number(entry.returnRate) > 0 ? "+" : ""}${formatNumber(entry.returnRate)}%`;
-    copy.append(eyebrow, title);
-    header.append(copy, result);
-
-    const route = document.createElement("section");
-    route.className = "merchant-path-log-route";
-    route.append(
-      createTradeLogValue("구입", entry.purchase, entry.purchaseTotal),
-      createTradeLogValue("판매", entry.close, entry.saleTotal)
-    );
-    const factors = document.createElement("section");
-    factors.className = "merchant-path-log-factors";
-    factors.append(
-      createTradeLogFactorPanel("구입 주요 요인", entry.purchase?.reviewFactors, "buy"),
-      createTradeLogFactorPanel("판매 주요 요인", entry.close?.reviewFactors, "sell")
-    );
-    wrapper.append(header, route, factors);
-    return wrapper;
-  }
-
-  function createTradeLogValue(action, record, total) {
-    const card = document.createElement("article");
-    const label = document.createElement("span");
-    const location = document.createElement("strong");
-    const value = document.createElement("b");
-    const bargain = document.createElement("small");
-    label.textContent = action;
-    location.textContent = `${record?.settlementName || "이름 없는 거점"} / ${record?.facilityType || "상점"}`;
-    value.textContent = `${action}/개 ${formatNumber(record?.unitValue)} · 합계 ${formatNumber(total)}`;
-    bargain.textContent = Math.max(0, Number(record?.bargainSuccesses) || 0) > 0
-      ? `흥정 ${formatNumber(record.bargainSuccesses)}회 성공`
-      : "흥정 없음";
-    card.append(label, location, value, bargain);
-    return card;
-  }
-
-  function createTradeLogFactorPanel(titleText, factors, direction) {
-    const panel = document.createElement("article");
-    const title = document.createElement("strong");
-    const list = document.createElement("ul");
-    title.textContent = titleText;
-    const major = normalizeReviewFactors(factors)
-      .filter(factor => Math.abs(Number(factor.value) || 0) >= 10)
-      .sort((left, right) => Math.abs(Number(right.value)) - Math.abs(Number(left.value)));
-    if (!major.length) {
-      const empty = document.createElement("li");
-      empty.className = "is-neutral";
-      empty.textContent = "10% 이상 작용한 주요 요인이 없습니다.";
-      list.append(empty);
-    } else {
-      major.forEach((factor, index) => {
-        const rawValue = Number(factor.value) || 0;
-        const favorable = direction === "buy" ? rawValue < 0 : rawValue > 0;
-        const item = document.createElement("li");
-        const mark = document.createElement("b");
-        const label = document.createElement("span");
-        const value = document.createElement("em");
-        item.className = `${favorable ? "is-positive" : "is-negative"}${index === 0 ? " is-primary" : ""}`;
-        mark.textContent = index === 0 ? "◆" : favorable ? "▲" : "▼";
-        label.textContent = factor.label;
-        value.textContent = `${rawValue > 0 ? "+" : ""}${formatNumber(rawValue)}%`;
-        item.append(mark, label, value);
-        list.append(item);
-      });
-    }
-    panel.append(title, list);
-    return panel;
-  }
-
-  function relativeReviewDay(ageDays) {
-    const age = Math.max(0, Math.trunc(Number(ageDays) || 0));
-    return age === 0 ? "오늘" : `${formatNumber(age)}일 전`;
   }
 
   function createKnowledgeRow(definition) {
@@ -1428,14 +1160,12 @@
         });
       });
     });
-    const tradeEntries = entries.sort((left, right) => left.saleDay - right.saleDay);
     const expenseRecords = normalizeReviewExpenses(state.reviewExpenses);
-    const expenseEntries = [...REVIEW_EXPENSE_TYPES].map(type => createExpenseReviewEntry(
-      type,
-      expenseRecords.filter(record => record.type === type),
-      reviewDay
-    ));
-    return [...expenseEntries, ...tradeEntries];
+    REVIEW_EXPENSE_TYPES.forEach(type => {
+      const records = expenseRecords.filter(record => record.type === type);
+      if (records.length) entries.push(createExpenseReviewEntry(type, records, reviewDay));
+    });
+    return entries.sort((left, right) => left.saleDay - right.saleDay || (left.kind === "expense" ? -1 : 1));
   }
 
   function recordReviewExpense(type, details = {}) {
@@ -1471,8 +1201,8 @@
         ageDays: Math.max(0, reviewDay - record.contractDay)
       }));
     const total = details.reduce((sum, record) => sum + record.amount, 0);
-    const firstDay = details.length ? Math.min(...details.map(record => record.contractDay)) : reviewDay;
-    const lastDay = details.length ? Math.max(...details.map(record => record.contractDay)) : reviewDay;
+    const firstDay = Math.min(...details.map(record => record.contractDay));
+    const lastDay = Math.max(...details.map(record => record.contractDay));
     return {
       id: `expense:${type}`,
       kind: "expense",
@@ -1511,79 +1241,6 @@
     return (Array.isArray(source) ? source : []).map(normalizeReviewExpense).filter(Boolean);
   }
 
-  function getTradeReviewHistory() {
-    const currentDay = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
-    const minimumDay = Math.max(1, currentDay - (TRADE_REVIEW_HISTORY_DAYS - 1));
-    const normalized = normalizeTradeReviewHistory(state.reviewHistory)
-      .filter(record => record.day >= minimumDay && record.day <= currentDay)
-      .sort((left, right) => right.day - left.day || String(right.completedAt).localeCompare(String(left.completedAt)));
-    if (normalized.length !== (Array.isArray(state.reviewHistory) ? state.reviewHistory.length : 0)) {
-      state.reviewHistory = normalized;
-      persistState();
-    }
-    return normalized.map(record => ({
-      ...cloneReviewValue(record),
-      ageDays: Math.max(0, currentDay - record.day)
-    }));
-  }
-
-  function archiveTradeReview(entries, completedDay) {
-    const day = Math.max(1, Math.trunc(Number(completedDay) || 1));
-    const incoming = (Array.isArray(entries) ? entries : []).map(cloneReviewValue).filter(Boolean);
-    const history = normalizeTradeReviewHistory(state.reviewHistory);
-    let record = history.find(entry => entry.day === day);
-    if (!record) {
-      record = { id: `trade_review_${day}`, day, completedAt: new Date().toISOString(), entries: [] };
-      history.push(record);
-    }
-    const existingExpenses = new Map(record.entries
-      .filter(entry => entry.kind === "expense")
-      .map(entry => [entry.expenseType, entry]));
-    const incomingExpenses = new Map(incoming
-      .filter(entry => entry.kind === "expense")
-      .map(entry => [entry.expenseType, entry]));
-    const expenseEntries = [...REVIEW_EXPENSE_TYPES].map(type => {
-      const details = [
-        ...(Array.isArray(existingExpenses.get(type)?.details) ? existingExpenses.get(type).details : []),
-        ...(Array.isArray(incomingExpenses.get(type)?.details) ? incomingExpenses.get(type).details : [])
-      ];
-      const uniqueDetails = [...new Map(details.map(detail => [String(detail.id || `${detail.contractDay}:${detail.phaseIndex}:${detail.amount}:${detail.settlementId}`), detail])).values()];
-      return createExpenseReviewEntry(type, uniqueDetails, day);
-    });
-    const tradeEntries = [...record.entries, ...incoming]
-      .filter(entry => entry.kind !== "expense")
-      .filter((entry, index, list) => list.findIndex(candidate => String(candidate.id) === String(entry.id)) === index)
-      .sort((left, right) => Number(left.saleDay) - Number(right.saleDay));
-    record.completedAt = new Date().toISOString();
-    record.entries = [...expenseEntries, ...tradeEntries].map(cloneReviewValue);
-    const minimumDay = Math.max(1, day - (TRADE_REVIEW_HISTORY_DAYS - 1));
-    state.reviewHistory = history
-      .filter(entry => entry.day >= minimumDay && entry.day <= day)
-      .sort((left, right) => right.day - left.day);
-    return true;
-  }
-
-  function normalizeTradeReviewHistory(source) {
-    return (Array.isArray(source) ? source : []).map(record => {
-      if (!record || typeof record !== "object") return null;
-      const day = Math.max(1, Math.trunc(Number(record.day) || 1));
-      const entries = (Array.isArray(record.entries) ? record.entries : [])
-        .filter(entry => entry && typeof entry === "object")
-        .map(cloneReviewValue);
-      return {
-        id: String(record.id || `trade_review_${day}`),
-        day,
-        completedAt: String(record.completedAt || ""),
-        entries
-      };
-    }).filter(Boolean);
-  }
-
-  function cloneReviewValue(value) {
-    if (value == null) return value;
-    return JSON.parse(JSON.stringify(value));
-  }
-
   function isTradeReviewEligible(record, reviewDay) {
     if (record?.status !== "sold" || !record.close || normalizeJourneyReview(record.review).completed) return false;
     const saleDay = Math.max(1, Math.trunc(Number(record.close.contractDay) || 1));
@@ -1594,8 +1251,6 @@
     const requested = new Set((Array.isArray(journeyIds) ? journeyIds : []).map(value => String(value || "")).filter(Boolean));
     if (!requested.size) return { reviewed: 0, knowledgeGained: 0, expenseGroupsReviewed: 0, expenseRecordsCleared: 0 };
     const currentDay = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
-    const pendingEntries = getPendingTradeReviews().filter(entry => requested.has(String(entry.id)));
-    const historyRecorded = archiveTradeReview(pendingEntries, currentDay);
     let reviewed = 0;
     Object.entries(state.notebooks || {}).forEach(([itemId, source]) => {
       const notebook = ensureNotebookShape(source);
@@ -1616,7 +1271,7 @@
     state.reviewExpenses = normalizeReviewExpenses(state.reviewExpenses)
       .filter(record => !reviewedExpenseTypes.has(record.type));
     const expenseRecordsCleared = previousExpenseCount - state.reviewExpenses.length;
-    if (reviewed > 0 || expenseRecordsCleared > 0 || historyRecorded) {
+    if (reviewed > 0 || expenseRecordsCleared > 0) {
       persistState();
       if (reviewed > 0) {
         refresh();
@@ -1628,8 +1283,7 @@
       reviewed,
       knowledgeGained: reviewed,
       expenseGroupsReviewed: reviewedExpenseTypes.size,
-      expenseRecordsCleared,
-      historyRecorded
+      expenseRecordsCleared
     };
   }
 
@@ -2053,7 +1707,7 @@
   }
 
   function createDefaultState() {
-    return { schemaVersion: 6, knowledge: {}, companyUsage: {}, notebooks: {}, reviewExpenses: [], reviewHistory: [], peddler: { level: 1, xp: 0, points: 0, skills: [] } };
+    return { schemaVersion: 5, knowledge: {}, companyUsage: {}, notebooks: {}, reviewExpenses: [], peddler: { level: 1, xp: 0, points: 0, skills: [] } };
   }
 
   function loadState() {
@@ -2061,14 +1715,13 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return createDefaultState();
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, 5, 6].includes(parsed?.schemaVersion) || typeof parsed.knowledge !== "object" || typeof parsed.companyUsage !== "object") return createDefaultState();
+      if (![1, 2, 3, 4, 5].includes(parsed?.schemaVersion) || typeof parsed.knowledge !== "object" || typeof parsed.companyUsage !== "object") return createDefaultState();
       return {
-        schemaVersion: 6,
+        schemaVersion: 5,
         knowledge: parsed.knowledge,
         companyUsage: parsed.companyUsage,
         notebooks: typeof parsed.notebooks === "object" && parsed.notebooks ? parsed.notebooks : {},
         reviewExpenses: normalizeReviewExpenses(parsed.reviewExpenses),
-        reviewHistory: normalizeTradeReviewHistory(parsed.reviewHistory),
         peddler: {
           level: Math.max(1, Math.trunc(Number(parsed.peddler?.level) || 1)),
           xp: Math.max(0, Math.trunc(Number(parsed.peddler?.xp) || 0)),
@@ -2124,7 +1777,6 @@
     getItemNotebook,
     recordReviewExpense,
     getPendingTradeReviews,
-    getTradeReviewHistory,
     completeTradeReviews,
     prepareNotebookTutorial,
     getCompanyProfile,
