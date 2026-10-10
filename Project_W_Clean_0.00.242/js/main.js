@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.280";
+const GAME_VERSION = "0.00.282";
 const ACCOUNT_SCHEMA_VERSION = 46;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -172,8 +172,20 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "상회에서 다루는 거래 자산", text: "상회에서는 화물과 화폐 외에 보유한 정보와 어음을 거래에 사용할 수 있습니다.", selector: ".trade-player-catalog-tabs" },
       { title: "정보 판매", text: "정보는 상회에 팔아도 보관함에서 사라지지 않지만, 널리 퍼진 만큼 등급과 신뢰도가 낮아집니다.\n같은 정보 객체는 인데그루크·브란트·첼페니 각 상회에 한 번씩만 판매할 수 있습니다." },
-      { title: "상회마다 달라지는 매입가", text: "각 거점의 상회는 정보 종류별로 기준가치의 50~100%를 인정합니다.\n매입 가중치는 점포마다 다르며 상품 갱신 때 함께 바뀝니다.", selector: "#trade-player-items" },
+      { title: "상회마다 달라지는 매입가", text: "각 거점의 상회는 정보 종류별로 기준가치의 75~125%를 인정합니다.\n매입 가중치는 점포마다 다르며 상품 갱신 때 함께 바뀝니다.", selector: "#trade-player-items" },
+      { title: "상회의 정보 수용량", text: "인데그루크·브란트·첼페니 상회는 각각 모든 지점이 함께 쓰는 6~8의 정보 수용량을 가집니다.\n정보 1개를 팔 때마다 해당 상회의 수용량이 1 감소하고 매입가도 내려갑니다. 수용량은 상품 갱신 주기마다 2씩 회복됩니다.", selector: "#trade-player-items" },
       { title: "어음 사용", text: "어음은 액면가가 정해진 거래용 증서입니다.\n상회의 큰 거래에서 현금 대신 사용할 수 있지만 잔돈처럼 쪼개 쓸 수는 없습니다." }
+    ]
+  },
+  {
+    id: "trade-gate-information",
+    label: "관문 정보 거래",
+    contexts: ["trade:좌판"],
+    unlockKey: "information",
+    lockLabel: "정보 기능 해금 필요",
+    pages: [
+      { title: "관문에서 정보 판매", text: "관문의 좌판에도 보유한 정보를 거래 자산으로 올릴 수 있습니다.", selector: ".trade-player-catalog-tabs" },
+      { title: "관문마다 다른 취급 분야", text: "관문은 정보 종류별로 기준가치의 25~150%를 인정합니다.\n취급 가중치는 좌판과 상품 갱신 시점에 따라 달라지며, 상회와 달리 정보 수용량에 따른 가치 감소는 없습니다.", selector: "#trade-player-items" }
     ]
   },
   {
@@ -524,6 +536,7 @@ const ADVANCED_TUTORIAL_MENU_LABELS = Object.freeze({
   "trade-advice": "나하나조언",
   "trade-company-relation": "상회관계",
   "trade-company-documents": "어음·정보",
+  "trade-gate-information": "관문정보",
   "meal-appetite": "식욕·상태",
   "meal-tooltip": "음식정보",
   "camp-comfort": "안락도",

@@ -15,6 +15,14 @@
   const TRADE_TIME_SCHEMA_VERSION = 2;
   const RESTOCK_INTERVAL_DAYS = 7;
   const RESTOCK_INTERVAL_TICKS = RESTOCK_INTERVAL_DAYS * TIME_PHASE_COUNT;
+  const COMPANY_INFORMATION_CAPACITY_MINIMUM = 6;
+  const COMPANY_INFORMATION_CAPACITY_MAXIMUM = 8;
+  const COMPANY_INFORMATION_CAPACITY_RECOVERY = 2;
+  const COMPANY_INFORMATION_CAPACITY_MINIMUM_PERCENT = 25;
+  const COMPANY_INFORMATION_WEIGHT_MINIMUM = 75;
+  const COMPANY_INFORMATION_WEIGHT_MAXIMUM = 125;
+  const GATE_INFORMATION_WEIGHT_MINIMUM = 25;
+  const GATE_INFORMATION_WEIGHT_MAXIMUM = 150;
   const LOCAL_GOODS_DISPLAY_RATIO = .8;
   const LOCAL_DISTANCE_ADJUSTMENT = -50;
   const MERCHANT_IMPORT_DISTANCE_FACTOR = .35;
@@ -363,6 +371,10 @@
       unresolvedProducts,
       currencyOnly
     };
+    if (companyName) {
+      const capacityState = ensureCompanyInformationCapacity(companyName, worldTimeTick(worldTime));
+      if (capacityState.changed) persistState();
+    }
     proposal = createProposal();
     offerFilters = currencyOnly
       ? { player: "currencies", merchant: "currencies" }
@@ -579,6 +591,9 @@
       if (!Number.isFinite(dueTick)) break;
       merchants.forEach(entry => {
         if (Math.max(1, Math.trunc(Number(entry.merchant.nextRefreshTick) || 1)) !== dueTick) return;
+        if (entry.facilityType === "상회") {
+          recoverCompanyInformationCapacity(companyNameFromMerchantKey(entry.merchantKey), dueTick);
+        }
         entry.merchant = createMerchantSnapshot({
           merchantKey: entry.merchantKey,
           merchant: entry.merchant,
@@ -1393,6 +1408,8 @@
 
   function createInformationCatalogItem(card) {
     const selected = proposal.player.information.get(card.id) || 0;
+    const capacityOffset = informationSelectionOffset(card.id);
+    const capacity = companyInformationCapacityProfile(capacityOffset);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "trade-information-item";
@@ -1413,11 +1430,22 @@
       meta.append(badge);
     });
     copy.append(title, meta);
-    const value = document.createElement("strong");
+    const value = document.createElement("div");
     value.className = "trade-information-value";
     const weightPercent = informationPurchaseWeightPercent(card);
-    value.textContent = `매입 가치 약 ${formatNumber(informationSaleValue(card))}`;
-    value.title = current?.facilityType === "상회" ? `이 점포의 ${informationTypeLabel(card)} 정보 매입 가중치 ${formatNumber(weightPercent)}%` : "";
+    const price = document.createElement("strong");
+    price.textContent = `매입 가치 약 ${formatNumber(informationSaleValue(card, capacityOffset))}`;
+    value.append(price);
+    if (capacity.enabled) {
+      const capacityLabel = document.createElement("small");
+      capacityLabel.textContent = `정보 수용량 ${formatNumber(capacity.current)} / ${formatNumber(capacity.maximum)}`;
+      value.append(capacityLabel);
+    }
+    value.title = current?.facilityType === "상회"
+      ? `이 점포의 ${informationTypeLabel(card)} 정보 매입 가중치 ${formatNumber(weightPercent)}% · 수용량 보정 ${formatNumber(capacity.valuePercent)}%`
+      : current?.settlement?.category === "관문"
+        ? `이 관문의 ${informationTypeLabel(card)} 정보 매입 가중치 ${formatNumber(weightPercent)}%`
+        : "";
     const content = document.createElement("p");
     window.ProjectWInformation.appendRichText(content, card.content);
     button.append(copy, value, content);
@@ -1437,15 +1465,126 @@
     return String(card?.category || card?.subcategory || "일반").trim() || "일반";
   }
 
-  function informationPurchaseWeightPercent(card) {
-    if (!current || current.facilityType !== "상회") return 100;
-    const rng = seededRandom(`${current.merchantKey}|information-purchase-weight|${current.merchant?.refreshSerial || 0}|${informationTypeKey(card)}`);
-    return randomInteger(rng, 50, 100);
+  function companyNameFromMerchantKey(merchantKey) {
+    const match = String(merchantKey || "").match(/\|company:(.+)$/);
+    return match ? String(match[1] || "").trim() : "";
   }
 
-  function informationSaleValue(card) {
+  function initialCompanyInformationCapacity(companyName) {
+    const rng = seededRandom(`company-information-capacity|${String(companyName || "").trim()}`);
+    return randomInteger(rng, COMPANY_INFORMATION_CAPACITY_MINIMUM, COMPANY_INFORMATION_CAPACITY_MAXIMUM);
+  }
+
+  function ensureCompanyInformationCapacity(companyName, referenceTick = 0) {
+    const name = String(companyName || "").trim();
+    if (!name) return { record: null, changed: false };
+    if (!state.companyInformationCapacity || typeof state.companyInformationCapacity !== "object") {
+      state.companyInformationCapacity = {};
+    }
+    const stored = state.companyInformationCapacity[name];
+    const storedCurrent = Number(stored?.current);
+    const storedMaximum = Number(stored?.maximum);
+    const storedRecoveryTick = Number(stored?.lastRecoveryTick);
+    const maximum = clamp(
+      Number.isFinite(storedMaximum) ? Math.trunc(storedMaximum) : initialCompanyInformationCapacity(name),
+      COMPANY_INFORMATION_CAPACITY_MINIMUM,
+      COMPANY_INFORMATION_CAPACITY_MAXIMUM
+    );
+    const normalized = {
+      current: clamp(
+        Number.isFinite(storedCurrent) ? Math.trunc(storedCurrent) : maximum,
+        0,
+        maximum
+      ),
+      maximum,
+      lastRecoveryTick: Math.max(
+        0,
+        Math.trunc(Number.isFinite(storedRecoveryTick) ? storedRecoveryTick : (Number(referenceTick) || 0))
+      )
+    };
+    const changed = !stored
+      || Number(stored.current) !== normalized.current
+      || Number(stored.maximum) !== normalized.maximum
+      || Number(stored.lastRecoveryTick) !== normalized.lastRecoveryTick;
+    state.companyInformationCapacity[name] = normalized;
+    return { record: normalized, changed };
+  }
+
+  function recoverCompanyInformationCapacity(companyName, refreshTick) {
+    const tick = Math.max(0, Math.trunc(Number(refreshTick) || 0));
+    const ensured = ensureCompanyInformationCapacity(companyName, tick);
+    const record = ensured.record;
+    if (!record) return false;
+    if (record.lastRecoveryTick <= 0) {
+      record.lastRecoveryTick = tick;
+      return true;
+    }
+    const recoveryCount = Math.floor(Math.max(0, tick - record.lastRecoveryTick) / RESTOCK_INTERVAL_TICKS);
+    if (recoveryCount <= 0) return ensured.changed;
+    const before = record.current;
+    record.current = Math.min(
+      record.maximum,
+      record.current + (recoveryCount * COMPANY_INFORMATION_CAPACITY_RECOVERY)
+    );
+    record.lastRecoveryTick += recoveryCount * RESTOCK_INTERVAL_TICKS;
+    return ensured.changed || record.current !== before || recoveryCount > 0;
+  }
+
+  function consumeCompanyInformationCapacity(companyName, quantity) {
+    const count = Math.max(0, Math.trunc(Number(quantity) || 0));
+    if (count <= 0) return false;
+    const ensured = ensureCompanyInformationCapacity(companyName, worldTimeTick(current?.worldTime));
+    const record = ensured.record;
+    if (!record) return false;
+    const before = record.current;
+    record.current = Math.max(0, record.current - count);
+    return ensured.changed || record.current !== before;
+  }
+
+  function informationSelectionOffset(cardId = "") {
+    let offset = 0;
+    for (const [selectedId, quantity] of proposal.player.information) {
+      if (String(selectedId) === String(cardId)) return offset;
+      offset += Math.max(0, Math.trunc(Number(quantity) || 0));
+    }
+    return offset;
+  }
+
+  function companyInformationCapacityProfile(offset = 0) {
+    if (!current || current.facilityType !== "상회" || !current.companyName) {
+      return { enabled: false, current: 0, maximum: 0, valuePercent: 100 };
+    }
+    const ensured = ensureCompanyInformationCapacity(current?.companyName, worldTimeTick(current?.worldTime));
+    const maximum = Math.max(COMPANY_INFORMATION_CAPACITY_MINIMUM, Number(ensured.record?.maximum) || COMPANY_INFORMATION_CAPACITY_MAXIMUM);
+    const currentCapacity = Math.max(0, (ensured.record?.current ?? maximum)
+      - Math.max(0, Math.trunc(Number(offset) || 0)));
+    const valuePercent = COMPANY_INFORMATION_CAPACITY_MINIMUM_PERCENT
+      + ((100 - COMPANY_INFORMATION_CAPACITY_MINIMUM_PERCENT) * currentCapacity / maximum);
+    return {
+      enabled: true,
+      current: currentCapacity,
+      maximum,
+      valuePercent
+    };
+  }
+
+  function informationPurchaseWeightPercent(card) {
+    if (!current) return 100;
+    const companyBuyer = current.facilityType === "상회";
+    const gateBuyer = current.settlement?.category === "관문";
+    if (!companyBuyer && !gateBuyer) return 100;
+    const rng = seededRandom(`${current.merchantKey}|information-purchase-weight|${current.merchant?.refreshSerial || 0}|${informationTypeKey(card)}`);
+    return companyBuyer
+      ? randomInteger(rng, COMPANY_INFORMATION_WEIGHT_MINIMUM, COMPANY_INFORMATION_WEIGHT_MAXIMUM)
+      : randomInteger(rng, GATE_INFORMATION_WEIGHT_MINIMUM, GATE_INFORMATION_WEIGHT_MAXIMUM);
+  }
+
+  function informationSaleValue(card, capacityOffset = 0) {
     const baseValue = Math.max(0, Number(card?.value) || 0);
-    return Math.max(baseValue > 0 ? 1 : 0, Math.round(baseValue * informationPurchaseWeightPercent(card) / 100));
+    const capacity = companyInformationCapacityProfile(capacityOffset);
+    return Math.max(baseValue > 0 ? 1 : 0, Math.round(
+      baseValue * informationPurchaseWeightPercent(card) / 100 * capacity.valuePercent / 100
+    ));
   }
 
   function toggleTravelFilter() {
@@ -2615,20 +2754,30 @@
       });
     }
     if (owner === "player" && filter !== "currencies" && filter !== "goods" && filter !== "notes") {
+      let informationOffset = 0;
       proposal.player.information.forEach((quantity, cardId) => {
         const card = window.ProjectWInformation?.getCard?.(cardId);
         if (!card || quantity <= 0) return;
+        const capacity = companyInformationCapacityProfile(informationOffset);
         rows.push(createOfferRow(
           "player",
           "information",
           cardId,
           card.title,
           1,
-          informationSaleValue(card),
+          informationSaleValue(card, informationOffset),
           null,
           "",
-          { ...card, purchaseWeightPercent: informationPurchaseWeightPercent(card) }
+          {
+            ...card,
+            purchaseWeightPercent: informationPurchaseWeightPercent(card),
+            informationCapacityEnabled: capacity.enabled,
+            informationCapacity: capacity.current,
+            informationCapacityMaximum: capacity.maximum,
+            informationCapacityValuePercent: capacity.valuePercent
+          }
         ));
+        informationOffset += Math.max(0, Math.trunc(Number(quantity) || 0));
       });
     }
     if (owner === "player" && filter !== "currencies" && filter !== "goods" && filter !== "information") {
@@ -2681,7 +2830,12 @@
         detail.textContent = `× ${quantity} · 화물칸 ${formatDelta(impact.slots)} · 중량 ${formatDelta(impact.weight)} · 가치 ${formatNumber(unitValue * quantity)}`;
       }
     } else if (kind === "information") {
-      detail.textContent = `${entry?.gradeLabel || "정보"} · ${entry?.trustLabel || ""} · 매입 가치 약 ${formatNumber(unitValue)}${current?.facilityType === "상회" ? ` · 점포 가중 ${formatNumber(entry?.purchaseWeightPercent)}%` : ""}`;
+      const weightDetail = current?.facilityType === "상회"
+        ? ` · 점포 가중 ${formatNumber(entry?.purchaseWeightPercent)}% · 수용량 ${formatNumber(entry?.informationCapacity)} / ${formatNumber(entry?.informationCapacityMaximum)}`
+        : current?.settlement?.category === "관문"
+          ? ` · 관문 가중 ${formatNumber(entry?.purchaseWeightPercent)}%`
+          : "";
+      detail.textContent = `${entry?.gradeLabel || "정보"} · ${entry?.trustLabel || ""} · 매입 가치 약 ${formatNumber(unitValue)}${weightDetail}`;
     } else if (kind === "notes") {
       detail.textContent = `× ${quantity} · 액면가 ${formatNumber(unitValue * quantity)} · 칸과 무게 없음`;
     } else {
@@ -3090,8 +3244,14 @@
     proposal[owner].currencies.forEach((quantity, currencyId) => {
       values.currencies += tradeCurrencyValue(current.currenciesById.get(currencyId)) * quantity;
     });
+    let informationOffset = 0;
     proposal[owner].information.forEach((quantity, cardId) => {
-      values.information += informationSaleValue(window.ProjectWInformation?.getCard?.(cardId)) * quantity;
+      const count = Math.max(0, Math.trunc(Number(quantity) || 0));
+      const card = window.ProjectWInformation?.getCard?.(cardId);
+      for (let index = 0; index < count; index += 1) {
+        values.information += informationSaleValue(card, informationOffset + index);
+      }
+      informationOffset += count;
     });
     proposal[owner].notes.forEach((quantity, denominationId) => {
       values.notes += (Number(denominationId) || 0) * quantity;
@@ -3296,6 +3456,7 @@
     const bargainSuccesses = Math.max(0, Math.trunc(Number(getBargainProfile(bargainContext())?.successes) || 0));
     let merchantProfit = 0;
     let soldCargoQuantity = 0;
+    let soldInformationQuantity = 0;
     const knowledgeTransactions = [];
     const soldInformationIds = [];
     const purchasedNahanaGift = [...proposal.merchant.goods].some(([lotId, quantity]) => {
@@ -3351,6 +3512,7 @@
       const card = window.ProjectWInformation?.getCard?.(cardId);
       if (!card || quantity <= 0) return;
       soldInformationIds.push(cardId);
+      soldInformationQuantity += Math.max(0, Math.trunc(Number(quantity) || 0));
     });
     const exchange = proposedCargoExchange(purchaseJourneyIds);
     if (!window.ProjectWCargo.previewExchange(exchange).possible || !window.ProjectWCargo.applyExchange(exchange)) {
@@ -3398,7 +3560,10 @@
     if (proposal.player.notes.size) {
       setPlayerBillNotes(window.ProjectWBillNotes.addSelection(getPlayerBillNotes(), proposal.player.notes, -1));
     }
-    if (soldInformationIds.length) window.ProjectWInformation?.recordSale?.(soldInformationIds, current.merchantKey, current.companyName || "");
+    if (soldInformationIds.length) {
+      window.ProjectWInformation?.recordSale?.(soldInformationIds, current.merchantKey, current.companyName || "");
+      consumeCompanyInformationCapacity(current.companyName, soldInformationQuantity);
+    }
     persistState();
     window.ProjectWMerchantPath?.recordTrade(knowledgeTransactions, {
       settlementId: current.settlement?.id || "",
@@ -3430,6 +3595,10 @@
     }
     const completionDetails = [];
     if (companyTrade?.earnedScore > 0) completionDetails.push(`${current.companyName} 이용점수 +${formatNumber(companyTrade.earnedScore)}`);
+    if (soldInformationQuantity > 0 && current.facilityType === "상회") {
+      const capacity = companyInformationCapacityProfile();
+      completionDetails.push(`정보 수용량 ${formatNumber(capacity.current)} / ${formatNumber(capacity.maximum)}`);
+    }
     if (soldCargoQuantity > 0) {
       if (Number(merchantProgress?.gained) > 0) {
         completionDetails.push(`상인 경험치 +${formatNumber(merchantProgress.gained)}`);
@@ -4054,7 +4223,7 @@
   }
 
   function createDefaultState() {
-    return { schemaVersion: 5, merchants: {}, marketSupply: {}, marketInformation: {}, restockEffects: [] };
+    return { schemaVersion: 7, merchants: {}, marketSupply: {}, marketInformation: {}, companyInformationCapacity: {}, restockEffects: [] };
   }
 
   function loadState() {
@@ -4062,17 +4231,20 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return createDefaultState();
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, 5].includes(parsed?.schemaVersion) || !parsed.merchants || typeof parsed.merchants !== "object") return createDefaultState();
+      if (![1, 2, 3, 4, 5, 6, 7].includes(parsed?.schemaVersion) || !parsed.merchants || typeof parsed.merchants !== "object") return createDefaultState();
       if (parsed.schemaVersion < 3) {
         Object.values(parsed.merchants).forEach(merchant => {
           if (merchant && typeof merchant === "object") merchant.stockLots = [];
         });
       }
       return {
-        schemaVersion: 5,
+        schemaVersion: 7,
         merchants: parsed.merchants,
         marketSupply: parsed.marketSupply && typeof parsed.marketSupply === "object" ? parsed.marketSupply : {},
         marketInformation: parsed.marketInformation && typeof parsed.marketInformation === "object" ? parsed.marketInformation : {},
+        companyInformationCapacity: parsed.companyInformationCapacity && typeof parsed.companyInformationCapacity === "object"
+          ? parsed.companyInformationCapacity
+          : {},
         restockEffects: Array.isArray(parsed.restockEffects) ? parsed.restockEffects.map(effect => ({
           id: String(effect?.id || ""),
           cardId: String(effect?.cardId || ""),
