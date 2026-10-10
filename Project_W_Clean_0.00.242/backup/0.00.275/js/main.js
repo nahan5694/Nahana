@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.280";
+const GAME_VERSION = "0.00.275";
 const ACCOUNT_SCHEMA_VERSION = 46;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -138,9 +138,9 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "흥정",
     contexts: ADVANCED_TRADE_CONTEXTS,
     pages: [
-      { title: "흥정 시도", text: "흥정에 성공하면 상품이 포함된 거래에서 내 쪽 가치가 더 높게 인정됩니다. 물건을 살 때는 덜 내고, 팔 때는 더 받을 수 있습니다.\n예를 들어 실제로 185가치를 올렸어도 190가치를 낸 것으로 인정받으면, 190가치와 거래할 수 있습니다. 화폐·정보·어음 자체의 가치는 바뀌지 않습니다.", selector: "#trade-bargain" },
+      { title: "흥정 시도", text: "흥정은 내가 건네는 물건과 화폐의 가치를 한 번의 거래 동안 높여 줍니다.\n버튼에 커서를 올리면 현재 성공 가능성과 성공 시 보정을 확인할 수 있습니다.", selector: "#trade-bargain" },
       { title: "상품 지식과 흥정", text: "지식 7단계에 도달한 서로 다른 상품을 거래안에 올리면 최대 3종까지 흥정 성공 가능성이 높아집니다.\n적용 중인 상품 지식 보정은 흥정 버튼의 툴팁에서 확인할 수 있습니다.", selector: "#trade-bargain" },
-      { title: "성공을 이어갈수록", text: "흥정에 여러 번 성공하면 상인이 추가로 인정하는 가치가 쌓입니다. 대신 성공할 때마다 다음 성공 확률은 8%포인트 낮아집니다.\n달변가를 모두 익혀도 상품가의 10%까지만 추가로 인정받으며, 실제 이득은 상행 복기와 상행록에 기록됩니다." }
+      { title: "성공을 이어갈수록", text: "같은 거래에서 흥정에 성공할 때마다 다음 성공 확률은 8%포인트 낮아지고 가치 보정은 쌓입니다.\n가치 보정은 달변가를 모두 익혀도 최대 10%까지만 누적되며, 거래를 확정하면 끝납니다." }
     ]
   },
   {
@@ -171,8 +171,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     lockLabel: "정보·상업조합 기능 해금 필요",
     pages: [
       { title: "상회에서 다루는 거래 자산", text: "상회에서는 화물과 화폐 외에 보유한 정보와 어음을 거래에 사용할 수 있습니다.", selector: ".trade-player-catalog-tabs" },
-      { title: "정보 판매", text: "정보는 상회에 팔아도 보관함에서 사라지지 않지만, 널리 퍼진 만큼 등급과 신뢰도가 낮아집니다.\n같은 정보 객체는 인데그루크·브란트·첼페니 각 상회에 한 번씩만 판매할 수 있습니다." },
-      { title: "상회마다 달라지는 매입가", text: "각 거점의 상회는 정보 종류별로 기준가치의 50~100%를 인정합니다.\n매입 가중치는 점포마다 다르며 상품 갱신 때 함께 바뀝니다.", selector: "#trade-player-items" },
+      { title: "정보 판매", text: "정보는 상회에 팔아도 보관함에서 사라지지 않지만, 널리 퍼진 만큼 등급과 신뢰도가 낮아집니다.\n같은 상점에는 같은 정보를 반복 판매할 수 없습니다." },
       { title: "어음 사용", text: "어음은 액면가가 정해진 거래용 증서입니다.\n상회의 큰 거래에서 현금 대신 사용할 수 있지만 잔돈처럼 쪼개 쓸 수는 없습니다." }
     ]
   },
@@ -12934,7 +12933,7 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["가격과 재고", "구매 가치는 상인이 요구하는 가격입니다. 재고는 이곳에서 지금 구입할 수 있는 수량입니다.", "#trade-merchant-items .trade-item-card", false, { padding: 10 }],
       ["시설별 공급", "상회, 교역소, 시장은 서로 다른 물품과 재고를 취급할 수 있습니다. 재고는 이 거점에서 해당 교역품이 공급되는 정도에 비례하며, 매입가와 판매가를 판단하는 단서가 됩니다.", "#trade-merchant-items"],
       ["화폐 사용", "거래할 화폐를 이곳에서 올리거나 내릴 수 있습니다.", "#trade-player-currencies"],
-      ["거래 가치 비교", "양쪽이 건네는 실제 가치를 가운데에서 비교합니다. 일반 상점에서는 양측 가치 합계의 45% 이상이 상품이나 정보여야 하며, 화폐끼리의 교환은 환전상을 이용해야 합니다.", ".trade-balance"],
+      ["거래 가치 비교", "양쪽이 건네는 가치가 거래 가능한 범위인지 가운데에서 비교합니다.", ".trade-balance"],
       ["거래 후 적재", "거래를 확정했을 때 남을 화물칸과 적재 중량을 미리 확인합니다.", "#trade-cargo-preview"]
     ],
     9: [
@@ -13484,8 +13483,8 @@ function showBargainResultFeedback(success) {
   bargainResultNotice.classList.remove("is-visible", "is-success", "is-failure");
   bargainResultNotice.classList.add(success ? "is-success" : "is-failure");
   bargainResultNotice.textContent = success
-    ? "흥정 성공 · 상품가를 기준으로 상인의 양보 한도가 늘었습니다."
-    : "흥정 실패 · 추가 양보 한도를 얻지 못했습니다.";
+    ? "흥정 성공 · 내가 건네는 것의 가치가 상승했습니다."
+    : "흥정 실패 · 추가 가치 보정을 얻지 못했습니다.";
   bargainResultNotice.hidden = false;
   requestAnimationFrame(() => bargainResultNotice.classList.add("is-visible"));
   bargainResultNoticeTimer = window.setTimeout(() => {

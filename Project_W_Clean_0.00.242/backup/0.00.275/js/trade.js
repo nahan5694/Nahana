@@ -290,8 +290,7 @@
     }
     elements.title.textContent = facilityLabel;
     elements.location.textContent = `${settlement.name || "거점"} · ${settlement.category || "거점"}`;
-    elements.dataStatus.textContent = "";
-    elements.dataStatus.hidden = true;
+    elements.dataStatus.textContent = "Citys·Goods·화폐 데이터를 불러오는 중입니다.";
     if (elements.restock) elements.restock.textContent = "상품 갱신일 계산 중";
     elements.confirm.disabled = true;
     merchantTravelFilterMode = "all";
@@ -1205,16 +1204,13 @@
     const unresolved = current.unresolvedProducts.length;
     elements.dataStatus.textContent = current.currencyOnly
       ? current.currencySource === "csv"
-        ? ""
+        ? "현재 지역의 화폐 가치로 환전합니다 · 환전 할증 3%"
         : "화폐 CSV를 불러오지 못해 확인된 임시 데이터로 환전합니다."
       : connected
         ? unresolved
-          ? `상품 또는 고정물류 원산지 ${unresolved}건을 연결하지 못했습니다.`
-          : ""
+          ? `시트 연결됨 · 상품 또는 고정물류 원산지 ${unresolved}건을 연결하지 못했습니다.`
+          : "Citys·Goods·Routes·화폐 시트 연결됨"
         : "일부 CSV를 불러오지 못했습니다. 가치 계산에 사용할 수 있는 데이터만 반영합니다.";
-    elements.dataStatus.hidden = current.currencyOnly
-      ? current.currencySource === "csv"
-      : connected && unresolved === 0;
     elements.dataStatus.classList.toggle("is-warning", current.currencyOnly
       ? current.currencySource !== "csv"
       : !connected || unresolved > 0);
@@ -1310,7 +1306,7 @@
       ? "내 정보"
       : playerCatalogMode === "notes" ? "내 어음" : "내 화물";
     elements.playerCapacity.textContent = playerCatalogMode === "information"
-      ? `판매 가능한 정보 ${tradableInformationCards().length}장`
+      ? `판매 가능한 정보 ${window.ProjectWInformation?.getTradeCards?.(current.merchantKey).length || 0}장`
       : playerCatalogMode === "notes"
         ? `액면가 합계 ${formatNumber(window.ProjectWBillNotes.totalValue(getPlayerBillNotes()))}`
         : `남은 ${capacity.freeSlots} / ${capacity.totalSlots}칸`;
@@ -1332,7 +1328,7 @@
       : [emptyMessage("판매 중인 상품이 없습니다.")]));
 
     if (playerCatalogMode === "information" && informationEligible) {
-      const cards = tradableInformationCards();
+      const cards = window.ProjectWInformation?.getTradeCards?.(current.merchantKey) || [];
       elements.playerItems.replaceChildren(...(cards.length
         ? cards.map(createInformationCatalogItem)
         : [emptyMessage("이 상인에게 판매할 수 있는 정보가 없습니다.")]));
@@ -1415,37 +1411,11 @@
     copy.append(title, meta);
     const value = document.createElement("strong");
     value.className = "trade-information-value";
-    const weightPercent = informationPurchaseWeightPercent(card);
-    value.textContent = `매입 가치 약 ${formatNumber(informationSaleValue(card))}`;
-    value.title = current?.facilityType === "상회" ? `이 점포의 ${informationTypeLabel(card)} 정보 매입 가중치 ${formatNumber(weightPercent)}%` : "";
+    value.textContent = `가치 약 ${formatNumber(card.value)}`;
     const content = document.createElement("p");
     window.ProjectWInformation.appendRichText(content, card.content);
     button.append(copy, value, content);
     return button;
-  }
-
-  function tradableInformationCards() {
-    if (!current) return [];
-    return window.ProjectWInformation?.getTradeCards?.(current.merchantKey, current.companyName || "") || [];
-  }
-
-  function informationTypeKey(card) {
-    return String(card?.special || card?.category || card?.subcategory || "general").trim() || "general";
-  }
-
-  function informationTypeLabel(card) {
-    return String(card?.category || card?.subcategory || "일반").trim() || "일반";
-  }
-
-  function informationPurchaseWeightPercent(card) {
-    if (!current || current.facilityType !== "상회") return 100;
-    const rng = seededRandom(`${current.merchantKey}|information-purchase-weight|${current.merchant?.refreshSerial || 0}|${informationTypeKey(card)}`);
-    return randomInteger(rng, 50, 100);
-  }
-
-  function informationSaleValue(card) {
-    const baseValue = Math.max(0, Number(card?.value) || 0);
-    return Math.max(baseValue > 0 ? 1 : 0, Math.round(baseValue * informationPurchaseWeightPercent(card) / 100));
   }
 
   function toggleTravelFilter() {
@@ -1807,18 +1777,18 @@
     };
   }
 
-  function merchantExperienceForCargoSale(item, quantity, saleValue, bargainAdjustmentPercent = 0) {
+  function merchantExperienceForCargoSale(item, quantity, saleValue, bargainBonusPercent = 0) {
     const soldQuantity = Math.max(0, Math.trunc(Number(quantity) || 0));
     if (!item || soldQuantity <= 0) return 0;
     const purchaseUnitValue = Math.max(0, Number(item.purchaseValue) || Number(item.definition?.baseValue) || 0);
     const saleUnitValue = Math.max(0, Math.floor(
-      (Number(saleValue) || 0) * (1 + (Math.max(0, Number(bargainAdjustmentPercent) || 0) / 100))
+      (Number(saleValue) || 0) * (1 + (Math.max(0, Number(bargainBonusPercent) || 0) / 100))
     ));
     const baseExperience = Math.max(0, saleUnitValue - purchaseUnitValue) * soldQuantity;
     return baseExperience * (originProductKindFor(item, item.definition) === "famous" ? 1.33 : 1);
   }
 
-  function tradeReviewFactors(valuation, direction, bargainAdjustmentPercent = 0) {
+  function tradeReviewFactors(valuation, direction, bargainBonusPercent = 0) {
     const durabilityAdjustment = Number(valuation?.durabilityPercent) - 100;
     const factors = [
       ["품질", valuation?.qualityAdjustment],
@@ -1836,7 +1806,7 @@
       ["상회 관계", valuation?.relationshipAdjustment],
       ["특산·명산품", valuation?.originProductSaleAdjustment],
       ["열화 내구도", Number.isFinite(durabilityAdjustment) ? durabilityAdjustment : 0],
-      ["흥정 추가 인정", bargainAdjustmentPercent]
+      ["흥정", direction === "sell" ? bargainBonusPercent : 0]
     ];
     return factors
       .map(([label, value]) => ({ label, value: Number(value) || 0 }))
@@ -2425,9 +2395,9 @@
       elements.playerCurrencyFill.disabled = current.currencyOnly || balance.merchantValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("player", missingValue, true);
     }
     if (elements.merchantCurrencyFill) {
-      const missingValue = Math.max(0, balance.playerMaximumValue - balance.merchantValue);
+      const missingValue = Math.max(0, balance.playerValue - balance.merchantValue);
       elements.merchantCurrencyFill.hidden = Boolean(current.currencyOnly);
-      elements.merchantCurrencyFill.disabled = current.currencyOnly || proposal.player.notes.size > 0 || balance.playerMaximumValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("merchant", missingValue, false);
+      elements.merchantCurrencyFill.disabled = current.currencyOnly || proposal.player.notes.size > 0 || balance.playerValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("merchant", missingValue, false);
     }
     elements.exchangeFocusButtons?.forEach(button => {
       button.disabled = !current.currencyOnly || playerTotal <= 0;
@@ -2439,7 +2409,12 @@
         ? `환전 할증 ${formatNumber(balance.exchangeFee)} · ${formatNumber(balance.exchangeFeeRate)}%`
         : "";
     }
-    renderBalanceStatus(balance, { notesRequireGoods, cargoPreview, valid });
+    elements.balanceStatus.textContent = !notesRequireGoods
+      ? "어음은 상회의 상품을 구입할 때만 사용할 수 있습니다. 화폐로 바꾸려면 대도시 상업조합을 이용하세요."
+      : cargoPreview.possible
+      ? `${balance.message}${cargoPreview.overweight ? " · 거래 후 최대 중량을 초과합니다." : ""}`
+      : "거래 후 필요한 화물칸이 부족합니다.";
+    elements.balanceStatus.classList.toggle("is-valid", valid);
     elements.confirm.disabled = !valid;
     const showMerchantWarning = balance.merchantDisadvantaged && balance.playerValue > 0 && balance.merchantValue > 0;
     if (elements.merchantWarning) elements.merchantWarning.hidden = !showMerchantWarning;
@@ -2453,69 +2428,21 @@
       elements.balanceValue.textContent = `${formatNumber(balance.playerValue)} ↔ ${formatNumber(balance.requiredPlayerValue)}`;
       return;
     }
-    if (balance.bargainUsedValue <= 0 || balance.rawPlayerValue <= 0) {
-      elements.balanceValue.textContent = `${formatNumber(balance.rawPlayerValue)} ↔ ${formatNumber(balance.merchantValue)}`;
+    if (balance.bargainBonusPercent <= 0 || balance.rawPlayerValue <= 0) {
+      elements.balanceValue.textContent = `${formatNumber(balance.playerValue)} ↔ ${formatNumber(balance.merchantValue)}`;
       return;
     }
     const adjustedValue = document.createElement("span");
+    const bargainGain = Math.max(0, balance.playerValue - balance.rawPlayerValue);
     adjustedValue.className = "trade-bargain-adjusted-value";
     adjustedValue.textContent = formatNumber(balance.playerValue);
-    adjustedValue.dataset.bargainGainTooltip = `${formatNumber(balance.rawPlayerValue)} + ${formatNumber(balance.bargainUsedValue)}`;
+    adjustedValue.dataset.bargainGainTooltip = `흥정 이익 +${formatNumber(bargainGain)} 가치 · 보정 +${formatNumber(balance.bargainBonusPercent)}%`;
     adjustedValue.tabIndex = 0;
-    adjustedValue.setAttribute("aria-label", `실제 가치 ${formatNumber(balance.rawPlayerValue)}에 흥정 가치 ${formatNumber(balance.bargainUsedValue)}를 더해 ${formatNumber(balance.playerValue)}로 인정`);
+    adjustedValue.setAttribute("aria-label", `내가 건네는 가치 ${formatNumber(balance.playerValue)}. ${adjustedValue.dataset.bargainGainTooltip}`);
     elements.balanceValue.replaceChildren(
       adjustedValue,
       document.createTextNode(` ↔ ${formatNumber(balance.merchantValue)}`)
     );
-  }
-
-  function renderBalanceStatus(balance, { notesRequireGoods, cargoPreview, valid }) {
-    if (!elements.balanceStatus) return;
-    const status = elements.balanceStatus;
-    status.classList.toggle("is-valid", valid);
-    status.classList.remove("is-structured");
-    status.replaceChildren();
-
-    if (!notesRequireGoods) {
-      status.textContent = "어음은 상회의 상품을 구입할 때만 사용할 수 있습니다. 화폐로 바꾸려면 대도시 상업조합을 이용하세요.";
-      return;
-    }
-    if (!cargoPreview.possible) {
-      status.textContent = "거래 후 필요한 화물칸이 부족합니다.";
-      return;
-    }
-    if (current.currencyOnly || balance.playerValue <= 0 || balance.merchantValue <= 0) {
-      status.textContent = balance.message;
-      return;
-    }
-
-    const availability = !balance.nonCurrencyAssetValid
-      ? "불가 · 비화폐 자산 부족"
-      : balance.merchantDisadvantaged
-        ? "불가 · 내가 건네는 가치 부족"
-        : balance.difference > 20
-          ? "불가 · 가치 차이 초과"
-          : cargoPreview.overweight
-            ? "가능 · 최대 중량 초과"
-            : "가능";
-    const lines = [
-      ["가치 차이", `${formatNumber(balance.difference)}%`, balance.difference <= 20],
-      ["비화폐 자산", `${formatNumber(balance.nonCurrencyAssetRatio)}% / 45%`, balance.nonCurrencyAssetValid],
-      ["거래 가능 여부", availability, valid]
-    ];
-    const fragment = document.createDocumentFragment();
-    lines.forEach(([labelText, valueText, passed], index) => {
-      const line = document.createElement("span");
-      line.className = `trade-balance-status-line ${passed ? "is-passed" : "is-failed"}${index === 2 ? " is-result" : ""}`;
-      const label = document.createElement("span");
-      label.textContent = labelText;
-      const value = document.createElement("strong");
-      value.textContent = valueText;
-      line.append(label, value);
-      fragment.append(line);
-    });
-    status.classList.add("is-structured");
-    status.append(fragment);
   }
 
   function proposedCargoExchange(purchaseJourneyIds = new Map()) {
@@ -2624,10 +2551,10 @@
           cardId,
           card.title,
           1,
-          informationSaleValue(card),
+          card.value,
           null,
           "",
-          { ...card, purchaseWeightPercent: informationPurchaseWeightPercent(card) }
+          card
         ));
       });
     }
@@ -2681,7 +2608,7 @@
         detail.textContent = `× ${quantity} · 화물칸 ${formatDelta(impact.slots)} · 중량 ${formatDelta(impact.weight)} · 가치 ${formatNumber(unitValue * quantity)}`;
       }
     } else if (kind === "information") {
-      detail.textContent = `${entry?.gradeLabel || "정보"} · ${entry?.trustLabel || ""} · 매입 가치 약 ${formatNumber(unitValue)}${current?.facilityType === "상회" ? ` · 점포 가중 ${formatNumber(entry?.purchaseWeightPercent)}%` : ""}`;
+      detail.textContent = `${entry?.gradeLabel || "정보"} · ${entry?.trustLabel || ""} · 가치 약 ${formatNumber(unitValue)}`;
     } else if (kind === "notes") {
       detail.textContent = `× ${quantity} · 액면가 ${formatNumber(unitValue * quantity)} · 칸과 무게 없음`;
     } else {
@@ -2908,7 +2835,9 @@
 
   function playerCurrencyShortfall(balance) {
     if (!balance || balance.merchantValue <= 0) return 0;
-    return Math.max(0, balance.merchantValue - balance.rawPlayerValue - balance.bargainAllowance);
+    const multiplier = 1 + (Math.max(0, Number(balance.bargainBonusPercent) || 0) / 100);
+    const rawRequired = Math.ceil(balance.merchantValue / multiplier);
+    return Math.max(0, rawRequired - balance.rawPlayerValue);
   }
 
   function fillOfferWithCurrency(owner) {
@@ -2917,8 +2846,8 @@
     const playerSide = owner === "player";
     let remaining = playerSide
       ? playerCurrencyShortfall(balance)
-      : Math.max(0, balance.playerMaximumValue - balance.merchantValue);
-    if ((playerSide ? balance.merchantValue : balance.playerMaximumValue) <= 0 || remaining <= 0) return;
+      : Math.max(0, balance.playerValue - balance.merchantValue);
+    if ((playerSide ? balance.merchantValue : balance.playerValue) <= 0 || remaining <= 0) return;
     const wallet = playerSide ? getPlayerWallet() : current.merchant.wallet;
     const currencies = current.currencies
       .map(currency => ({
@@ -3067,7 +2996,7 @@
     }
     if (kind === "information") {
       if (owner !== "player") return 0;
-      return tradableInformationCards().some(card => card.id === key) ? 1 : 0;
+      return window.ProjectWInformation?.getTradeCards?.(current.merchantKey).some(card => card.id === key) ? 1 : 0;
     }
     if (kind === "notes") {
       if (owner !== "player" || !billNotesEligible()) return 0;
@@ -3082,72 +3011,44 @@
     return unitIndex <= item.quantity ? 1 : 0;
   }
 
-  function offerBreakdown(owner) {
-    const values = { goods: 0, currencies: 0, information: 0, notes: 0, total: 0 };
+  function offerValue(owner) {
+    let total = 0;
     proposal[owner].goods.forEach((quantity, key) => {
-      values.goods += (Number(tradeEntry(owner, key)?.actualValue) || 0) * quantity;
+      total += (Number(tradeEntry(owner, key)?.actualValue) || 0) * quantity;
     });
     proposal[owner].currencies.forEach((quantity, currencyId) => {
-      values.currencies += tradeCurrencyValue(current.currenciesById.get(currencyId)) * quantity;
+      total += tradeCurrencyValue(current.currenciesById.get(currencyId)) * quantity;
     });
     proposal[owner].information.forEach((quantity, cardId) => {
-      values.information += informationSaleValue(window.ProjectWInformation?.getCard?.(cardId)) * quantity;
+      total += (Number(window.ProjectWInformation?.getCard?.(cardId)?.value) || 0) * quantity;
     });
     proposal[owner].notes.forEach((quantity, denominationId) => {
-      values.notes += (Number(denominationId) || 0) * quantity;
+      total += (Number(denominationId) || 0) * quantity;
     });
-    values.total = values.goods + values.currencies + values.information + values.notes;
-    return values;
-  }
-
-  function offerValue(owner) {
-    return offerBreakdown(owner).total;
+    return total;
   }
 
   function balanceResult(playerTotal, merchantTotal) {
-    const playerBreakdown = offerBreakdown("player");
-    const merchantBreakdown = offerBreakdown("merchant");
-    const rawPlayerValue = Math.max(0, Math.trunc(Number(playerTotal) || playerBreakdown.total || 0));
+    const rawPlayerValue = Math.max(0, Math.trunc(Number(playerTotal) || 0));
     const bargain = current?.currencyOnly ? { bonusPercent: 0 } : getBargainProfile(bargainContext());
     const bargainBonusPercent = Math.max(0, Number(bargain?.bonusPercent) || 0);
-    const bargainBasisValue = current?.currencyOnly
-      ? 0
-      : Math.max(0, playerBreakdown.goods, merchantBreakdown.goods);
-    const bargainAllowance = Math.floor(bargainBasisValue * bargainBonusPercent / 100);
-    const merchantValue = Math.max(0, Math.trunc(Number(merchantTotal) || merchantBreakdown.total || 0));
+    const playerValue = current?.currencyOnly
+      ? rawPlayerValue
+      : Math.floor(rawPlayerValue * (1 + (bargainBonusPercent / 100)));
+    const merchantValue = Math.max(0, Math.trunc(Number(merchantTotal) || 0));
     const exchangeFeeRate = current?.currencyOnly ? calculateExchangeFeeRate() : 0;
     const exchangeFee = current?.currencyOnly ? Math.ceil(merchantValue * exchangeFeeRate / 100) : 0;
     const requiredPlayerValue = merchantValue + exchangeFee;
-    const bargainUsedValue = current?.currencyOnly
-      ? 0
-      : Math.min(bargainAllowance, Math.max(0, requiredPlayerValue - rawPlayerValue));
-    const playerValue = rawPlayerValue + bargainUsedValue;
-    const playerMaximumValue = rawPlayerValue + bargainAllowance;
-    const combinedRawValue = rawPlayerValue + merchantValue;
-    const nonCurrencyAssetValue = playerBreakdown.goods
-      + merchantBreakdown.goods
-      + playerBreakdown.information
-      + merchantBreakdown.information;
-    const nonCurrencyAssetRatio = combinedRawValue > 0 ? nonCurrencyAssetValue / combinedRawValue * 100 : 0;
-    const nonCurrencyAssetRequired = !current?.currencyOnly;
-    const nonCurrencyAssetValid = !nonCurrencyAssetRequired || nonCurrencyAssetRatio + .0001 >= 45;
     if (playerValue <= 0 || merchantValue <= 0) {
       return {
         valid: false,
         playerValue,
-        playerMaximumValue,
         rawPlayerValue,
         bargainBonusPercent,
-        bargainBasisValue,
-        bargainAllowance,
-        bargainUsedValue,
         merchantValue,
         exchangeFee,
         exchangeFeeRate,
         requiredPlayerValue,
-        nonCurrencyAssetValue,
-        nonCurrencyAssetRatio,
-        nonCurrencyAssetValid,
         difference: 100,
         merchantDisadvantaged: false,
         warningTooltip: "",
@@ -3156,37 +3057,28 @@
     }
     const difference = Math.abs(playerValue - requiredPlayerValue) / Math.max(playerValue, requiredPlayerValue) * 100;
     const merchantDisadvantaged = playerValue < requiredPlayerValue;
-    const valid = !merchantDisadvantaged && difference <= 20 && nonCurrencyAssetValid;
+    const valid = !merchantDisadvantaged && difference <= 20;
     const warningTooltip = merchantDisadvantaged
-      ? `흥정으로 +${formatNumber(bargainUsedValue)}가치를 더 인정받았지만, 내가 건네는 가치가 아직 ${formatNumber(difference)}% 부족합니다.`
+      ? `플레이어가 건네는 가치가 ${formatNumber(difference)}% 부족합니다.`
       : "";
     return {
       valid,
       playerValue,
-      playerMaximumValue,
       rawPlayerValue,
       bargainBonusPercent,
-      bargainBasisValue,
-      bargainAllowance,
-      bargainUsedValue,
       merchantValue,
       exchangeFee,
       exchangeFeeRate,
       requiredPlayerValue,
-      nonCurrencyAssetValue,
-      nonCurrencyAssetRatio,
-      nonCurrencyAssetValid,
       difference,
       merchantDisadvantaged,
       warningTooltip,
-      message: !nonCurrencyAssetValid
-        ? `비화폐 거래자산 ${formatNumber(nonCurrencyAssetRatio)}% · 일반 상점 거래는 상품과 정보가 양측 가치 합계의 45% 이상이어야 합니다.`
-        : merchantDisadvantaged
+      message: merchantDisadvantaged
         ? current?.currencyOnly
           ? `환전 할증 ${formatNumber(exchangeFeeRate)}%를 포함한 가치보다 지불 가치가 낮습니다.`
-          : `내가 건네는 가치가 부족합니다.${bargainAllowance > bargainUsedValue ? ` · 흥정으로 더 인정받을 수 있는 가치 ${formatNumber(bargainAllowance - bargainUsedValue)}` : ""}`
+          : "플레이어가 건네는 가치가 상인의 가치보다 낮습니다."
         : difference <= 20
-          ? `가치 차이 ${formatNumber(difference)}% · 비화폐 거래자산 ${formatNumber(nonCurrencyAssetRatio)}% · 거래할 수 있습니다.`
+          ? `가치 차이 ${formatNumber(difference)}% · 거래할 수 있습니다.`
           : `가치 차이 ${formatNumber(difference)}% · 20% 이내로 맞춰야 합니다.`
     };
   }
@@ -3219,17 +3111,14 @@
     elements.bargain.hidden = !availableFacility;
     if (!availableFacility) return;
     const profile = getBargainProfile(bargainContext());
-    const hasGoods = offerBreakdown("player").goods > 0 || offerBreakdown("merchant").goods > 0;
     const count = elements.bargain.querySelector("span");
     if (count) count.textContent = `${profile.attemptsRemaining} / ${profile.attemptsMaximum}`;
-    elements.bargain.disabled = !hasGoods || !profile.available || profile.attemptsRemaining <= 0;
+    elements.bargain.disabled = !profile.available || profile.attemptsRemaining <= 0;
     const knowledgeBonus = Math.max(0, Number(profile.knowledgeItemBonus) || 0);
-    const tooltip = hasGoods
-      ? `성공 확률 ${formatNumber(profile.chance)}%${knowledgeBonus > 0 ? `\n상품 지식 보정 +${formatNumber(knowledgeBonus)}%` : ""}\n성공 시 상품가 기준 양보 한도 +${formatNumber(profile.valuePerSuccess)}% · 누적 상한 ${formatNumber(profile.valueMaximum)}%\n현재 거래 누적 성공 ${Math.max(0, Math.trunc(Number(profile.successes) || 0))}회`
-      : "거래안에 상품을 올리면 흥정할 수 있습니다. 화폐·정보·어음에는 양보 한도가 생기지 않습니다.";
+    const tooltip = `성공 확률 ${formatNumber(profile.chance)}%${knowledgeBonus > 0 ? `\n상품 지식 보정 +${formatNumber(knowledgeBonus)}%` : ""}\n성공 시 가치 보정 +${formatNumber(profile.valuePerSuccess)}% · 누적 상한 ${formatNumber(profile.valueMaximum)}%\n현재 거래 누적 성공 ${Math.max(0, Math.trunc(Number(profile.successes) || 0))}회`;
     elements.bargain.dataset.bargainTooltip = tooltip;
     elements.bargain.setAttribute("aria-label", `흥정. ${tooltip.replaceAll("\n", ". ")}`);
-    elements.bargain.classList.toggle("has-attempts", hasGoods && profile.available && profile.attemptsRemaining > 0);
+    elements.bargain.classList.toggle("has-attempts", profile.available && profile.attemptsRemaining > 0);
     elements.bargain.classList.toggle("has-success", profile.bonusPercent > 0);
   }
 
@@ -3280,17 +3169,6 @@
     const currencyTransferred = proposal.player.currencies.size > 0 || proposal.merchant.currencies.size > 0;
 
     const playerItems = new Map(window.ProjectWCargo.getInventoryItems().map(item => [item.instanceId, item]));
-    const playerGoodsValue = offerBreakdown("player").goods;
-    const merchantGoodsValue = offerBreakdown("merchant").goods;
-    const combinedGoodsValue = playerGoodsValue + merchantGoodsValue;
-    const saleBargainValue = combinedGoodsValue > 0
-      ? balance.bargainUsedValue * playerGoodsValue / combinedGoodsValue
-      : 0;
-    const purchaseBargainValue = combinedGoodsValue > 0
-      ? balance.bargainUsedValue * merchantGoodsValue / combinedGoodsValue
-      : 0;
-    const saleBargainPercent = playerGoodsValue > 0 ? saleBargainValue / playerGoodsValue * 100 : 0;
-    const purchaseBargainPercent = merchantGoodsValue > 0 ? purchaseBargainValue / merchantGoodsValue * 100 : 0;
     const purchaseJourneyIds = new Map();
     const saleOffsets = new Map();
     const bargainSuccesses = Math.max(0, Math.trunc(Number(getBargainProfile(bargainContext())?.successes) || 0));
@@ -3308,19 +3186,16 @@
       if (lot.itemId === NAHANA_EVENT_GIFT_ITEM_ID) return;
       const journeyId = window.ProjectWMerchantPath?.createJourneyId?.(lot.itemId) || `JOURNEY_${lot.itemId}_${Date.now()}_${lotId}`;
       const purchaseValuation = merchantSellValuation(lot, definition);
-      const bargainedPurchaseValue = Math.max(0, Math.round(purchaseValuation.value * (1 - (purchaseBargainPercent / 100))));
-      const bargainBenefitValue = purchaseValuation.value * purchaseBargainPercent / 100;
       purchaseJourneyIds.set(lotId, journeyId);
       knowledgeTransactions.push({
         direction: "buy",
         itemId: lot.itemId,
         quantity,
-        unitValue: bargainedPurchaseValue,
+        unitValue: purchaseValuation.value,
         journeyId,
         durability: lot.durability,
-        bargainSuccesses,
-        bargainBenefitValue: Math.max(0, Math.round(bargainBenefitValue)),
-        reviewFactors: tradeReviewFactors(purchaseValuation, "buy", -purchaseBargainPercent)
+        bargainSuccesses: proposal.player.goods.size > 0 ? 0 : bargainSuccesses,
+        reviewFactors: tradeReviewFactors(purchaseValuation, "buy")
       });
     });
     proposal.player.goods.forEach((quantity, tradeKey) => {
@@ -3328,11 +3203,10 @@
       if (!item) return;
       const saleValuation = playerSellValuation(item, item.definition);
       const saleValue = saleValuation.value;
-      const bargainedSaleValue = Math.floor(saleValue * (1 + (saleBargainPercent / 100)));
-      const bargainBenefitValue = saleValue * saleBargainPercent / 100;
+      const bargainedSaleValue = Math.floor(saleValue * (1 + (balance.bargainBonusPercent / 100)));
       const instanceId = playerInstanceId(tradeKey);
       const offset = saleOffsets.get(instanceId) || 0;
-      merchantProfit += merchantExperienceForCargoSale(item, quantity, saleValue, saleBargainPercent);
+      merchantProfit += merchantExperienceForCargoSale(item, quantity, saleValue, balance.bargainBonusPercent);
       soldCargoQuantity += quantity;
       knowledgeTransactions.push({
         direction: "sell",
@@ -3342,8 +3216,7 @@
         durability: item.durability,
         journeyLots: sliceJourneyLots(item.journeyLots, offset, quantity),
         bargainSuccesses,
-        bargainBenefitValue: Math.max(0, Math.round(bargainBenefitValue)),
-        reviewFactors: tradeReviewFactors(saleValuation, "sell", saleBargainPercent)
+        reviewFactors: tradeReviewFactors(saleValuation, "sell", balance.bargainBonusPercent)
       });
       saleOffsets.set(instanceId, offset + quantity);
     });
@@ -3398,7 +3271,7 @@
     if (proposal.player.notes.size) {
       setPlayerBillNotes(window.ProjectWBillNotes.addSelection(getPlayerBillNotes(), proposal.player.notes, -1));
     }
-    if (soldInformationIds.length) window.ProjectWInformation?.recordSale?.(soldInformationIds, current.merchantKey, current.companyName || "");
+    if (soldInformationIds.length) window.ProjectWInformation?.recordSale?.(soldInformationIds, current.merchantKey);
     persistState();
     window.ProjectWMerchantPath?.recordTrade(knowledgeTransactions, {
       settlementId: current.settlement?.id || "",
@@ -3445,7 +3318,6 @@
       : completionDetails.length
         ? `거래가 완료되었습니다. ${completionDetails.join(" · ")}`
         : "거래가 완료되어 화물과 화폐에 반영되었습니다.";
-    elements.dataStatus.hidden = false;
     elements.dataStatus.classList.remove("is-warning");
     if (currencyTransferred) window.ProjectWAudio?.playCurrencyCompletion?.("trade");
     else window.ProjectWAudio?.playEffect("trade");

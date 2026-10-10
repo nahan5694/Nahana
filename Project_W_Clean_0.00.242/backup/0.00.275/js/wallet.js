@@ -174,11 +174,10 @@
     elements.dataSource.textContent = activeTab === "notes"
       ? "어음증서는 관세와 화물칸에서 제외되며 도시·대도시의 상회에서 사용할 수 있습니다."
       : dataSource === "csv"
-        ? ""
+        ? "화폐 시트 연결됨"
         : dataSource === "fallback"
           ? "화폐 확인본 · CSV 연결 실패"
           : "화폐 로컬 확인본";
-    elements.dataSource.hidden = activeTab !== "notes" && dataSource === "csv";
     updateTotals();
   }
 

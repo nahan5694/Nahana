@@ -55,9 +55,9 @@
     ["PED_009", 2]
   ]);
   const PEDDLER_EFFECT_OVERRIDES = new Map([
-    ["PED_007", "흥정 누적 가치 보정 상한 +1%"],
-    ["PED_008", "흥정 누적 가치 보정 상한 +1%"],
-    ["PED_009", "흥정 누적 가치 보정 상한 +2%"]
+    ["PED_007", "흥정 상품가 기준 양보 한도 상한 +1%"],
+    ["PED_008", "흥정 상품가 기준 양보 한도 상한 +1%"],
+    ["PED_009", "흥정 상품가 기준 양보 한도 상한 +2%"]
   ]);
   const DETERIORATION_SKILL_GROUPS = [
     { categories: ["가축"], first: "PED_010", second: "PED_011" },
@@ -631,9 +631,7 @@
     label.textContent = action;
     location.textContent = `${record?.settlementName || "이름 없는 거점"} / ${record?.facilityType || "상점"}`;
     value.textContent = `${action}/개 ${formatNumber(record?.unitValue)} · 합계 ${formatNumber(total)}`;
-    bargain.textContent = Math.max(0, Number(record?.bargainSuccesses) || 0) > 0
-      ? `흥정 ${formatNumber(record.bargainSuccesses)}회 성공`
-      : "흥정 없음";
+    bargain.textContent = bargainRecordLabel(record?.bargainSuccesses, record?.bargainBenefitValue, action);
     card.append(label, location, value, bargain);
     return card;
   }
@@ -830,7 +828,7 @@
     value.textContent = `${action}/개 ${formatNumber(record?.unitValue)}`;
     detail.append(value);
     bargain.className = "trade-journey-stop-bargain";
-    bargain.textContent = bargainRecordLabel(record?.bargainSuccesses);
+    bargain.textContent = bargainRecordLabel(record?.bargainSuccesses, record?.bargainBenefitValue, action);
     stop.append(actionLabel, bargain, city, detail);
     return stop;
   }
@@ -960,7 +958,7 @@
     if (articleId === 2) {
       const rules = document.createElement("p");
       rules.className = "merchant-path-bargain-rules";
-      rules.textContent = "흥정 성공 시 다음 성공 확률 -8%p · 상품 지식 보정은 서로 다른 상품 최대 3종 · 달변가 완성 시 누적 가치 보정 상한 10%";
+      rules.textContent = "흥정 성공 시 다음 성공 확률 -8%p · 상품 지식 보정은 서로 다른 상품 최대 3종 · 달변가 완성 시 상품가 기준 양보 한도 상한 10%";
       wrapper.append(rules);
     }
 
@@ -1259,6 +1257,7 @@
       facilityName: tradeFacilityName(context.facilityType, context.companyName),
       unitValue: Math.max(0, Number(transaction.unitValue) || 0),
       bargainSuccesses: Math.max(0, Math.trunc(Number(transaction.bargainSuccesses) || 0)),
+      bargainBenefitValue: Math.max(0, Number(transaction.bargainBenefitValue) || 0),
       durability: Number.isFinite(Number(transaction.durability)) ? Number(transaction.durability) : null,
       reviewFactors: normalizeReviewFactors(transaction.reviewFactors)
     };
@@ -1295,6 +1294,7 @@
       facilityName: tradeFacilityName(context.facilityType, context.companyName),
       unitValue: Math.max(0, Number(transaction.unitValue) || 0),
       bargainSuccesses: Math.max(0, Math.trunc(Number(transaction.bargainSuccesses) || 0)),
+      bargainBenefitValue: Math.max(0, Number(transaction.bargainBenefitValue) || 0),
       durability: Number.isFinite(Number(transaction.durability)) ? Number(transaction.durability) : null,
       reviewFactors: normalizeReviewFactors(transaction.reviewFactors)
     };
@@ -1725,9 +1725,11 @@
     const incomingQuantity = Math.max(1, Math.trunc(Number(incoming.quantity) || 1));
     const totalQuantity = targetQuantity + incomingQuantity;
     target.purchase.unitValue = weightedJourneyNumber(target.purchase?.unitValue, targetQuantity, incoming.purchase?.unitValue, incomingQuantity);
+    target.purchase.bargainBenefitValue = weightedJourneyNumber(target.purchase?.bargainBenefitValue, targetQuantity, incoming.purchase?.bargainBenefitValue, incomingQuantity);
     target.purchase.durability = weightedJourneyNumber(target.purchase?.durability, targetQuantity, incoming.purchase?.durability, incomingQuantity, true);
     target.purchase.reviewFactors = mergeJourneyReviewFactors(target.purchase?.reviewFactors, targetQuantity, incoming.purchase?.reviewFactors, incomingQuantity);
     target.close.unitValue = weightedJourneyNumber(target.close?.unitValue, targetQuantity, incoming.close?.unitValue, incomingQuantity);
+    target.close.bargainBenefitValue = weightedJourneyNumber(target.close?.bargainBenefitValue, targetQuantity, incoming.close?.bargainBenefitValue, incomingQuantity);
     target.close.durability = weightedJourneyNumber(target.close?.durability, targetQuantity, incoming.close?.durability, incomingQuantity, true);
     target.close.reviewFactors = mergeJourneyReviewFactors(target.close?.reviewFactors, targetQuantity, incoming.close?.reviewFactors, incomingQuantity);
     target.distance = weightedJourneyNumber(target.distance, targetQuantity, incoming.distance, incomingQuantity);
@@ -1938,9 +1940,12 @@
     return age === 0 ? "오늘" : `${formatNumber(age)}일 전`;
   }
 
-  function bargainRecordLabel(value) {
+  function bargainRecordLabel(value, benefitValue = 0, action = "") {
     const successes = Math.max(0, Math.trunc(Number(value) || 0));
-    return successes > 0 ? `흥정 ${formatNumber(successes)}회 성공` : "흥정 없음";
+    const benefit = Math.max(0, Number(benefitValue) || 0);
+    if (successes <= 0) return "흥정 없음";
+    if (benefit <= 0) return `흥정 ${formatNumber(successes)}회 성공 · 양보 미사용`;
+    return `흥정 ${formatNumber(successes)}회 성공 · ${action === "구입" ? "절약" : "추가"} ${formatNumber(benefit)} 가치/개`;
   }
 
   function journeyElapsedDays(record) {

@@ -321,6 +321,8 @@
 
   function normalizeCard(card, { repairLegacyMaximumAge = false } = {}) {
     const special = text(card?.special);
+    const soldShopKeys = [...new Set(array(card?.soldShopKeys).map(text).filter(Boolean))];
+    const legacyCompanyKeys = soldShopKeys.map(key => key.match(/\|company:(.+)$/)?.[1] || "").filter(Boolean);
     let maximumAgeDays = informationMaximumAgeDays(card?.maximumAgeDays, special);
     if (repairLegacyMaximumAge && maximumAgeDays === 1) {
       maximumAgeDays = defaultInformationMaximumAgeDays(special);
@@ -351,7 +353,8 @@
       falseIndex: Math.max(0, integer(card?.falseIndex)),
       valueFactor: clamp(number(card?.valueFactor, 1), .95, 1.05),
       saleCount: clamp(integer(card?.saleCount), 0, 3),
-      soldShopKeys: [...new Set(array(card?.soldShopKeys).map(text).filter(Boolean))],
+      soldShopKeys,
+      soldCompanyKeys: [...new Set([...array(card?.soldCompanyKeys).map(text), ...legacyCompanyKeys].filter(Boolean))],
       target: card?.target && typeof card.target === "object" ? { ...card.target } : {},
       specialExpiresDay: Math.max(0, integer(card?.specialExpiresDay))
     };
@@ -456,6 +459,7 @@
       valueFactor: .95 + (Math.random() * .1),
       saleCount: 0,
       soldShopKeys: [],
+      soldCompanyKeys: [],
       target,
       specialExpiresDay: template.special === "WOLFEN_TRACK" ? today + randomInteger(3, 7) - 1 : 0
     });
@@ -701,13 +705,15 @@
     return currentState().cards.map(presentCard).sort((left, right) => right.acquiredDay - left.acquiredDay);
   }
 
-  function getTradeCards(shopKey = "") {
+  function getTradeCards(shopKey = "", companyKey = "") {
     const key = text(shopKey);
+    const company = text(companyKey);
     return currentState().cards.filter(card => card.sellable
       && card.grade > 0
       && card.trust > 0
       && card.saleCount < 3
       && !card.soldShopKeys.includes(key)
+      && (!company || !card.soldCompanyKeys.includes(company))
       && cardValue(card) > 0)
       .map(presentCard)
       .sort((left, right) => right.value - left.value || right.acquiredDay - left.acquiredDay);
@@ -718,15 +724,23 @@
     return card ? presentCard(card) : null;
   }
 
-  function recordSale(cardIds, shopKey) {
+  function recordSale(cardIds, shopKey, companyKey = "") {
     const ids = new Set(array(cardIds).map(text));
     if (!ids.size) return [];
+    const shop = text(shopKey);
+    const company = text(companyKey);
     const state = currentState();
     const sold = [];
     state.cards.forEach(card => {
-      if (!ids.has(card.id) || !card.sellable || card.saleCount >= 3 || card.soldShopKeys.includes(shopKey) || cardValue(card) <= 0) return;
+      if (!ids.has(card.id)
+        || !card.sellable
+        || card.saleCount >= 3
+        || card.soldShopKeys.includes(shop)
+        || (company && card.soldCompanyKeys.includes(company))
+        || cardValue(card) <= 0) return;
       const before = presentCard(card);
-      card.soldShopKeys.push(shopKey);
+      card.soldShopKeys.push(shop);
+      if (company) card.soldCompanyKeys.push(company);
       card.saleCount += 1;
       card.grade = Math.max(1, card.grade - 1);
       card.trust = Math.max(1, card.trust - 1);

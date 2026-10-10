@@ -5499,13 +5499,16 @@ button.map-marker:active { cursor: grabbing; }
 .trade-header-status { display: grid; justify-items: center; gap: 3px; min-width: 0; text-align: center; }
 .trade-window-header > .trade-header-status > p { color: #6d5236; font-size: .78rem; font-weight: 800; }
 .trade-restock-status {
-  padding: 3px 9px;
-  border: 1px solid #8a633b73;
-  border-radius: 3px;
-  background: #f4dfb79e;
-  color: #6c4525;
-  font-size: .67rem;
-  font-weight: 900;
+  min-width: 190px;
+  padding: 7px 15px;
+  border: 1px solid #7b542d9e;
+  border-radius: 4px;
+  background: linear-gradient(#fff0ca, #e3c58f);
+  color: #57371d;
+  font-size: .82rem;
+  font-weight: 950;
+  letter-spacing: .01em;
+  box-shadow: inset 0 0 0 1px #fff7dcad, 0 2px 6px #53351c30;
 }
 .trade-data-status.is-warning { color: #9a4a33; }
 .trade-close,
@@ -6023,18 +6026,19 @@ button.map-marker:active { cursor: grabbing; }
   bottom: calc(100% + 10px);
   left: 50%;
   width: max-content;
-  max-width: 260px;
-  padding: 8px 11px;
+  max-width: 310px;
+  padding: 10px 12px;
   border: 1px solid #56704c;
   border-radius: 4px;
   background: linear-gradient(145deg, #eff4d7, #c8dab0);
   color: #29452d;
   box-shadow: 0 8px 20px #17211170, inset 0 0 0 2px #f8ffe378;
   content: attr(data-bargain-gain-tooltip);
-  font-size: .68rem;
+  font-size: .71rem;
   font-weight: 900;
-  line-height: 1.4;
-  white-space: normal;
+  line-height: 1.55;
+  text-align: left;
+  white-space: pre-line;
   pointer-events: none;
   opacity: 0;
   transform: translate(-50%, 4px);
@@ -6058,8 +6062,44 @@ button.map-marker:active { cursor: grabbing; }
   font-size: .7rem !important;
   font-weight: 950 !important;
 }
-.trade-balance > p { min-height: 38px; margin: 0; color: #8d3f2c; font-size: .68rem; font-weight: 850; line-height: 1.45; }
+.trade-balance > p { width: 100%; min-height: 38px; margin: 0; color: #8d3f2c; font-size: .68rem; font-weight: 850; line-height: 1.45; }
 .trade-balance > p.is-valid { color: #3f6d3a; }
+.trade-balance-status.is-structured {
+  display: grid;
+  min-height: 0;
+  gap: 3px;
+  color: #5f4328;
+  text-align: left;
+}
+.trade-balance-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 3px 4px;
+  border-bottom: 1px solid #8b684338;
+  line-height: 1.25;
+}
+.trade-balance-status-line > span {
+  flex: 0 0 auto;
+  color: #73573a;
+  font-size: .64rem;
+  font-weight: 850;
+}
+.trade-balance-status-line > strong {
+  min-width: 0;
+  color: #963f31;
+  font-size: .67rem;
+  font-weight: 950;
+  text-align: right;
+}
+.trade-balance-status-line.is-passed > strong { color: #397044; }
+.trade-balance-status-line.is-result {
+  padding-top: 4px;
+  border-bottom: 0;
+}
+.trade-balance-status-line.is-result > strong { font-size: .73rem; }
 .trade-bargain,
 .entry-tax-bargain {
   position: relative;
