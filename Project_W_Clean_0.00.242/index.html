@@ -77,7 +77,7 @@
       </section>
 
       <div class="title-loading-curtain" aria-hidden="true"></div>
-      <p class="version-tag">VERSION <span id="game-version">0.00.291</span></p>
+      <p class="version-tag">VERSION <span id="game-version">0.00.298</span></p>
     </section>
 
     <section id="game-loading-screen" class="game-loading-screen" aria-label="여행 준비 중" aria-busy="true" hidden>
@@ -119,7 +119,7 @@
             <span id="game-clock-weather" class="toolbar-weather">맑음</span>
             <span id="game-clock-phase" class="toolbar-phase">아침</span>
           </span>
-          <span class="toolbar-version">VERSION 0.00.291</span>
+          <span class="toolbar-version">VERSION 0.00.298</span>
           <button id="options-button" class="toolbar-icon-button" type="button" aria-label="옵션" title="옵션">⚙</button>
         </div>
       </header>
@@ -129,6 +129,9 @@
         <section class="scene-card is-active" data-scene="road" aria-label="정면뷰">
           <img id="road-scene-background" class="scene-background" data-asset-id="Asset_A_01" src="https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/View_1.png" alt="마차에서 바라보는 정면 풍경">
           <div class="scene-weather-effect" aria-hidden="true"></div>
+          <button id="road-talk-card-peek" class="road-talk-card-peek" type="button" aria-label="나하나와 대화하러 파트너뷰로 이동" hidden>
+            <img id="road-talk-card-peek-image" alt="대화 카드를 만든 나하나" draggable="false">
+          </button>
           <button id="horse-whip-hitbox" class="horse-whip-hitbox" type="button" data-audio-silent="true" tabindex="-1" aria-label="말 채찍질" hidden></button>
           <nav id="settlement-tutorial-prompts" class="settlement-tutorial-prompts" aria-label="도시 안내" hidden>
             <button id="settlement-commerce-guide" type="button">
@@ -433,6 +436,19 @@
                 <strong>거점 검색</strong>
               </button>
             </div>
+            <div class="map-information-controls">
+              <button id="map-information-toggle" class="map-information-toggle" type="button" aria-controls="map-information-options" aria-expanded="false">
+                <strong>정보 활성화</strong>
+                <span>4개 표시</span>
+              </button>
+              <div id="map-information-options" class="map-information-options" hidden>
+                <label><input type="checkbox" data-map-information-section="information" checked><span>보유 정보</span></label>
+                <label><input type="checkbox" data-map-information-section="events" checked><span>도시 이벤트</span></label>
+                <label><input type="checkbox" data-map-information-section="notes" checked><span>메모</span></label>
+                <label><input type="checkbox" data-map-information-section="dealers" checked><span>취급처</span></label>
+              </div>
+            </div>
+            <button id="trade-map-return" class="trade-map-return" type="button" hidden>거래로 돌아가기</button>
             <aside id="map-search-panel" class="map-search-panel" aria-label="거점 검색" hidden>
               <header>
                 <div>
@@ -561,9 +577,17 @@
 
     <div id="trade-modal" class="trade-modal-layer" hidden>
       <div id="trade-side-actions" class="window-side-actions trade-side-actions">
+        <button id="trade-map-open" class="window-side-button trade-map-side-button" type="button" hidden>
+          <strong>지도</strong>
+          <span>거점 확인</span>
+        </button>
         <button id="trade-snack-open" class="window-side-button trade-snack-side-button" type="button" hidden>
           <strong>간식</strong>
           <span>시장 먹거리</span>
+        </button>
+        <button id="trade-odd-jobs" class="window-side-button trade-odd-jobs-button" type="button" hidden>
+          <strong>잡무 의뢰</strong>
+          <span>아침·낮 가능</span>
         </button>
         <button id="trade-currency-rates" class="window-side-button trade-currency-rates-button" type="button" hidden>
           <strong>시세 분석</strong>

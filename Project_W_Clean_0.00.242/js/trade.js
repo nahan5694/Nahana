@@ -139,6 +139,9 @@
   let completeBargainTrade = () => {};
   let updateCompanyInformationButton = () => {};
   let collectCompanyInformation = () => Promise.resolve(false);
+  let getMarketOddJobsProfile = () => ({ available: false, phase: "", reason: "이용할 수 없습니다." });
+  let completeMarketOddJobs = () => ({ statusName: "" });
+  let requestMapView = () => false;
   let recordMerchantProfit = () => {};
   let showBargainDialogue = () => {};
   let notify = () => {};
@@ -151,6 +154,7 @@
   let merchantCommentSequence = 0;
   let currencyAnalysisReport = null;
   let currencyAnalysisView = "table";
+  let suspendedForMap = false;
   const merchantCommentPlans = new Map();
   let elements = {};
 
@@ -183,12 +187,21 @@
     collectCompanyInformation = typeof options.collectCompanyInformation === "function"
       ? options.collectCompanyInformation
       : collectCompanyInformation;
+    getMarketOddJobsProfile = typeof options.getMarketOddJobsProfile === "function"
+      ? options.getMarketOddJobsProfile
+      : getMarketOddJobsProfile;
+    completeMarketOddJobs = typeof options.completeMarketOddJobs === "function"
+      ? options.completeMarketOddJobs
+      : completeMarketOddJobs;
+    requestMapView = typeof options.requestMapView === "function" ? options.requestMapView : requestMapView;
     recordMerchantProfit = typeof options.recordMerchantProfit === "function" ? options.recordMerchantProfit : recordMerchantProfit;
     showBargainDialogue = typeof options.showBargainDialogue === "function" ? options.showBargainDialogue : showBargainDialogue;
     notify = typeof options.notify === "function" ? options.notify : notify;
     elements = {
       modal: document.querySelector("#trade-modal"),
+      mapButton: document.querySelector("#trade-map-open"),
       snackButton: document.querySelector("#trade-snack-open"),
+      oddJobsButton: document.querySelector("#trade-odd-jobs"),
       currencyRatesButton: document.querySelector("#trade-currency-rates"),
       currencyAnalysisLayer: document.querySelector("#currency-analysis-layer"),
       currencyAnalysisClose: document.querySelector("#currency-analysis-close"),
@@ -231,7 +244,9 @@
       playerCatalogTabs: [...document.querySelectorAll("[data-trade-player-catalog]")]
     };
     if (!elements.modal || !elements.confirm) return;
+    elements.mapButton?.addEventListener("click", () => requestMapView());
     elements.snackButton?.addEventListener("click", openMarketSnack);
+    elements.oddJobsButton?.addEventListener("click", performMarketOddJobs);
     elements.currencyRatesButton?.addEventListener("click", purchaseCurrencyAnalysis);
     elements.currencyAnalysisClose?.addEventListener("click", closeCurrencyAnalysis);
     elements.currencyAnalysisViewButtons.forEach(button => button.addEventListener("click", () => {
@@ -280,9 +295,21 @@
 
     const currencyOnly = facilityType === "환전상";
     const snackAvailable = facilityType === "시장" && String(settlement.category || "").trim() !== "마을";
+    const oddJobsAvailable = facilityType === "시장";
+    const mapAvailable = ["상회", "교역소", "시장"].includes(facilityType)
+      || String(settlement.category || "").trim() === "관문";
+    suspendedForMap = false;
+    if (elements.mapButton) {
+      elements.mapButton.hidden = !mapAvailable;
+      elements.mapButton.disabled = !mapAvailable;
+    }
     if (elements.snackButton) {
       elements.snackButton.hidden = !snackAvailable;
       elements.snackButton.disabled = true;
+    }
+    if (elements.oddJobsButton) {
+      elements.oddJobsButton.hidden = !oddJobsAvailable;
+      elements.oddJobsButton.disabled = true;
     }
     if (elements.currencyRatesButton) {
       const region = String(settlement.region || "중부").trim() || "중부";
@@ -406,12 +433,14 @@
       const snackState = elements.snackButton.querySelector("span");
       if (snackState) snackState.textContent = statusBlocker ? `X ${statusBlocker} X` : used ? "오늘 이용 완료" : "시장 먹거리";
     }
+    if (elements.oddJobsButton && oddJobsAvailable) updateMarketOddJobsButton();
     window.dispatchEvent(new CustomEvent("projectw:tradeopen", {
       detail: {
         facilityType,
         settlementId: settlement.id,
         settlementCategory: String(settlement.category || ""),
-        snackAvailable
+        snackAvailable,
+        oddJobsAvailable
       }
     }));
     requestAnimationFrame(() => elements.close.focus());
@@ -439,6 +468,58 @@
       kind: "snack",
       onReturn: () => open(reopenOptions)
     });
+  }
+
+  function updateMarketOddJobsButton() {
+    if (!elements.oddJobsButton || !current || current.facilityType !== "시장") return;
+    const profile = getMarketOddJobsProfile() || {};
+    elements.oddJobsButton.disabled = !profile.available;
+    elements.oddJobsButton.classList.toggle("is-limit-exhausted", !profile.available);
+    elements.oddJobsButton.title = profile.available
+      ? "시장 상인들의 잡무를 돕고 동화를 받습니다. 일을 마치면 저녁이 됩니다."
+      : profile.reason || "잡무 의뢰는 아침과 낮에만 받을 수 있습니다.";
+    const state = elements.oddJobsButton.querySelector("span");
+    if (state) state.textContent = profile.available ? `${profile.phase || "지금"} · 보수 50~75` : "아침·낮 가능";
+  }
+
+  function performMarketOddJobs() {
+    if (!current || current.facilityType !== "시장" || !elements.oddJobsButton) return;
+    const profile = getMarketOddJobsProfile() || {};
+    if (!profile.available) {
+      notify(profile.reason || "잡무 의뢰는 아침과 낮에만 받을 수 있습니다.");
+      updateMarketOddJobsButton();
+      return;
+    }
+    const copper = current.currencies
+      .filter(currency => currency.type === "동화")
+      .map(currency => ({ currency, value: Math.max(0, Number(tradeCurrencyValue(currency)) || 0) }))
+      .filter(entry => entry.value > 0)
+      .sort((left, right) => left.value - right.value || left.currency.id.localeCompare(right.currency.id, "ko"));
+    const payment = copper.find(entry => Math.ceil(50 / entry.value) <= Math.floor(75 / entry.value));
+    if (!payment) {
+      notify("잡무 보수로 지급할 동화를 준비하지 못했습니다.");
+      return;
+    }
+    const minimumQuantity = Math.ceil(50 / payment.value);
+    const maximumQuantity = Math.floor(75 / payment.value);
+    const quantity = minimumQuantity + Math.floor(Math.random() * (maximumQuantity - minimumQuantity + 1));
+    const rewardValue = payment.value * quantity;
+    const wallet = normalizeWallet(getPlayerWallet());
+    wallet[payment.currency.id] = walletQuantity(wallet, payment.currency.id) + quantity;
+    setPlayerWallet(wallet);
+    const outcome = completeMarketOddJobs({
+      settlement: current.settlement,
+      rewardValue,
+      currencyId: payment.currency.id,
+      currencyName: payment.currency.name,
+      quantity
+    }) || {};
+    current.worldTime = normalizeWorldTime(getWorldTime());
+    window.ProjectWAudio?.playEffect("coin");
+    render();
+    updateMarketOddJobsButton();
+    const statusText = outcome.statusName ? ` 나하나는 ${outcome.statusName} 상태가 되었습니다.` : "";
+    notify(`시장 잡무를 마치고 ${payment.currency.name} ${formatNumber(quantity)}개(가치 ${formatNumber(rewardValue)})를 받았습니다.${statusText}`);
   }
 
   async function handleCompanyInformation() {
@@ -1694,6 +1775,18 @@
       badge.textContent = label;
       meta.append(badge);
     });
+    const verification = document.createElement("span");
+    verification.className = `is-verification-${card.verificationStatus || "unverified"}`;
+    verification.textContent = `[${card.verificationLabel || "미검증"}]`;
+    const verified = ["verified_true", "verified_false"].includes(card.verificationStatus);
+    if (verified) {
+      const localVerification = String(card.verifiedSettlementId || card.target?.settlementId || "")
+        === String(current?.settlement?.id || "");
+      verification.title = localVerification
+        ? "검증한 바로 이 거점에서는 기준 정보 가치의 50%로 매입합니다."
+        : "검증된 정보는 기준 정보 가치의 200%로 매입합니다.";
+    }
+    meta.append(verification);
     copy.append(title, meta);
     const value = document.createElement("div");
     value.className = "trade-information-value";
@@ -1845,7 +1938,10 @@
   }
 
   function informationSaleValue(card, capacityOffset = 0) {
-    const baseValue = Math.max(0, Number(card?.value) || 0);
+    const baseValue = Math.max(0, Number(window.ProjectWInformation?.saleValueAtSettlement?.(
+      card,
+      current?.settlement?.id || ""
+    )) || 0);
     const capacity = companyInformationCapacityProfile(capacityOffset);
     return Math.max(baseValue > 0 ? 1 : 0, Math.round(
       baseValue * informationPurchaseWeightPercent(card) / 100 * capacity.valuePercent / 100
@@ -4078,7 +4174,8 @@
   }
 
   function close() {
-    if (!elements.modal || elements.modal.hidden) return;
+    if (!elements.modal || (elements.modal.hidden && !suspendedForMap)) return;
+    suspendedForMap = false;
     if (elements.currencyAnalysisLayer) elements.currencyAnalysisLayer.hidden = true;
     dismissMerchantCommentary();
     window.ProjectWCargo.hideTooltip();
@@ -4089,6 +4186,14 @@
     if (elements.snackButton) {
       elements.snackButton.hidden = true;
       elements.snackButton.disabled = true;
+    }
+    if (elements.oddJobsButton) {
+      elements.oddJobsButton.hidden = true;
+      elements.oddJobsButton.disabled = true;
+    }
+    if (elements.mapButton) {
+      elements.mapButton.hidden = true;
+      elements.mapButton.disabled = true;
     }
     if (elements.currencyRatesButton) {
       elements.currencyRatesButton.hidden = true;
@@ -4116,6 +4221,30 @@
 
   function isOpen() {
     return Boolean(elements.modal && !elements.modal.hidden);
+  }
+
+  function suspendForMap() {
+    if (!isOpen() || !current) return false;
+    if (elements.currencyAnalysisLayer && !elements.currencyAnalysisLayer.hidden) closeCurrencyAnalysis();
+    dismissMerchantCommentary();
+    window.ProjectWCargo.hideTooltip();
+    suspendedForMap = true;
+    elements.modal.hidden = true;
+    return true;
+  }
+
+  function resumeFromMap() {
+    if (!suspendedForMap || !current || !elements.modal) return false;
+    suspendedForMap = false;
+    elements.modal.hidden = false;
+    render();
+    updateMarketOddJobsButton();
+    if (elements.currencyRatesButton && current.currencyOnly) updateCurrencyAnalysisButton();
+    if (elements.companyInformationButton && current.facilityType === "상회") {
+      updateCompanyInformationButton(elements.companyInformationButton, current.companyName, current.settlement);
+    }
+    window.requestAnimationFrame(() => elements.close?.focus());
+    return true;
   }
 
   function getResumeState() {
@@ -4579,6 +4708,8 @@
     open,
     close,
     isOpen,
+    suspendForMap,
+    resumeFromMap,
     getResumeState,
     restoreResumeState,
     refresh,

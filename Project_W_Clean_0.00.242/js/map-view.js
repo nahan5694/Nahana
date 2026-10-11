@@ -34,6 +34,8 @@
   let focusedSettlementTimer = 0;
   let suppressMarkerClickUntil = 0;
   let searchRegion = "";
+  let informationOptionsOpen = false;
+  let tooltipSections = { information: true, events: true, notes: true, dealers: true };
   let mapData = createEmptyData();
   const distanceCache = new Map();
   const elements = {};
@@ -69,6 +71,9 @@
     elements.searchCount = document.querySelector("#map-search-count");
     elements.searchList = document.querySelector("#map-search-list");
     elements.searchRegionButtons = [...document.querySelectorAll("[data-map-search-region]")];
+    elements.informationToggle = document.querySelector("#map-information-toggle");
+    elements.informationOptions = document.querySelector("#map-information-options");
+    elements.informationSectionInputs = [...document.querySelectorAll("[data-map-information-section]")];
     elements.tabs = [...elements.root.querySelectorAll("[data-map-tab]")];
     if (Object.values(elements).some(value => value == null)) return;
 
@@ -81,6 +86,13 @@
     elements.searchRegionButtons.forEach(button => button.addEventListener("click", () => {
       searchRegion = String(button.dataset.mapSearchRegion || "");
       renderSettlementSearchList();
+    }));
+    elements.informationToggle.addEventListener("click", () => setInformationOptionsOpen(!informationOptionsOpen));
+    elements.informationSectionInputs.forEach(input => input.addEventListener("change", () => {
+      const key = String(input.dataset.mapInformationSection || "");
+      if (Object.hasOwn(tooltipSections, key)) tooltipSections[key] = Boolean(input.checked);
+      updateInformationToggleLabel();
+      hideTooltip();
     }));
     window.addEventListener("resize", () => {
       if (!elements.tooltip.hidden && lastPointer) positionTooltip(lastPointer.x, lastPointer.y);
@@ -308,7 +320,8 @@
     const settlements = [...mapData.nodes]
       .filter(settlement => !query || normalizeSearchText(settlement.name).includes(query))
       .filter(settlement => !searchRegion || settlement.region === searchRegion)
-      .sort((left, right) => String(left.name).localeCompare(String(right.name), "ko"));
+      .sort((left, right) => settlementCategoryRank(left.category) - settlementCategoryRank(right.category)
+        || String(left.name).localeCompare(String(right.name), "ko"));
     elements.searchRegionButtons.forEach(button => {
       const active = String(button.dataset.mapSearchRegion || "") === searchRegion;
       button.classList.toggle("is-active", active);
@@ -360,7 +373,7 @@
     memo.title = noteCount ? `도시 메모 ${noteCount}개 편집` : "도시 메모 추가";
     memo.setAttribute("aria-label", `${settlement.name || "거점"} 메모 ${noteCount ? "편집" : "추가"}`);
     memo.addEventListener("click", () => editSettlementNotes(settlement.id));
-    meta.append(information, memo);
+    meta.append(memo, information);
     target.append(icon, copy);
     target.addEventListener("click", () => focusSettlementFromSearch(settlement));
     item.append(target, meta);
@@ -396,8 +409,29 @@
     searchRegion = "";
     elements.searchInput.value = "";
     setSettlementSearchOpen(false);
+    tooltipSections = { information: true, events: true, notes: true, dealers: true };
+    elements.informationSectionInputs.forEach(input => { input.checked = true; });
+    setInformationOptionsOpen(false);
+    updateInformationToggleLabel();
     hideTooltip();
     renderSettlementSearchList();
+  }
+
+  function settlementCategoryRank(category) {
+    return ({ 대도시: 0, 도시: 1, 마을: 2, 관문: 3 })[String(category || "")] ?? 4;
+  }
+
+  function setInformationOptionsOpen(open) {
+    informationOptionsOpen = Boolean(open);
+    elements.informationOptions.hidden = !informationOptionsOpen;
+    elements.informationToggle.classList.toggle("is-active", informationOptionsOpen);
+    elements.informationToggle.setAttribute("aria-expanded", String(informationOptionsOpen));
+  }
+
+  function updateInformationToggleLabel() {
+    const count = Object.values(tooltipSections).filter(Boolean).length;
+    const label = elements.informationToggle.querySelector("span");
+    if (label) label.textContent = `${count}개 표시`;
   }
 
   function normalizeSearchText(value) {
@@ -740,8 +774,8 @@
   }
 
   function showInformationTooltip(placement, options = {}) {
-    const cityEvents = options.wolfenOnly ? [] : cityEventsForPlacement(placement);
-    const cards = informationCardsForPlacement(placement, options);
+    const cityEvents = options.wolfenOnly ? [] : tooltipSections.events ? cityEventsForPlacement(placement) : [];
+    const cards = options.wolfenOnly || tooltipSections.information ? informationCardsForPlacement(placement, options) : [];
     if (!cityEvents.length && !cards.length) {
       elements.informationTooltip.classList.remove("has-city-events");
       elements.informationTooltip.hidden = true;
@@ -821,6 +855,9 @@
     const title = document.createElement("strong");
     title.className = "map-information-card-title";
     title.textContent = card.title || "이름 없는 정보";
+    const verification = document.createElement("span");
+    verification.className = `map-information-verification is-${card.verificationStatus || "unverified"}`;
+    verification.textContent = `[${card.verificationLabel || "미검증"}]`;
 
     const meta = document.createElement("dl");
     appendTooltipRow(meta, "등급", informationLevelValue(card.gradeLabel, "등급"));
@@ -831,7 +868,7 @@
     contentLabel.textContent = "정보 내용";
     const content = document.createElement("p");
     content.textContent = card.content || "확인할 수 있는 내용이 없습니다.";
-    section.append(title, meta, contentLabel, content);
+    section.append(title, verification, meta, contentLabel, content);
     return section;
   }
 
@@ -881,7 +918,20 @@
       if (Number(weatherInfo.borderTaxRate) > 0) fragment.append(buildBorderTaxPreview(weatherInfo));
     }
     fragment.append(description);
-    if (placement.kind === "node") {
+    if (placement.kind === "node" && tooltipSections.dealers) {
+      const dealers = settlementDealerLabels(placement);
+      if (dealers.length) {
+        const section = document.createElement("section");
+        section.className = "map-tooltip-dealers";
+        const title = document.createElement("strong");
+        title.textContent = "취급처";
+        const content = document.createElement("span");
+        content.textContent = dealers.join(" · ");
+        section.append(title, content);
+        fragment.append(section);
+      }
+    }
+    if (placement.kind === "node" && tooltipSections.notes) {
       const notes = getSettlementNotes(placement.id);
       if (notes.length) {
         const section = document.createElement("section");
@@ -899,6 +949,17 @@
       }
     }
     return fragment;
+  }
+
+  function settlementDealerLabels(placement) {
+    const companies = [...new Set((placement.companyNames || []).filter(Boolean))];
+    const common = ({
+      대도시: ["교역소", "시장", "환전상"],
+      도시: ["교역소", "시장", "환전상"],
+      마을: ["시장"],
+      관문: ["좌판"]
+    })[placement.category] || [];
+    return [...companies, ...common];
   }
 
   function buildBorderTaxPreview(weatherInfo) {

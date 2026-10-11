@@ -1,5 +1,5 @@
 (function exposeInformationSystem() {
-  const STATE_SCHEMA_VERSION = 4;
+  const STATE_SCHEMA_VERSION = 5;
   const ROMAN_STEPS = ["", "I", "II", "III", "IV", "V", "VI"];
   const WEATHER_LABELS = ["맑음", "흐림", "비", "폭우", "눈", "폭설"];
   const REGIONS = ["북부", "중부", "남부"];
@@ -355,6 +355,11 @@
       saleCount: clamp(integer(card?.saleCount), 0, 3),
       soldShopKeys,
       soldCompanyKeys: [...new Set([...array(card?.soldCompanyKeys).map(text), ...legacyCompanyKeys].filter(Boolean))],
+      verificationStatus: ["verified_true", "verified_false"].includes(text(card?.verificationStatus))
+        ? text(card.verificationStatus)
+        : "unverified",
+      verifiedDay: Math.max(0, integer(card?.verifiedDay)),
+      verifiedSettlementId: text(card?.verifiedSettlementId),
       target: card?.target && typeof card.target === "object" ? { ...card.target } : {},
       specialExpiresDay: Math.max(0, integer(card?.specialExpiresDay))
     };
@@ -460,6 +465,9 @@
       saleCount: 0,
       soldShopKeys: [],
       soldCompanyKeys: [],
+      verificationStatus: "unverified",
+      verifiedDay: 0,
+      verifiedSettlementId: "",
       target,
       specialExpiresDay: template.special === "WOLFEN_TRACK" ? today + randomInteger(3, 7) - 1 : 0
     });
@@ -760,7 +768,12 @@
     const age = ageRule(card);
     const trustRule = ruleBook.trusts[card.trust] || DEFAULT_TRUST_RULES[card.trust] || DEFAULT_TRUST_RULES[1];
     const baseAccurate = card.trustRoll <= trustRule.accuracy && card.ageRoll <= age.accuracy;
-    const accurate = baseAccurate || card.intuitionRoll < card.misinformationReduction;
+    const rolledAccurate = baseAccurate || card.intuitionRoll < card.misinformationReduction;
+    const accurate = card.verificationStatus === "verified_true"
+      ? true
+      : card.verificationStatus === "verified_false"
+        ? false
+        : rolledAccurate;
     const falseIndex = card.falseIndex % Math.max(1, card.wrong.length);
     const showingCorrectInformation = accurate || !card.wrong.length;
     const content = showingCorrectInformation ? card.correct : card.wrong[falseIndex];
@@ -780,12 +793,14 @@
       ageValueMultiplier: age.valueMultiplier,
       gradeLabel: card.grade ? `등급 ${ROMAN_STEPS[card.grade]}` : "특수 정보",
       trustLabel: `신뢰도 ${ROMAN_STEPS[card.trust]}`,
+      baseValue: cardBaseValue(card),
       value: cardValue(card),
+      verificationLabel: verificationStatusLabel(card.verificationStatus),
       saleValueMultiplier: [1, .6, .3, 0][card.saleCount] ?? 0
     };
   }
 
-  function cardValue(card) {
+  function cardBaseValue(card) {
     if (!card.grade || (card.grade === 1 && card.trust === 1)) return 0;
     const grade = ruleBook.grades[card.grade] || DEFAULT_GRADE_RULES[card.grade];
     const trust = ruleBook.trusts[card.trust] || DEFAULT_TRUST_RULES[card.trust];
@@ -797,6 +812,52 @@
       * card.typeMultiplier
       * card.valueFactor
       * spread));
+  }
+
+  function cardValue(card) {
+    const baseValue = cardBaseValue(card);
+    return ["verified_true", "verified_false"].includes(card?.verificationStatus) ? baseValue * 2 : baseValue;
+  }
+
+  function verificationStatusLabel(status) {
+    if (status === "verified_true") return "사실 검증";
+    if (status === "verified_false") return "오정보 검증";
+    return "미검증";
+  }
+
+  function verificationTargetSettlementId(card) {
+    const target = card?.target || {};
+    return text(target.settlementId || (target.targetKind === "settlement" ? target.targetId : ""));
+  }
+
+  function verifyAtSettlement(settlementId) {
+    const targetId = text(settlementId);
+    if (!targetId) return { verified: 0, trueCount: 0, falseCount: 0 };
+    const state = currentState();
+    let trueCount = 0;
+    let falseCount = 0;
+    state.cards.forEach(card => {
+      if (card.verificationStatus !== "unverified" || verificationTargetSettlementId(card) !== targetId) return;
+      const accurate = presentCard(card).accurate;
+      card.verificationStatus = accurate ? "verified_true" : "verified_false";
+      card.verifiedDay = currentDay();
+      card.verifiedSettlementId = targetId;
+      if (accurate) trueCount += 1;
+      else falseCount += 1;
+    });
+    const verified = trueCount + falseCount;
+    if (verified) storeState(state);
+    return { verified, trueCount, falseCount };
+  }
+
+  function saleValueAtSettlement(cardOrId, settlementId) {
+    const card = typeof cardOrId === "string" ? getCard(cardOrId) : cardOrId;
+    if (!card) return 0;
+    const baseValue = Math.max(0, Number(card.baseValue) || cardBaseValue(card));
+    if (!["verified_true", "verified_false"].includes(card.verificationStatus)) return Math.round(baseValue);
+    return verificationTargetSettlementId(card) === text(settlementId)
+      ? Math.round(baseValue * .5)
+      : Math.round(baseValue * 2);
   }
 
   function ageRule(card) {
@@ -1030,7 +1091,8 @@
     appendInformationCopy(title, card.title || "제목 없는 정보");
     const state = document.createElement("small");
     state.textContent = `${card.gradeLabel} · ${card.trustLabel} · ${card.ageLabel}`;
-    copy.append(title, state);
+    const verification = createVerificationBadge(card);
+    copy.append(title, verification, state);
     const value = document.createElement("span");
     value.className = "information-list-value";
     const valueLabel = document.createElement("small");
@@ -1062,6 +1124,7 @@
     category.textContent = card.category || "정보";
     const title = document.createElement("h3");
     appendInformationCopy(title, card.title || "제목 없는 정보");
+    category.append(createVerificationBadge(card));
     lead.append(category, title);
     const content = document.createElement("p");
     content.className = "information-acquired-content";
@@ -1079,6 +1142,7 @@
     const category = document.createElement("span");
     const title = document.createElement("h3");
     category.textContent = card.category || "정보";
+    category.append(createVerificationBadge(card));
     appendInformationCopy(title, card.title || "제목 없는 정보");
     header.append(category, title);
     const content = document.createElement("p");
@@ -1087,6 +1151,16 @@
     const footer = createInformationValueFooter(card);
     wrapper.append(header, content, meta, footer);
     return wrapper;
+  }
+
+  function createVerificationBadge(card) {
+    const badge = document.createElement("b");
+    const status = ["verified_true", "verified_false"].includes(card?.verificationStatus)
+      ? card.verificationStatus
+      : "unverified";
+    badge.className = `information-verification-badge is-${status}`;
+    badge.textContent = `[${verificationStatusLabel(status)}]`;
+    return badge;
   }
 
   function appendInformationCopy(container, value) {
@@ -1472,6 +1546,8 @@
     getCards,
     getTradeCards,
     getCard,
+    verifyAtSettlement,
+    saleValueAtSettlement,
     recordSale,
     hasValidWolfenTrack,
     getWolfenTrack,

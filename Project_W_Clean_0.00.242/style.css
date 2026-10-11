@@ -1729,12 +1729,69 @@ h1, p { margin-top: 0; }
   mask-image: linear-gradient(to bottom, #000 0%, #000 64%, transparent 100%);
   transition: opacity .5s ease;
 }
+.road-talk-card-peek {
+  position: absolute;
+  z-index: 18;
+  right: -1px;
+  bottom: -14%;
+  width: clamp(450px, 42vw, 790px);
+  height: min(120%, 1120px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  filter: drop-shadow(-14px 16px 14px #2d1d1452);
+  transform: translate3d(108%, 8%, 0) rotate(11deg);
+  transform-origin: 100% 68%;
+  transition: transform .9s cubic-bezier(.18, .76, .2, 1), opacity .24s ease, filter .2s ease;
+  pointer-events: none;
+  cursor: pointer;
+  will-change: transform, opacity;
+}
+.road-talk-card-peek[hidden] { display: none; }
+.road-talk-card-peek > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: right bottom;
+  pointer-events: none;
+  user-select: none;
+}
+.road-talk-card-peek.is-visible {
+  opacity: 1;
+  transform: translate3d(20%, 0, 0) rotate(-3.5deg);
+  pointer-events: auto;
+}
+.road-talk-card-peek.is-visible:is(:hover, :focus-visible) {
+  filter: brightness(1.04) drop-shadow(-17px 18px 17px #2d1d1466);
+  transform: translate3d(17%, -1%, 0) rotate(-4deg);
+  outline: none;
+}
+.road-talk-card-peek.is-leaving {
+  opacity: 0;
+  transform: translate3d(110%, 8%, 0) rotate(11deg);
+  transition-duration: .78s, .34s, .2s;
+  transition-timing-function: cubic-bezier(.52, 0, .82, .25), ease, ease;
+  pointer-events: none;
+}
 .scene-weather-effect::before,
 .scene-weather-effect::after {
   position: absolute;
   inset: -28% -12%;
   content: "";
   will-change: transform;
+}
+@media (max-width: 900px), (max-height: 680px) {
+  .road-talk-card-peek {
+    bottom: -12%;
+    width: clamp(360px, 44vw, 560px);
+    height: min(112%, 760px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .road-talk-card-peek { transition-duration: .28s, .18s, .18s; }
+  .road-talk-card-peek.is-leaving { transition-duration: .28s, .18s, .18s; }
 }
 .game-screen[data-weather-kind="cloudy"] .scene-card:is([data-scene="road"], [data-scene="partner"]) .scene-background {
   filter: brightness(.86) saturate(.9) sepia(.04);
@@ -12949,6 +13006,214 @@ body:has(#dialog-modal:not([hidden])) .advanced-tutorial-launcher { display: non
 :is(.city-event-card > p, .information-card > p, .trade-information-item p, .route-event-card-copy p, .partner-event-details article > p, .tutorial-card p, .dialog-message, .merchant-path-guild-description, .cargo-tooltip-description, .cargo-tooltip-effect p, .road-status-tooltip dd) {
   overflow-wrap: anywhere;
   word-break: keep-all;
+}
+
+/* 0.00.297: map information filters, information verification, and facility side actions. */
+.map-information-controls {
+  position: absolute;
+  z-index: 9;
+  top: 7%;
+  right: 9%;
+  display: grid;
+  justify-items: end;
+  width: 138px;
+  pointer-events: auto;
+}
+.map-information-toggle {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 7px;
+  width: 138px;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #684927;
+  border-radius: 4px;
+  background: linear-gradient(105deg, #f3e2bef5, #cfaa70f2);
+  color: #50361e;
+  box-shadow: inset 0 0 0 1px #fff3d16b, 0 6px 14px #2d1c1257;
+  cursor: pointer;
+}
+.map-information-toggle strong { font-size: .63rem; font-weight: 950; }
+.map-information-toggle span { color: #755736; font-size: .51rem; font-weight: 850; white-space: nowrap; }
+.map-information-toggle:is(:hover, :focus-visible),
+.map-information-toggle.is-active {
+  border-color: #503217;
+  background: linear-gradient(105deg, #ffecc2, #d7aa61);
+  box-shadow: inset 0 0 0 2px #fff7dc99, 0 0 0 3px #dcb87257, 0 9px 22px #2d1c1270;
+}
+.map-information-options {
+  display: grid;
+  width: 138px;
+  margin-top: 5px;
+  padding: 7px;
+  border: 1px solid #684927;
+  border-radius: 4px;
+  background: linear-gradient(145deg, #f6e8cbf5, #d9b983f2);
+  box-shadow: inset 0 0 0 1px #fff5d47d, 0 8px 20px #2a190f66;
+}
+.map-information-options[hidden] { display: none; }
+.map-information-options label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 3px 5px;
+  border-bottom: 1px solid #7654332e;
+  color: #5a3e24;
+  font-size: .56rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+.map-information-options label:last-child { border-bottom: 0; }
+.map-information-options input { accent-color: #7c562c; }
+.map-view-ui.is-destination-selection .map-information-controls { display: none; }
+
+.trade-map-return {
+  position: absolute;
+  z-index: 12;
+  top: 2.2%;
+  left: 50%;
+  min-width: 152px;
+  min-height: 40px;
+  padding: 7px 18px;
+  border: 1px solid #66431f;
+  border-bottom-width: 4px;
+  border-radius: 4px;
+  background: linear-gradient(#f0d399, #b98244);
+  color: #4d3018;
+  box-shadow: inset 0 1px #fff0c6, 0 8px 20px #21130970;
+  font-size: .68rem;
+  font-weight: 950;
+  transform: translateX(-50%);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.trade-map-return[hidden] { display: none; }
+.trade-map-return:is(:hover, :focus-visible) { filter: brightness(1.08); }
+.game-screen.is-trade-map-view .edge-control { display: none; }
+
+.map-search-item-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.map-search-item-meta em.has-information {
+  border-color: #2f6574;
+  background: linear-gradient(145deg, #e6faf5, #8fc1bd);
+  color: #174b58;
+  box-shadow: inset 0 0 0 1px #f4ffffb8, 0 0 0 2px #4f89945c, 0 2px 7px #294d5363;
+  font-size: .62rem;
+}
+
+.map-tooltip-dealers {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #8a6b466b;
+  border-left: 4px solid #9a7547;
+  background: linear-gradient(120deg, #f6e6cbd9, #dfc59ac9);
+}
+.map-tooltip-dealers strong { color: #6a4727; font-size: .62rem; }
+.map-tooltip-dealers span { color: #5a4430; font-size: .62rem; font-weight: 800; line-height: 1.45; }
+.map-information-verification,
+.information-verification-badge,
+.trade-information-meta .is-verification-unverified,
+.trade-information-meta .is-verification-verified_true,
+.trade-information-meta .is-verification-verified_false {
+  display: inline-grid;
+  place-items: center;
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid #84725b;
+  border-radius: 999px;
+  background: #ddd2bd;
+  color: #6d6252;
+  font-size: .52rem;
+  font-weight: 950;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.map-information-verification.is-verified_true,
+.information-verification-badge.is-verified_true,
+.trade-information-meta .is-verification-verified_true {
+  border-color: #477a60;
+  background: #d7ead8;
+  color: #2e6748;
+}
+.map-information-verification.is-verified_false,
+.information-verification-badge.is-verified_false,
+.trade-information-meta .is-verification-verified_false {
+  border-color: #93564b;
+  background: #efd6cb;
+  color: #813c35;
+}
+.information-list-category .information-verification-badge,
+.information-tooltip-content > header > span .information-verification-badge,
+.information-acquired-sheet > header > span .information-verification-badge {
+  margin-top: 5px;
+}
+.information-tooltip-content > header > span,
+.information-acquired-sheet > header > span { display: grid; justify-items: center; }
+
+.trade-information-meta .is-verification-unverified,
+.trade-information-meta .is-verification-verified_true,
+.trade-information-meta .is-verification-verified_false {
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.trade-side-actions {
+  bottom: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.window-side-actions.trade-side-actions > .trade-map-side-button,
+.window-side-actions.trade-side-actions > .trade-snack-side-button,
+.window-side-actions.trade-side-actions > .trade-odd-jobs-button,
+.window-side-actions.trade-side-actions > .trade-currency-rates-button,
+.window-side-actions.trade-side-actions > .trade-company-information-button,
+.trade-side-actions > .advanced-tutorial-launcher {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+  width: 116px;
+  margin: 0;
+}
+.trade-modal-layer.is-currency-exchange .trade-side-actions { display: flex; }
+.trade-modal-layer.is-currency-exchange .trade-side-actions > .trade-currency-rates-button {
+  position: relative;
+  inset: auto;
+}
+.window-side-actions .trade-map-side-button,
+.window-side-actions .trade-odd-jobs-button {
+  position: relative;
+  inset: auto;
+  width: 116px;
+  min-height: 70px;
+  padding: 10px 9px;
+  border: 1px solid #684522;
+  border-right: 4px solid #81572e;
+  border-radius: 4px 0 0 4px;
+  background: linear-gradient(145deg, #f4dfb2, #c99d5e);
+  color: #4b2f1b;
+  box-shadow: inset 0 0 0 2px #fff1cb80, 0 8px 22px #170d087d;
+}
+.window-side-actions .trade-map-side-button { background: linear-gradient(145deg, #e8e2c8, #ae9a68); }
+.window-side-actions .trade-odd-jobs-button { background: linear-gradient(145deg, #e3ebcf, #a8b56d); }
+.window-side-actions .trade-odd-jobs-button span { color: #526036; }
+
+@media (max-width: 1700px) {
+  .window-side-actions .trade-map-side-button,
+  .window-side-actions .trade-odd-jobs-button,
+  .window-side-actions .trade-company-information-button { width: 96px; min-height: 58px; padding: 8px 6px; }
+  .trade-side-actions > .advanced-tutorial-launcher { width: 96px; }
+  .map-information-controls { top: 5%; right: 7%; }
 }
 
 @media (max-width: 900px), (max-height: 680px) {

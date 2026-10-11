@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.291";
+const GAME_VERSION = "0.00.298";
 const ACCOUNT_SCHEMA_VERSION = 48;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -69,6 +69,11 @@ const TALK_CARD_HAND_SIZE = 3;
 const TALK_CARD_LOVE_CHANCE = 0.03;
 const TALK_CARD_CAMP_CHANCE = 0.1;
 const TALK_CARD_AREA_SLOT_OFFSETS = Object.freeze([-0.4, -0.2, 0.2, 0.4]);
+const TALK_CARD_BUFF_CHANCE_BONUSES = Object.freeze({
+  N_Buff_026: 0.03,
+  N_Buff_027: 0.06,
+  N_Buff_028: 0.10
+});
 const MAX_COMPANION_RANK = 50;
 const COMPANION_EVENT_RANKS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 const NAHANA_SITUATION_EVENT_IDS = Object.freeze(
@@ -150,6 +155,16 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "나하나의 교역품 감상", text: "거점의 거래 시설에 처음 들어서면 나하나가 판매 중인 물건을 살펴보고 짧은 감상을 남길 수 있습니다." },
       { title: "조언은 단서입니다", text: "품질, 가격, 생산지와 수입 여부에 관한 단서를 얻을 수 있지만 항상 정확한 판단은 아닙니다.\n나하나의 기분이 좋을수록 더 자주 이야기하며, 기분이 나쁘면 감상을 하지 않습니다." }
+    ]
+  },
+  {
+    id: "trade-market-odd-jobs",
+    label: "시장 잡무 의뢰",
+    contexts: ["trade:시장"],
+    pages: [
+      { title: "시장 잡무 의뢰", text: "아침과 낮에는 시장 상인들의 운반, 진열과 정리 일을 도울 수 있습니다. 일을 마치면 가치 50~75에 해당하는 동화를 받습니다.", selector: "#trade-odd-jobs", padding: 10 },
+      { title: "하루의 시간을 사용합니다", text: "잡무를 맡으면 현재 시간이 아침이든 낮이든 일을 마친 뒤 저녁이 됩니다. 출발이나 다른 용무가 있다면 먼저 마치는 편이 좋습니다." },
+      { title: "나하나의 상태", text: "긴 잡무 뒤에는 나하나가 대부분 따분함을 느끼며, 때로는 불만 상태가 됩니다. 당장의 보수와 이후 여정을 함께 고려하세요." }
     ]
   },
   {
@@ -534,6 +549,7 @@ const ADVANCED_TUTORIAL_MENU_LABELS = Object.freeze({
   "trade-value": "가치결정",
   "trade-bargain": "흥정",
   "trade-advice": "나하나조언",
+  "trade-market-odd-jobs": "잡무의뢰",
   "trade-company-relation": "상회관계",
   "trade-company-documents": "어음·정보",
   "trade-gate-information": "관문정보",
@@ -729,7 +745,10 @@ const assetFallbacks = new Map([
   ["Asset_N_11", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/Magic.png"],
   ["Asset_N_12", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/Somber.png"],
   ["Asset_N_13", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/Sleep.png"],
-  ["Asset_N_14", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/Angry.png"]
+  ["Asset_N_14", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/Angry.png"],
+  ["Asset_N_16", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/A1.png"],
+  ["Asset_N_17", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/A2.png"],
+  ["Asset_N_18", "https://raw.githubusercontent.com/nahan5694/Project_W/refs/heads/main/Assets/Images/Nahana/A3.png"]
 ]);
 
 const titleScreen = document.querySelector("#title-screen");
@@ -786,6 +805,7 @@ const informationAcquiredModal = document.querySelector("#information-acquired-m
 const merchantPathModal = document.querySelector("#merchant-path-modal");
 const memorialModal = document.querySelector("#memorial-modal");
 const tradeModal = document.querySelector("#trade-modal");
+const tradeMapReturn = document.querySelector("#trade-map-return");
 const mealModal = document.querySelector("#meal-modal");
 const mealMenuView = document.querySelector("#meal-menu-view");
 const innModal = document.querySelector("#inn-modal");
@@ -830,6 +850,8 @@ const entryTaxModal = document.querySelector("#entry-tax-modal");
 const routeEventModal = document.querySelector("#route-event-modal");
 const roadScene = document.querySelector('[data-scene="road"]');
 const roadBackground = document.querySelector("#road-scene-background");
+const roadTalkCardPeek = document.querySelector("#road-talk-card-peek");
+const roadTalkCardPeekImage = document.querySelector("#road-talk-card-peek-image");
 const partnerBackground = document.querySelector("#partner-scene-background");
 const mapBackground = document.querySelector("#map-scene-background");
 const roadLocation = document.querySelector("#road-location");
@@ -990,6 +1012,7 @@ const advancedTutorialLaunchers = [...document.querySelectorAll("[data-advanced-
 
 let account = loadAccount();
 let currentScene = "road";
+let tradeMapPreviousScene = "road";
 let moving = false;
 let assetLoadPromise;
 let titleRevealStarted = false;
@@ -1077,6 +1100,9 @@ let activeSettlementNoteId = "";
 let partnerAppetiteOpen = false;
 let roadTalkCardGenerationQueue = Promise.resolve();
 let talkCardGenerationInProgress = 0;
+let roadTalkCardPeekHoldTimer = 0;
+let roadTalkCardPeekRemoveTimer = 0;
+let roadTalkCardPeekSequence = 0;
 let pendingNarrativePresentationTimer = 0;
 let smallPopupSequence = 0;
 let smallPopupLayoutFrame = 0;
@@ -1286,6 +1312,9 @@ window.ProjectWTrade.init({
     placement,
     { companyName }
   ),
+  getMarketOddJobsProfile: () => marketOddJobsProfile(),
+  completeMarketOddJobs: details => completeMarketOddJobs(details),
+  requestMapView: () => openTradeMapView(),
   recordMerchantProfit: amount => window.ProjectWMerchantPath.recordMerchantProfit(amount),
   showBargainDialogue: (dialogueId, success) => {
     showBargainResultFeedback(success);
@@ -1718,8 +1747,14 @@ window.addEventListener("keydown", event => {
 }, true);
 document.querySelector("#next-scene").addEventListener("click", () => moveScene(1));
 document.querySelector("#previous-scene").addEventListener("click", () => moveScene(-1));
+tradeMapReturn?.addEventListener("click", returnFromTradeMapView);
 document.querySelector("#inn-next-scene")?.addEventListener("click", () => moveScene(1));
 document.querySelector("#inn-previous-scene")?.addEventListener("click", () => moveScene(-1));
+roadTalkCardPeek?.addEventListener("click", () => {
+  if (currentScene !== "road") return;
+  hideRoadTalkCardPeek(true);
+  showScene("partner", 1, true);
+});
 roadAction.addEventListener("click", handleRoadAction);
 roadPassThrough.addEventListener("click", handleRoadPassThrough);
 roadTurnBack?.addEventListener("click", handleRoadTurnBack);
@@ -4005,6 +4040,7 @@ async function ensureSpiritEventTalkCard() {
   account.talkCards = state;
   persistAccount();
   renderPartnerTalkCards();
+  showRoadTalkCardPeek();
   showGameNotice(`특수 대화 카드 · ${definition.title}`);
   return true;
 }
@@ -4116,6 +4152,77 @@ function nextRoadTalkCardAreaDelay(travel, rate) {
   return progressUntilTrigger / rate;
 }
 
+function roadTalkCardPeekAssetId(partner = account?.partner) {
+  const normalized = normalizePartnerState(partner, account?.partnerMoodAdjustment);
+  if (partnerIsAngry(normalized)) return "";
+  if (normalized.mood <= 50) return "Asset_N_16";
+  if (normalized.mood >= 75) return Math.random() < 0.5 ? "Asset_N_17" : "Asset_N_18";
+  return "Asset_N_17";
+}
+
+function hideRoadTalkCardPeek(immediate = false) {
+  window.clearTimeout(roadTalkCardPeekHoldTimer);
+  window.clearTimeout(roadTalkCardPeekRemoveTimer);
+  roadTalkCardPeekHoldTimer = 0;
+  roadTalkCardPeekRemoveTimer = 0;
+  roadTalkCardPeekSequence += 1;
+  if (!roadTalkCardPeek || !roadTalkCardPeekImage) return;
+  roadTalkCardPeekImage.onload = null;
+  roadTalkCardPeekImage.onerror = null;
+  if (immediate || roadTalkCardPeek.hidden) {
+    roadTalkCardPeek.classList.remove("is-visible", "is-leaving");
+    roadTalkCardPeek.hidden = true;
+    return;
+  }
+  roadTalkCardPeek.classList.remove("is-visible");
+  roadTalkCardPeek.classList.add("is-leaving");
+  roadTalkCardPeekRemoveTimer = window.setTimeout(() => {
+    roadTalkCardPeek.classList.remove("is-leaving");
+    roadTalkCardPeek.hidden = true;
+    roadTalkCardPeekRemoveTimer = 0;
+  }, 820);
+}
+
+function showRoadTalkCardPeek(forcedAssetId = "") {
+  if (!roadTalkCardPeek || !roadTalkCardPeekImage || currentScene !== "road" || account?.travel?.mode !== "road") return false;
+  const assetId = ["Asset_N_16", "Asset_N_17", "Asset_N_18"].includes(forcedAssetId)
+    ? forcedAssetId
+    : roadTalkCardPeekAssetId();
+  const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
+  if (!source) return false;
+
+  hideRoadTalkCardPeek(true);
+  const sequence = ++roadTalkCardPeekSequence;
+  roadTalkCardPeekImage.dataset.assetId = assetId;
+  roadTalkCardPeekImage.alt = assetId === "Asset_N_16"
+    ? "짜증난 표정으로 고개를 내민 나하나"
+    : assetId === "Asset_N_18"
+      ? "기분 좋게 고개를 내민 나하나"
+      : "고개를 내민 나하나";
+
+  let revealed = false;
+  const reveal = () => {
+    if (revealed) return;
+    if (sequence !== roadTalkCardPeekSequence || currentScene !== "road" || account?.travel?.mode !== "road") return;
+    revealed = true;
+    roadTalkCardPeek.hidden = false;
+    roadTalkCardPeek.classList.remove("is-visible", "is-leaving");
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      if (sequence !== roadTalkCardPeekSequence || roadTalkCardPeek.hidden) return;
+      roadTalkCardPeek.classList.add("is-visible");
+      roadTalkCardPeekHoldTimer = window.setTimeout(() => hideRoadTalkCardPeek(false), 6000);
+    }));
+  };
+
+  roadTalkCardPeekImage.onload = reveal;
+  roadTalkCardPeekImage.onerror = () => {
+    if (sequence === roadTalkCardPeekSequence) hideRoadTalkCardPeek(true);
+  };
+  roadTalkCardPeekImage.src = source;
+  if (roadTalkCardPeekImage.complete && roadTalkCardPeekImage.naturalWidth > 0) reveal();
+  return true;
+}
+
 async function generateTalkCard(context) {
   const loaded = await loadTalkCardDefinitions();
   if (!loaded || !account) return false;
@@ -4146,6 +4253,7 @@ function acquireTalkCard(definition, options = {}) {
   }
   persistAccount();
   renderPartnerTalkCards();
+  showRoadTalkCardPeek();
   void showSystemMiniDialogue(
     ["DL_TC_001", "DL_TC_002", "DL_TC_003"][Math.floor(Math.random() * 3)],
     "talk-card"
@@ -5961,13 +6069,16 @@ function loadNahanaProgressionDefinitions() {
       const id = String(row.ID || "").trim();
       const name = String(row["이름"] || "").trim();
       if (!id || !name) return;
+      const dialogueCardChanceBonus = TALK_CARD_BUFF_CHANCE_BONUSES[id];
       nahanaBuffDefinitions.set(id, {
         id,
         name,
         grade: String(row["등급"] || "I").trim() || "I",
         gradeNumber: romanGradeNumber(row["등급"]),
         description: String(row["설명"] || "").trim(),
-        effectDescription: String(row["효과설명"] || "").trim()
+        effectDescription: Number.isFinite(dialogueCardChanceBonus)
+          ? `나하나 대화카드 생성확률 +${Math.round(dialogueCardChanceBonus * 100)}%`
+          : String(row["효과설명"] || "").trim()
       });
     });
     nahanaBlessDefinitions.clear();
@@ -6034,6 +6145,15 @@ function activePartnerBuffTierValue(entries, fallback = 0) {
     if (activePartnerBuff(id)) return value;
   }
   return fallback;
+}
+
+function partnerBuffEffectDescription(buff) {
+  const dialogueCardChanceBonus = TALK_CARD_BUFF_CHANCE_BONUSES[String(buff?.id || "")];
+  if (Number.isFinite(dialogueCardChanceBonus)) {
+    return `나하나 대화카드 생성확률 +${Math.round(dialogueCardChanceBonus * 100)}%`;
+  }
+  const sheetDefinition = nahanaBuffDefinitions.get(String(buff?.id || ""));
+  return String(sheetDefinition?.effectDescription || buff?.effectDescription || buff?.description || "").trim();
 }
 
 function partnerCargoCapacityLimits() {
@@ -6123,13 +6243,11 @@ function partnerDialogueCardBuffGrade() {
 }
 
 function partnerDialogueCardChanceBonus() {
-  for (const id of ["N_Buff_028", "N_Buff_027", "N_Buff_026"]) {
-    const buff = activePartnerBuff(id);
-    if (!buff) continue;
-    const match = /대화\s*카드[^\d]*(\d+(?:\.\d+)?)%/.exec(buff.effectDescription);
-    if (match) return Number(match[1]) / 100;
-  }
-  return 0;
+  return activePartnerBuffTierValue([
+    ["N_Buff_028", TALK_CARD_BUFF_CHANCE_BONUSES.N_Buff_028],
+    ["N_Buff_027", TALK_CARD_BUFF_CHANCE_BONUSES.N_Buff_027],
+    ["N_Buff_026", TALK_CARD_BUFF_CHANCE_BONUSES.N_Buff_026]
+  ]);
 }
 
 window.ProjectWPartnerBuffs = {
@@ -6140,7 +6258,9 @@ window.ProjectWPartnerBuffs = {
 function activeCompanionTravelSpeedMultiplier() {
   const partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment);
   return partner.activeBuffs.reduce((product, buff) => {
-    const match = /짐마차\s*(?:이동\s*)?속도\s*\+(\d+(?:\.\d+)?)%/.exec(buff.effectDescription);
+    const sheetDefinition = nahanaBuffDefinitions.get(String(buff?.id || ""));
+    const effectDescription = String(sheetDefinition?.effectDescription || buff.effectDescription || "");
+    const match = /짐마차\s*(?:이동\s*)?속도\s*\+(\d+(?:\.\d+)?)%/.exec(effectDescription);
     return product * (match ? 1 + (Number(match[1]) / 100) : 1);
   }, 1);
 }
@@ -6423,7 +6543,7 @@ function renderSpiritBlessingFeature(partner) {
     duration.textContent = `${Math.max(0, buff.expiresDay - normalizeWorldTime(account.worldTime).day)}일 남음`;
     cardHeader.append(name, duration);
     const description = document.createElement("p");
-    description.textContent = buff.effectDescription || buff.description;
+    description.textContent = partnerBuffEffectDescription(buff);
     cardCopy.append(cardHeader, description);
     const autoExtend = document.createElement("button");
     autoExtend.type = "button";
@@ -8599,6 +8719,35 @@ function handleCityEventChange(change) {
 function currentTimePhase() {
   const time = normalizeWorldTime(account?.worldTime);
   return TIME_PHASES[time.phaseIndex];
+}
+
+function marketOddJobsProfile() {
+  const phase = currentTimePhase();
+  const available = phase === "아침" || phase === "낮";
+  return {
+    available,
+    phase,
+    reason: available ? "" : "잡무 의뢰는 아침과 낮에만 받을 수 있습니다."
+  };
+}
+
+function completeMarketOddJobs() {
+  if (!account) return { statusId: "", statusName: "" };
+  let guard = 0;
+  while (currentTimePhase() !== "저녁" && guard < TIME_PHASES.length) {
+    advanceGameTime();
+    guard += 1;
+  }
+  const statusId = Math.random() < .75 ? "N_S_023" : "N_S_004";
+  addPartnerStatus(statusId);
+  persistAccount();
+  syncTravelExperience();
+  const placement = currentSettlementPlacement();
+  if (placement) renderSettlementDailyStatus(placement, settlementFacilitiesFor(placement));
+  return {
+    statusId,
+    statusName: nahanaStatusDefinitions.get(statusId)?.name || (statusId === "N_S_023" ? "따분함" : "불만")
+  };
 }
 
 function currentSeason() {
@@ -11396,6 +11545,7 @@ function completeSettlementEntry(placement) {
     settlementId: placement.id,
     token: `${placement.id}:${normalizeWorldTime(account.worldTime).day}:${Date.now()}`
   };
+  window.ProjectWInformation.verifyAtSettlement?.(placement.id);
   activeTavernVisit = null;
   recordCompanionSettlementEntry(placement.id);
   persistAccount();
@@ -13184,7 +13334,8 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["거래 후 적재", "거래를 확정했을 때 남을 화물칸과 적재 중량을 미리 확인합니다.", "#trade-cargo-preview"]
     ],
     9: [
-      ["시장 간식", "도시와 대도시의 시장에서는 이 버튼으로 나하나에게 줄 간식을 살 수 있습니다.", "#trade-snack-open"]
+      ["시장 간식", "도시와 대도시의 시장에서는 이 버튼으로 나하나에게 줄 간식을 살 수 있습니다.", "#trade-snack-open"],
+      ["시장 잡무 의뢰", "아침과 낮에는 시장의 잡무를 돕고 가치 50~75에 해당하는 동화를 받을 수 있습니다. 일을 마치면 저녁이 되며 나하나가 따분함이나 불만 상태가 될 수 있습니다.", "#trade-odd-jobs"]
     ],
     10: [
       ["축복 부여", "동행 중 얻은 강화포인트로 짐마차에 영구적인 축복을 부여할 수 있습니다. 축복 부여를 눌러 확인하세요.", "#partner-blessing-toggle", true],
@@ -13675,7 +13826,8 @@ function handleTutorialTradeOpen(detail) {
   latestTradeTutorialContext = {
     facilityType,
     settlementCategory: String(detail.settlementCategory || ""),
-    snackAvailable: Boolean(detail.snackAvailable)
+    snackAvailable: Boolean(detail.snackAvailable),
+    oddJobsAvailable: Boolean(detail.oddJobsAvailable)
   };
   if (shouldStartTutorial(8)) {
     window.setTimeout(() => {
@@ -13774,6 +13926,7 @@ function showNextFootprintNotice() {
 }
 
 function moveScene(direction) {
+  if (gameScreen.classList.contains("is-trade-map-view")) return;
   if (partnerEventPanel && !partnerEventPanel.hidden) return;
   if (window.ProjectWInn.isActive?.()) {
     if (innModal?.classList.contains("is-detail-view")) return;
@@ -13789,6 +13942,23 @@ function moveScene(direction) {
   const currentIndex = sceneOrder.indexOf(currentScene);
   const nextScene = sceneOrder[(currentIndex + direction + sceneOrder.length) % sceneOrder.length];
   showScene(nextScene, direction, true);
+}
+
+function openTradeMapView() {
+  if (!window.ProjectWTrade.suspendForMap?.()) return false;
+  tradeMapPreviousScene = currentScene;
+  gameScreen.classList.add("is-trade-map-view");
+  if (tradeMapReturn) tradeMapReturn.hidden = false;
+  showScene("map", 1, false);
+  return true;
+}
+
+function returnFromTradeMapView() {
+  if (!gameScreen.classList.contains("is-trade-map-view")) return;
+  gameScreen.classList.remove("is-trade-map-view");
+  if (tradeMapReturn) tradeMapReturn.hidden = true;
+  showScene(sceneOrder.includes(tradeMapPreviousScene) ? tradeMapPreviousScene : "road", -1, false);
+  window.ProjectWTrade.resumeFromMap?.();
 }
 
 function openInnSceneView(sceneName, direction = 1) {
@@ -13831,6 +14001,7 @@ function showScene(next, direction, animate) {
   }
   const incoming = cards.find(card => card.dataset.scene === next);
   const outgoing = cards.find(card => card.dataset.scene === previous);
+  if (next !== "road") hideRoadTalkCardPeek(true);
   if (next !== "partner") {
     closePartnerEventPanel();
       closePartnerSnackPanel();
