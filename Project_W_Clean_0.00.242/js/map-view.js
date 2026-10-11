@@ -607,11 +607,6 @@
       marker.append(name);
     }
 
-    if (placement.kind === "node" && tooltipSections.dealers) {
-      const outletGoods = getSettlementOutletGoods(placement);
-      if (outletGoods.length) marker.append(createOutletBadgeGroup(outletGoods));
-    }
-
     marker.setAttribute("aria-label", placement.kind === "node" ? `${placement.name || "이름 없는 거점"} 정보` : `${placement.name || "이름 없는 경로"} 정보`);
     if (placement.kind === "node") attachSettlementNoteLongPress(marker, placement);
     if (destinationSelection) {
@@ -637,20 +632,6 @@
       attachTooltipEvents(marker, placement);
     }
     return marker;
-  }
-
-  function createOutletBadgeGroup(outletGoods) {
-    const group = document.createElement("span");
-    group.className = "map-marker-outlet-badges";
-    group.setAttribute("aria-label", `확인한 취급 상품 ${outletGoods.length}개`);
-    outletGoods.forEach(good => {
-      const badge = document.createElement("span");
-      badge.className = `map-marker-outlet-badge is-${good.state || "observed"}`;
-      badge.textContent = good.name || "이름을 알 수 없는 상품";
-      badge.title = [good.stateLabel, ...(good.facilityTypes || [])].filter(Boolean).join(" · ");
-      group.append(badge);
-    });
-    return group;
   }
 
   function attachSettlementNoteLongPress(marker, placement) {
