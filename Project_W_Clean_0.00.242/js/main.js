@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.299";
+const GAME_VERSION = "0.00.301";
 const ACCOUNT_SCHEMA_VERSION = 48;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -4126,7 +4126,6 @@ function resolveRoadTalkCardAreaRolls(travel, fromPosition, toPosition) {
   ensureRoadTalkCardAreaPlan(travel);
   const due = (travel.talkCardAreaRolls || [])
     .filter(entry => !entry.resolved
-      && entry.triggerPosition > fromPosition + 0.00001
       && entry.triggerPosition <= toPosition + 0.00001)
     .sort((left, right) => left.triggerPosition - right.triggerPosition || left.anchorIndex - right.anchorIndex);
   if (!due.length) return false;
@@ -12189,12 +12188,14 @@ function whipHorse(event) {
     return;
   }
   const currentRate = clampNumber(Number(travel.progressRate), 0.1, MAX_TRAVEL_RATE, 1);
+  const talkCardProgressCursor = storedTravelRoutePosition(travel);
   const remainingProgress = liveSegmentRemainingMs(travel);
   const healthLoss = Math.floor(Math.random() * 3);
   const timeReductionSeconds = Math.floor(Math.random() * 2);
 
   account.horse.health = Math.max(0, account.horse.health - healthLoss);
   travel.segmentRemainingMs = Math.max(0, remainingProgress - (timeReductionSeconds * 1000 * currentRate));
+  resolveRoadTalkCardAreaRolls(travel, talkCardProgressCursor, storedTravelRoutePosition(travel));
   travel.progressRate = calculateTravelRate(currentScene, travel);
   travel.progressUpdatedAt = Date.now();
 
@@ -13387,7 +13388,7 @@ function tutorialStepConfiguration(tutorialId, step) {
     [TUTORIAL_IDS.CURRENCY_EXCHANGE]: [
       ["환전상 거리", "환전상에서는 상품 없이 화폐끼리만 교환합니다.", ".trade-window", false, { padding: 12 }],
       ["내가 지불할 화폐", "왼쪽에서 환전상에게 건넬 화폐를 고릅니다.", "#trade-player-currencies", false, { padding: 10 }],
-      ["받을 화폐 자동 구성", "내가 지불할 화폐를 올린 뒤 금화·은화·동화 중점을 누르면 선택한 종류를 우선해 받을 화폐를 자동으로 구성합니다.\n부족한 잔액은 다른 종류의 화폐로 보충합니다.", "#trade-exchange-focus", false, { padding: 10 }],
+      ["받을 화폐 자동 구성", "내가 지불할 화폐를 올린 뒤 금화·은화·동화 중점을 누르면 선택한 종류 안에서 여러 화폐를 고르게 섞어 구성합니다.\n남는 금액은 다른 종류의 화폐로 보충합니다.", "#trade-exchange-focus", false, { padding: 10 }],
       ["받을 화폐", "오른쪽에서 환전상에게 받을 화폐를 고릅니다. 거래에는 환전 할증이 더해집니다.", "#trade-merchant-currencies", false, { padding: 10 }],
       ["시세 분석", "가장 가치가 낮은 은화 1개를 내면 현재 가치와 과거 12개월의 월별 시세, 한 달 후 상승·하락·안정 전망을 확인합니다.\n같은 날에는 추가 비용 없이 다시 볼 수 있습니다.", "#trade-currency-rates", false, { padding: 10 }]
     ],

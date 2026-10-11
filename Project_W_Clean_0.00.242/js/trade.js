@@ -3498,21 +3498,68 @@
       }))
       .filter(entry => entry.value > 0 && entry.available > 0);
     const byValueDescending = (left, right) => right.value - left.value || left.currency.id.localeCompare(right.currency.id);
-    const ordered = [
-      ...entries.filter(entry => entry.currency.type === focusType).sort(byValueDescending),
-      ...entries.filter(entry => entry.currency.type !== focusType).sort(byValueDescending)
-    ];
-
     let remaining = payoutTarget;
     let selected = 0;
-    ordered.forEach(entry => {
-      if (remaining <= 0) return;
-      const quantity = Math.min(entry.available, Math.floor((remaining + .0001) / entry.value));
-      if (quantity <= 0) return;
-      proposal.merchant.currencies.set(entry.currency.id, quantity);
-      remaining -= entry.value * quantity;
-      selected += quantity;
+
+    const focusedEntries = entries
+      .filter(entry => entry.currency.type === focusType)
+      .sort((left, right) => left.value - right.value || left.currency.id.localeCompare(right.currency.id));
+    const focusedQuantities = new Map(focusedEntries.map(entry => [entry.currency.id, 0]));
+    while (remaining > 0 && focusedEntries.length > 0) {
+      const affordable = focusedEntries.filter(entry => {
+        const quantity = focusedQuantities.get(entry.currency.id) || 0;
+        return quantity < entry.available && entry.value <= remaining + .0001;
+      });
+      if (!affordable.length) break;
+
+      const lowestQuantity = Math.min(...affordable.map(entry => focusedQuantities.get(entry.currency.id) || 0));
+      const leastSelected = affordable.filter(entry => (focusedQuantities.get(entry.currency.id) || 0) === lowestQuantity);
+      const bundleValue = leastSelected.reduce((sum, entry) => sum + entry.value, 0);
+      const nextQuantity = affordable.reduce((next, entry) => {
+        const quantity = focusedQuantities.get(entry.currency.id) || 0;
+        return quantity > lowestQuantity ? Math.min(next, quantity) : next;
+      }, Number.POSITIVE_INFINITY);
+      const roundsUntilBalanced = Number.isFinite(nextQuantity)
+        ? Math.max(1, nextQuantity - lowestQuantity)
+        : Number.POSITIVE_INFINITY;
+      const roundsByStock = Math.min(...leastSelected.map(entry => entry.available - (focusedQuantities.get(entry.currency.id) || 0)));
+      const completeRounds = Math.min(
+        roundsUntilBalanced,
+        roundsByStock,
+        Math.floor((remaining + .0001) / bundleValue)
+      );
+
+      if (completeRounds > 0) {
+        leastSelected.forEach(entry => {
+          const quantity = (focusedQuantities.get(entry.currency.id) || 0) + completeRounds;
+          focusedQuantities.set(entry.currency.id, quantity);
+          remaining -= entry.value * completeRounds;
+          selected += completeRounds;
+        });
+        continue;
+      }
+
+      const nextEntry = leastSelected[0];
+      focusedQuantities.set(nextEntry.currency.id, (focusedQuantities.get(nextEntry.currency.id) || 0) + 1);
+      remaining -= nextEntry.value;
+      selected += 1;
+    }
+
+    focusedQuantities.forEach((quantity, currencyId) => {
+      if (quantity > 0) proposal.merchant.currencies.set(currencyId, quantity);
     });
+
+    entries
+      .filter(entry => entry.currency.type !== focusType)
+      .sort(byValueDescending)
+      .forEach(entry => {
+        if (remaining <= 0) return;
+        const quantity = Math.min(entry.available, Math.floor((remaining + .0001) / entry.value));
+        if (quantity <= 0) return;
+        proposal.merchant.currencies.set(entry.currency.id, quantity);
+        remaining -= entry.value * quantity;
+        selected += quantity;
+      });
 
     if (selected <= 0) {
       notify("환전상이 지급할 수 있는 화폐가 없습니다.");
