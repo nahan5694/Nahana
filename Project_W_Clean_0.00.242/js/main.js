@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.309";
+const GAME_VERSION = "0.00.310";
 const ACCOUNT_SCHEMA_VERSION = 48;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -588,6 +588,11 @@ const ADVANCED_TUTORIAL_MENU_LABELS = Object.freeze({
   "inn-lodging": "숙박"
 });
 const CAMP_PRIORITY_ITEM_IDS = ["G_0273", "G_0272"];
+const CAMP_ITEM_CATEGORY_ORDER = new Map([
+  ["야영물품", 0],
+  ["여행물품", 1],
+  ["여행식량", 2]
+]);
 const LEGACY_HORSE_FEED_ID_MAP = new Map([
   ["G_0320", "G_0267"],
   ["G_0321", "G_0268"]
@@ -11016,7 +11021,9 @@ function renderCampSetup() {
   const availableIds = new Set(items.map(item => item.instanceId));
   campMealInstanceIds = new Set([...campMealInstanceIds].filter(instanceId => availableIds.has(instanceId)));
 
-  const meals = items.filter(item => item.quantity > 0 && item.definition.category === "여행 식량");
+  const meals = items
+    .filter(item => item.quantity > 0 && item.definition.category === "여행 식량")
+    .sort(compareCampInventoryItems);
   const requiredUtility = getPriorityCampUtility(items);
   const priorityUtilityIds = new Set(items
     .filter(item => CAMP_PRIORITY_ITEM_IDS.includes(item.itemId))
@@ -11026,7 +11033,8 @@ function renderCampSetup() {
   const utilities = items.filter(item => item.quantity > 0
     && item.definition.category !== "여행 식량"
     && (!CAMP_PRIORITY_ITEM_IDS.includes(item.itemId) || item.instanceId === requiredUtility?.instanceId)
-    && Boolean(item.definition.campEffect));
+    && Boolean(item.definition.campEffect))
+    .sort(compareCampInventoryItems);
   const usableUtilityIds = new Set(utilities
     .filter(item => campItemAvailability(item).usable)
     .map(item => item.instanceId));
@@ -11040,6 +11048,16 @@ function renderCampSetup() {
     }))
     : [createCampEmptyMessage("사용 가능한 야영 물품이 없습니다.")]));
   updateCampComfortDisplay();
+}
+
+function compareCampInventoryItems(left, right) {
+  const leftCategory = String(left?.definition?.category || "").replaceAll(" ", "");
+  const rightCategory = String(right?.definition?.category || "").replaceAll(" ", "");
+  const leftOrder = CAMP_ITEM_CATEGORY_ORDER.get(leftCategory) ?? CAMP_ITEM_CATEGORY_ORDER.size;
+  const rightOrder = CAMP_ITEM_CATEGORY_ORDER.get(rightCategory) ?? CAMP_ITEM_CATEGORY_ORDER.size;
+  return leftOrder - rightOrder
+    || String(left?.itemId || "").localeCompare(String(right?.itemId || ""), "en", { numeric: true })
+    || String(left?.instanceId || "").localeCompare(String(right?.instanceId || ""), "en", { numeric: true });
 }
 
 function openCampSetup() {

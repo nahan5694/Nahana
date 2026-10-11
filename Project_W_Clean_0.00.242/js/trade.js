@@ -72,6 +72,11 @@
     시장: [30, 50, 15, 5]
   };
   const QUALITY_NAMES = ["저품질", "통상품질", "고품질", "명품"];
+  const CATALOG_CATEGORY_ORDER = new Map([
+    ["야영물품", 0],
+    ["여행물품", 1],
+    ["여행식량", 2]
+  ]);
   const QUALITY_SELL_RANGES = {
     저품질: [-30, -15], 통상품질: [-15, 15], 고품질: [15, 30], 명품: [25, 75]
   };
@@ -1716,7 +1721,7 @@
         : merchantTravelFilterMode === "hide"
           ? !isTravelCategory(entry.definition.category)
           : true)
-      .sort((left, right) => left.displayOrder - right.displayOrder);
+      .sort(compareMerchantCatalogEntries);
     elements.merchantItems.replaceChildren(...(merchantEntries.length
       ? merchantEntries.map(entry => createCatalogItem("merchant", entry))
       : [emptyMessage("판매 중인 상품이 없습니다.")]));
@@ -2019,7 +2024,39 @@
         actualValue: valuation.value,
         tradeBreakdown: valuation.breakdown
       }));
-    });
+    }).sort(comparePlayerCatalogEntries);
+  }
+
+  function catalogCategoryOrder(entry) {
+    const normalized = String(entry?.definition?.category || "").replaceAll(" ", "");
+    return CATALOG_CATEGORY_ORDER.get(normalized) ?? CATALOG_CATEGORY_ORDER.size;
+  }
+
+  function compareCatalogItemIds(left, right) {
+    return String(left?.itemId || left?.definition?.id || "").localeCompare(
+      String(right?.itemId || right?.definition?.id || ""),
+      "en",
+      { numeric: true }
+    );
+  }
+
+  function comparePlayerCatalogEntries(left, right) {
+    return catalogCategoryOrder(left) - catalogCategoryOrder(right)
+      || compareCatalogItemIds(left, right)
+      || String(left?.instanceId || "").localeCompare(String(right?.instanceId || ""), "en", { numeric: true })
+      || String(left?.tradeKey || "").localeCompare(String(right?.tradeKey || ""), "en", { numeric: true });
+  }
+
+  function compareMerchantCatalogEntries(left, right) {
+    const categoryDifference = catalogCategoryOrder(left) - catalogCategoryOrder(right);
+    if (categoryDifference) return categoryDifference;
+    if (catalogCategoryOrder(left) < CATALOG_CATEGORY_ORDER.size) {
+      return compareCatalogItemIds(left, right)
+        || Number(left?.displayOrder || 0) - Number(right?.displayOrder || 0);
+    }
+    // 일반 교역품은 입고 때 저장한 무작위 순서를 유지해 생산품·고정물류·수입품을 섞어 표시한다.
+    return Number(left?.displayOrder || 0) - Number(right?.displayOrder || 0)
+      || compareCatalogItemIds(left, right);
   }
 
   function isStackedTradeItem(item) {
