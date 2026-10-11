@@ -3146,6 +3146,35 @@ h1, p { margin-top: 0; }
   text-shadow: 0 1px 2px #25150da6;
   pointer-events: none;
 }
+.cargo-slot.is-temporary-normal-slot {
+  border-color: #8a6a3e;
+  background: linear-gradient(145deg, #eadcb97d, #ae895875);
+}
+.cargo-slot.is-temporary-normal-slot:is(.is-item-head, :not(.is-occupied))::after {
+  content: "임시";
+  position: absolute;
+  top: 5px;
+  right: 9px;
+  z-index: 4;
+  color: #76532e;
+  font-size: .5rem;
+  font-weight: 950;
+}
+.cargo-slot.is-compartment-locked {
+  cursor: not-allowed;
+  border-color: #62584d8f;
+  background: linear-gradient(145deg, #7d74696b, #4f49436b);
+  box-shadow: inset 0 0 0 2px #e4d7c21f;
+  opacity: .76;
+}
+.cargo-slot-locked {
+  place-self: center;
+  color: #d9cab1;
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-shadow: 0 1px 2px #241911;
+}
 .cargo-slot::after {
   position: absolute;
   z-index: 4;
@@ -3670,27 +3699,47 @@ h1, p { margin-top: 0; }
 .cargo-compartment-controls {
   position: absolute;
   z-index: 14;
-  top: clamp(92px, 13vh, 132px);
-  right: clamp(22px, 3vw, 58px);
+  top: clamp(98px, 13vh, 132px);
+  left: calc(50% + clamp(350px, 19vw, 390px));
   display: grid;
-  gap: 8px;
-  width: clamp(132px, 10vw, 174px);
+  gap: 10px;
+  width: clamp(190px, 12vw, 224px);
 }
 .cargo-compartment-controls button {
   display: grid;
-  gap: 3px;
-  min-height: 48px;
-  padding: 8px 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 11px 14px;
   border: 1px solid #654729;
   border-radius: 4px;
   background: linear-gradient(145deg, #e9d4aaeb, #b9905deb);
   color: #54361f;
   font: inherit;
-  font-size: .66rem;
+  text-align: left;
+  font-size: .76rem;
   font-weight: 950;
   box-shadow: inset 0 0 0 2px #fff0ce66, 0 6px 16px #1c100a66;
 }
-.cargo-compartment-controls button span { color: #76573a; font-size: .53rem; }
+.cargo-compartment-controls button strong {
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+.cargo-compartment-controls button span {
+  min-width: 48px;
+  padding: 4px 7px;
+  border: 1px solid #76533470;
+  border-radius: 3px;
+  background: #fff1ce75;
+  color: #66482c;
+  text-align: center;
+  font-size: .63rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
 .cargo-compartment-controls button.is-active { border-color: #ecd49f; outline: 2px solid #58371f; color: #fff5df; background: linear-gradient(#80603e, #5d402a); }
 .cargo-compartment-controls button.is-active span { color: #e9d7ba; }
 .cargo-compartment-controls button.is-drag-target { border-style: dashed; animation: cargo-compartment-pulse 1.2s ease-in-out infinite; }
@@ -6119,6 +6168,20 @@ button.map-marker:active { cursor: grabbing; }
 .trade-item-card > strong { grid-area: name; align-self: center; font-size: .98rem; }
 .trade-item-card > small { display: flex; grid-area: meta; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: #62472e; font-size: .75rem; font-weight: 800; }
 .trade-item-rarity { padding: 1px 5px; border: 1px solid #83613e62; border-radius: 3px; background: #ead3a8b8; color: #654324; font-weight: 950; }
+.trade-item-compartment {
+  padding: 2px 6px;
+  border: 1px solid #687b807d;
+  border-radius: 3px;
+  background: #d4e2e2c2;
+  color: #40595e;
+  font-size: .64rem;
+  font-weight: 950;
+}
+.trade-item-compartment.is-secret {
+  border-color: #78647f85;
+  background: #dfd2e6c7;
+  color: #5d4766;
+}
 .trade-item-card .origin-product-badge { min-height: 18px; padding: 2px 6px; font-size: .6rem; }
 .trade-market-purchase-restriction {
   padding: 2px 6px;

@@ -179,6 +179,7 @@
   const fallbackDefinitionsById = new Map(fallbackDefinitions.map(definition => [definition.id, definition]));
 
   let elements;
+  let needsCompartmentMigration = false;
   let state = loadState();
   let notify = () => {};
   let loadPromise;
@@ -277,6 +278,10 @@
 
     if (window.location.protocol === "file:") {
       dataSource = "local";
+      if (needsCompartmentMigration) {
+        needsCompartmentMigration = false;
+        reconcileCapacityLimits();
+      }
       render();
       loadPromise = Promise.resolve({ source: dataSource, items: [...itemDefinitions.values()] });
       return loadPromise;
@@ -291,6 +296,10 @@
         if ([...LOADED_DEFINITION_IDS].some(itemId => !loadedIds.has(itemId))) throw new Error("초기 지급품 행 일부를 찾을 수 없습니다.");
         definitions.forEach(definition => itemDefinitions.set(definition.id, definition));
         syncLoadedPlacements();
+        if (needsCompartmentMigration) {
+          needsCompartmentMigration = false;
+          reconcileCapacityLimits();
+        }
         dataSource = "csv";
         render();
         return { source: dataSource, items: definitions };
@@ -533,7 +542,7 @@
       return item;
     });
     return {
-      schemaVersion: 11,
+      schemaVersion: 12,
       columns: COLUMN_COUNT,
       rows: ROW_COUNT,
       maxWeight: DEFAULT_MAX_WEIGHT,
@@ -549,6 +558,7 @@
       if (!stored) return createDefaultState();
       const parsed = JSON.parse(stored);
       if (!isValidState(parsed)) return createDefaultState();
+      needsCompartmentMigration = Number(parsed.schemaVersion) < 12;
       if (parsed.rows !== ROW_COUNT) {
         const previousSlotTypes = Array.isArray(parsed.slotTypes) ? parsed.slotTypes : [];
         parsed.rows = ROW_COUNT;
@@ -561,7 +571,7 @@
         item.journeyLots = normalizeJourneyLots(item.journeyLots, item.quantity);
         item.slotType = item.slotType in SLOT_TYPE_LABELS ? item.slotType : "normal";
       });
-      parsed.schemaVersion = 11;
+      parsed.schemaVersion = 12;
       return parsed;
     } catch (error) {
       console.error(error);
@@ -571,7 +581,7 @@
 
   function isValidState(value) {
     return value
-      && [5, 6, 7, 8, 9, 10, 11].includes(value.schemaVersion)
+      && [5, 6, 7, 8, 9, 10, 11, 12].includes(value.schemaVersion)
       && value.columns === COLUMN_COUNT
       && [24, ROW_COUNT].includes(value.rows)
       && Array.isArray(value.slotTypes)
@@ -620,8 +630,10 @@
   function render() {
     if (!elements?.grid) return;
     const unlocks = normalizedCompartmentUnlocks();
+    const capacityLimits = normalizedCapacityLimits();
+    const layout = compartmentLayout(state.items);
     if (!isCompartmentAvailable(activeCompartment, unlocks)) activeCompartment = "normal";
-    const configuredCapacity = compartmentCapacity(activeCompartment);
+    const configuredCapacity = capacityLimits[activeCompartment] ?? compartmentCapacity(activeCompartment);
     const occupiedExtent = state.items
       .filter(item => (item.slotType || "normal") === activeCompartment)
       .reduce((maximum, item) => Math.max(maximum, item.startSlot + item.slotCount), 0);
@@ -643,8 +655,20 @@
       slot.setAttribute("role", "gridcell");
       slot.setAttribute("aria-rowindex", String(index + 1));
       slot.setAttribute("aria-colindex", "1");
+      const lockedByTemporaryCargo = (slotType === "protected" && index >= layout.protectedUsableSlots)
+        || (slotType === "secret" && index >= layout.secretUsableSlots);
+      const temporaryNormalSlot = slotType === "normal" && index >= capacityLimits.normal;
+      slot.classList.toggle("is-compartment-locked", lockedByTemporaryCargo);
+      slot.classList.toggle("is-temporary-normal-slot", temporaryNormalSlot);
 
-      if (item) {
+      if (lockedByTemporaryCargo) {
+        slot.disabled = true;
+        slot.setAttribute("aria-label", `${index + 1}번 ${SLOT_TYPE_LABELS[slotType]} 화물칸, 일반 임시 화물칸 사용 중 잠김`);
+        const lockedLabel = document.createElement("span");
+        lockedLabel.className = "cargo-slot-locked";
+        lockedLabel.textContent = "임시 화물칸 사용 중";
+        slot.append(lockedLabel);
+      } else if (item) {
         const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
         const knowledge = knowledgeProfile(definition, item);
         const isCampSupply = String(definition.category || "").replaceAll(" ", "") === "야영물품";
@@ -670,7 +694,7 @@
           : isStackable
             ? "#628789"
             : GROUP_COLORS[itemIndex % GROUP_COLORS.length]);
-        slot.setAttribute("aria-label", `${knowledge.name}, ${item.quantity}${definition.unit}, ${item.slotCount}칸 중 ${positionInItem + 1}번째 칸${memoAvailable ? ", 길게 눌러 상품 메모 열기" : ""}`);
+        slot.setAttribute("aria-label", `${knowledge.name}, ${item.quantity}${definition.unit}, ${item.slotCount}칸 중 ${positionInItem + 1}번째 칸${temporaryNormalSlot ? ", 보호 화물칸에서 빌린 임시 화물칸" : ""}${memoAvailable ? ", 길게 눌러 상품 메모 열기" : ""}`);
 
         let bracket = null;
         if (hasPrevious || hasNext) {
@@ -768,6 +792,17 @@
     });
     elements.compartmentButtons.forEach(button => {
       const type = button.dataset.cargoCompartment;
+      const capacity = Math.max(0, Number(capacityLimits[type]) || 0);
+      const capacityLabel = button.querySelector("[data-cargo-compartment-capacity]");
+      if (capacityLabel) capacityLabel.textContent = `${formatNumber(capacity)}칸`;
+      const lockedSlots = type === "protected"
+        ? layout.protectedLockedSlots
+        : type === "secret" ? layout.secretLockedSlots : 0;
+      const lockedCopy = lockedSlots > 0
+        ? `, 임시 일반 화물칸 사용으로 ${formatNumber(lockedSlots)}칸 잠김`
+        : "";
+      button.setAttribute("aria-label", `${SLOT_TYPE_LABELS[type] || "일반"} 화물칸 ${formatNumber(capacity)}칸으로 전환${lockedCopy}`);
+      button.title = lockedCopy ? `${formatNumber(lockedSlots)}칸이 임시 일반 화물칸으로 사용 중입니다.` : "";
       button.hidden = !isCompartmentAvailable(type, unlocks) || type === activeCompartment;
       button.classList.remove("is-active");
       button.setAttribute("aria-pressed", "false");
@@ -836,16 +871,91 @@
     };
   }
 
-  function getCapacitySummary(items = state.items, slotType = "normal") {
-    const usedSlots = items.filter(item => (item.slotType || "normal") === slotType).reduce((sum, item) => {
+  function usedSlotsForType(items = state.items, slotType = "normal") {
+    return items.filter(item => (item.slotType || "normal") === slotType).reduce((sum, item) => {
       const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
       return sum + Math.max(1, Number(definition.slotCount) || 1);
     }, 0);
-    const totalSlots = compartmentCapacity(slotType);
+  }
+
+  function compartmentLayout(items = state.items) {
+    const limits = normalizedCapacityLimits();
+    const normalUsedSlots = usedSlotsForType(items, "normal");
+    const protectedUsedSlots = usedSlotsForType(items, "protected");
+    const secretUsedSlots = usedSlotsForType(items, "secret");
+    const normalOverflowSlots = Math.max(0, normalUsedSlots - limits.normal);
+    const protectedLockedSlots = Math.min(
+      Math.max(0, limits.protected - protectedUsedSlots),
+      normalOverflowSlots
+    );
+    const secretLockedSlots = Math.min(
+      Math.max(0, limits.secret - secretUsedSlots),
+      Math.max(0, normalOverflowSlots - protectedLockedSlots)
+    );
+    const protectedUsableSlots = Math.max(0, limits.protected - protectedLockedSlots);
+    const secretUsableSlots = Math.max(0, limits.secret - secretLockedSlots);
+    const usedSlots = normalUsedSlots + protectedUsedSlots + secretUsedSlots;
+    const totalSlots = limits.normal + limits.protected + limits.secret;
+    return {
+      limits,
+      normalUsedSlots,
+      protectedUsedSlots,
+      secretUsedSlots,
+      normalOverflowSlots,
+      protectedLockedSlots,
+      secretLockedSlots,
+      protectedUsableSlots,
+      secretUsableSlots,
+      usedSlots,
+      totalSlots,
+      freeSlots: Math.max(0, totalSlots - usedSlots),
+      valid: usedSlots <= totalSlots
+        && protectedUsedSlots <= limits.protected
+        && secretUsedSlots <= limits.secret
+    };
+  }
+
+  function compartmentUsableCapacity(slotType = "normal", items = state.items) {
+    const layout = compartmentLayout(items);
+    if (slotType === "normal") {
+      return Math.max(0, layout.totalSlots - layout.protectedUsedSlots - layout.secretUsedSlots);
+    }
+    if (slotType === "protected") return layout.protectedUsableSlots;
+    if (slotType === "secret") return layout.secretUsableSlots;
+    return 0;
+  }
+
+  function canAddCompartmentSlots(items, slotType, requiredSlots) {
+    const slots = Math.max(0, Math.trunc(Number(requiredSlots) || 0));
+    if (slots <= 0) return true;
+    const layout = compartmentLayout(items);
+    if (slotType === "normal") {
+      return layout.usedSlots + slots <= layout.totalSlots;
+    }
+    if (slotType === "protected") {
+      return layout.protectedUsedSlots + slots <= layout.limits.protected
+        && layout.usedSlots + slots <= layout.totalSlots;
+    }
+    if (slotType === "secret") {
+      return layout.secretUsedSlots + slots <= layout.limits.secret
+        && layout.usedSlots + slots <= layout.totalSlots;
+    }
+    return false;
+  }
+
+  function getCapacitySummary(items = state.items, slotType = "") {
+    const layout = compartmentLayout(items);
+    if (!slotType) return layout;
+    const usedSlots = usedSlotsForType(items, slotType);
+    const totalSlots = compartmentUsableCapacity(slotType, items);
     return {
       usedSlots,
       totalSlots,
-      freeSlots: Math.max(0, totalSlots - usedSlots)
+      freeSlots: Math.max(0, totalSlots - usedSlots),
+      lockedSlots: slotType === "protected"
+        ? layout.protectedLockedSlots
+        : slotType === "secret" ? layout.secretLockedSlots : 0,
+      valid: layout.valid
     };
   }
 
@@ -1039,13 +1149,14 @@
     const destination = String(targetType || "normal");
     if (!item || item.slotType === destination || !isCompartmentAvailable(destination)) return false;
     const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
-    const capacity = getCapacitySummary(state.items, destination);
-    if (capacity.freeSlots < definition.slotCount) {
+    const draft = state.items.map(entry => ({ ...entry }));
+    const draftItem = draft.find(entry => entry.instanceId === instanceId);
+    draftItem.slotType = destination;
+    if (!compartmentLayout(draft).valid) {
       notify(`${SLOT_TYPE_LABELS[destination]} 화물칸에 ${definition.slotCount}칸의 빈 공간이 필요합니다.`);
       return false;
     }
     item.slotType = destination;
-    // TODO: 늑대 습격 구현 시 protected 화물은 손상 및 강탈 대상에서 제외한다.
     reflowItemPlacements();
     persistState();
     render();
@@ -1847,6 +1958,12 @@
     return (leftIndex - rightIndex) || String(leftCategory).localeCompare(String(rightCategory), "ko");
   }
 
+  function cargoStoredValue(item) {
+    const definition = itemDefinitions.get(item?.itemId) || sampleDefinition;
+    const unitValue = Number(item?.purchaseValue) > 0 ? Number(item.purchaseValue) : Number(definition.baseValue) || 0;
+    return unitValue * Math.max(1, Number(item?.quantity) || 1);
+  }
+
   function reflowItemPlacements() {
     state.items
       .forEach(item => { item.slotType = item.slotType in SLOT_TYPE_LABELS ? item.slotType : "normal"; });
@@ -1865,22 +1982,22 @@
 
   function reconcileCapacityLimits() {
     const unlocks = normalizedCompartmentUnlocks();
-    const normalCapacity = compartmentCapacity("normal");
-    let normalUsed = getCapacitySummary(state.items, "normal").usedSlots;
-    if (normalUsed > normalCapacity && unlocks.protected) {
-      let protectedFree = getCapacitySummary(state.items, "protected").freeSlots;
-      const candidates = state.items
-        .filter(item => (item.slotType || "normal") === "normal")
-        .sort((left, right) => right.startSlot - left.startSlot);
-      for (const item of candidates) {
-        if (normalUsed <= normalCapacity) break;
-        const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
-        const slots = Math.max(1, Number(definition.slotCount) || 1);
-        if (slots > protectedFree) continue;
-        item.slotType = "protected";
-        normalUsed -= slots;
-        protectedFree -= slots;
-      }
+    const limits = normalizedCapacityLimits();
+    const candidates = state.items
+      .filter(item => (item.slotType || "normal") === "normal")
+      .sort((left, right) => cargoStoredValue(right) - cargoStoredValue(left)
+        || String(left.instanceId).localeCompare(String(right.instanceId)));
+    for (const item of candidates) {
+      const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
+      const slots = Math.max(1, Number(definition.slotCount) || 1);
+      const destinations = [];
+      if (unlocks.secret) destinations.push("secret");
+      if (unlocks.protected) destinations.push("protected");
+      const destination = destinations.find(type => {
+        const used = usedSlotsForType(state.items, type);
+        return used + slots <= limits[type];
+      });
+      if (destination) item.slotType = destination;
     }
     reflowItemPlacements();
     persistState();
@@ -1984,6 +2101,25 @@
     return added;
   }
 
+  function incomingAdditionValue(addition) {
+    const definition = itemDefinitions.get(String(addition?.itemId || "")) || sampleDefinition;
+    const unitValue = Number(addition?.purchaseValue) > 0
+      ? Number(addition.purchaseValue)
+      : Number(definition.baseValue) || 0;
+    return unitValue * Math.max(1, Number(addition?.quantity) || 1);
+  }
+
+  function preferredTradeCompartment(items, addition, definition) {
+    const slots = Math.max(1, Number(definition?.slotCount) || 1);
+    const unified = isUnifiedStackDefinition(definition);
+    for (const type of ["secret", "protected"]) {
+      if (!isCompartmentAvailable(type)) continue;
+      if (unified && items.some(item => item.slotType === type && item.itemId === addition.itemId)) return type;
+      if (canAddCompartmentSlots(items, type, slots)) return type;
+    }
+    return "normal";
+  }
+
   function buildExchangeDraft({ remove = [], add = [] } = {}, { allowOverflow = false } = {}) {
     const draft = state.items.map(item => ({ ...item, journeyLots: normalizeJourneyLots(item.journeyLots, item.quantity) }));
     const removals = new Map();
@@ -2003,7 +2139,8 @@
       const itemId = String(entry?.itemId || "");
       const quantity = Math.max(0, Math.trunc(Number(entry?.quantity) || 0));
       return itemId && quantity > 0 ? [{ ...entry, itemId, quantity }] : [];
-    });
+    }).sort((left, right) => incomingAdditionValue(right) - incomingAdditionValue(left)
+      || String(left.itemId).localeCompare(String(right.itemId)));
 
     let sequence = 0;
     for (const addition of additions) {
@@ -2014,7 +2151,7 @@
       const maxStack = Math.max(1, definition.maxStack || 1);
       const tradeMetadata = createDefaultTradeMetadata(addition, definition);
       const incomingJourneyLots = normalizeJourneyLots(addition.journeyLots, addition.quantity);
-      const targetSlotType = "normal";
+      const targetSlotType = preferredTradeCompartment(remainingItems, addition, definition);
       const incomingDurability = addition.durability != null
         && addition.durability !== ""
         && Number.isFinite(Number(addition.durability))
@@ -2035,7 +2172,7 @@
               const itemDefinition = itemDefinitions.get(item.itemId) || sampleDefinition;
               return sum + itemDefinition.slotCount;
             }, 0);
-          if (!allowOverflow && occupiedSlots + definition.slotCount > compartmentCapacity(targetSlotType)) return null;
+          if (!allowOverflow && !canAddCompartmentSlots(remainingItems, targetSlotType, definition.slotCount)) return null;
           sequence += 1;
           remainingItems.push({
             instanceId: `CARGO_TRADE_${Date.now()}_${String(sequence).padStart(3, "0")}`,
@@ -2071,7 +2208,7 @@
           const itemDefinition = itemDefinitions.get(item.itemId) || sampleDefinition;
           return sum + itemDefinition.slotCount;
         }, 0);
-        if (!allowOverflow && occupiedSlots + definition.slotCount > compartmentCapacity(targetSlotType)) return null;
+        if (!allowOverflow && !canAddCompartmentSlots(remainingItems, targetSlotType, definition.slotCount)) return null;
         const stackQuantity = Math.min(maxStack, quantity);
         const itemJourneyLots = takeJourneyLots(incomingJourneyLots, stackQuantity);
         sequence += 1;
@@ -2116,7 +2253,7 @@
       return sum + (definition.weight * item.quantity);
     }, 0);
     return {
-      possible: capacity.usedSlots <= capacity.totalSlots,
+      possible: capacity.valid,
       currentUsedSlots: currentCapacity.usedSlots,
       usedSlots: capacity.usedSlots,
       totalSlots: capacity.totalSlots,
@@ -2150,7 +2287,7 @@
   }
 
   function findFreeContiguousSlots(requiredSlots, slotType = "normal") {
-    const capacity = compartmentCapacity(slotType);
+    const capacity = compartmentUsableCapacity(slotType, state.items);
     const occupied = Array(capacity).fill(false);
     state.items.filter(item => (item.slotType || "normal") === slotType).forEach(item => {
       for (let index = item.startSlot; index < item.startSlot + item.slotCount; index += 1) {

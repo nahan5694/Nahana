@@ -181,7 +181,8 @@
       ...item,
       name: item.definition?.displayName || "화물",
       purchaseUnitValue: cargoPurchaseUnitValue(item),
-      customsExcluded: item.slotType === "secret"
+      customsExcluded: item.slotType === "secret",
+      eventProtected: ["protected", "secret"].includes(item.slotType)
     })) : [];
     const cargoValue = cargoItems.reduce((total, item) => total + cargoPaymentValue(item, item.quantity), 0);
     const availableValue = walletValue + cargoValue;
@@ -332,10 +333,10 @@
       const paymentExcluded = isEntryTaxPaymentExcluded(item);
       const row = document.createElement("button");
       row.type = "button";
-      row.className = `entry-tax-cargo-row ${selected > 0 ? "is-selected" : ""} ${item.customsExcluded ? "is-customs-excluded" : ""} ${paymentExcluded ? "is-payment-excluded" : ""}`;
+      row.className = `entry-tax-cargo-row ${selected > 0 ? "is-selected" : ""} ${item.customsExcluded ? "is-customs-excluded" : ""} ${item.eventProtected ? "is-event-protected" : ""} ${paymentExcluded ? "is-payment-excluded" : ""}`;
       row.dataset.entryTaxAction = "add-cargo";
       row.dataset.instanceId = item.instanceId;
-      row.disabled = remaining <= 0 || item.customsExcluded || paymentExcluded;
+      row.disabled = remaining <= 0 || item.customsExcluded || item.eventProtected || paymentExcluded;
       const category = document.createElement("span");
       category.textContent = item.definition?.category || "미분류";
       const copy = document.createElement("div");
@@ -344,7 +345,9 @@
       const detail = document.createElement("small");
       const slotCount = Math.max(1, Number(item.definition?.slotCount) || Number(item.slotCount) || 1);
       const weight = Math.max(0, Number(item.definition?.weight) || 0) * item.quantity;
-      detail.textContent = item.customsExcluded
+      detail.textContent = item.eventProtected
+        ? `${formatNumber(slotCount)}칸 · 무게 ${formatNumber(weight)} · ${item.slotType === "secret" ? "비밀" : "보호"} 화물칸 · 습격 보호`
+        : item.customsExcluded
         ? `${formatNumber(slotCount)}칸 · 무게 ${formatNumber(weight)} · 비밀 화물칸 · ${session?.mode === "demand" ? "요구 가치 제외" : "관세 가치 제외"}`
         : paymentExcluded
           ? `${formatNumber(slotCount)}칸 · 무게 ${formatNumber(weight)} · 입장 관세 납부 불가`
@@ -536,7 +539,7 @@
 
   function adjustCargo(instanceId, delta) {
     const item = cargoItem(instanceId);
-    if (!item || isEntryTaxPaymentExcluded(item)) return;
+    if (!item || item.customsExcluded || item.eventProtected || isEntryTaxPaymentExcluded(item)) return;
     const previous = selectedCargo.get(instanceId) || 0;
     const next = Math.max(0, Math.min(item.quantity, previous + delta));
     if (next > 0) selectedCargo.set(instanceId, next);
@@ -764,7 +767,7 @@
   }
 
   function cargoPaymentValue(item, quantity) {
-    if (item?.customsExcluded || item?.slotType === "secret" || isEntryTaxPaymentExcluded(item)) return 0;
+    if (item?.customsExcluded || item?.eventProtected || item?.slotType === "secret" || isEntryTaxPaymentExcluded(item)) return 0;
     return cargoPurchaseUnitValue(item) * Math.max(0, Math.trunc(Number(quantity) || 0));
   }
 

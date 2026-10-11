@@ -77,7 +77,7 @@
       </section>
 
       <div class="title-loading-curtain" aria-hidden="true"></div>
-      <p class="version-tag">VERSION <span id="game-version">0.00.305</span></p>
+      <p class="version-tag">VERSION <span id="game-version">0.00.308</span></p>
     </section>
 
     <section id="game-loading-screen" class="game-loading-screen" aria-label="여행 준비 중" aria-busy="true" hidden>
@@ -119,7 +119,7 @@
             <span id="game-clock-weather" class="toolbar-weather">맑음</span>
             <span id="game-clock-phase" class="toolbar-phase">아침</span>
           </span>
-          <span class="toolbar-version">VERSION 0.00.305</span>
+          <span class="toolbar-version">VERSION 0.00.308</span>
           <button id="options-button" class="toolbar-icon-button" type="button" aria-label="옵션" title="옵션">⚙</button>
         </div>
       </header>
@@ -411,9 +411,18 @@
               <div id="cargo-grid" class="cargo-grid" role="grid" aria-label="24행 화물 목록" aria-rowcount="24" aria-colcount="1"></div>
             </div>
             <nav id="cargo-compartment-controls" class="cargo-compartment-controls" aria-label="화물칸 선택">
-              <button type="button" data-cargo-compartment="normal">일반 화물칸</button>
-              <button type="button" data-cargo-compartment="protected" hidden>보호 화물칸 <span>10칸</span></button>
-              <button type="button" data-cargo-compartment="secret" hidden>비밀 화물칸 <span>2칸</span></button>
+              <button type="button" data-cargo-compartment="normal">
+                <strong>일반 화물칸</strong>
+                <span data-cargo-compartment-capacity>0칸</span>
+              </button>
+              <button type="button" data-cargo-compartment="protected" hidden>
+                <strong>보호 화물칸</strong>
+                <span data-cargo-compartment-capacity>30칸</span>
+              </button>
+              <button type="button" data-cargo-compartment="secret" hidden>
+                <strong>비밀 화물칸</strong>
+                <span data-cargo-compartment-capacity>3칸</span>
+              </button>
             </nav>
             <div id="cargo-discard-zone" class="cargo-discard-zone" role="button" aria-label="화물 폐기 구역" hidden>
               <strong>화물 폐기</strong>

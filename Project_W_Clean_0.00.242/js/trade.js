@@ -8,6 +8,12 @@
   const TIER_STOCK = new Map([[1, 4], [2, 3], [3, 2], [4, 1]]);
   const SIZE_STOCK_MODIFIER = new Map([["마을", -1], ["도시", 1], ["대도시", 2], ["관문", 0]]);
   const FACILITY_STOCK_MODIFIER = new Map([["시장", 0], ["교역소", 2], ["상회", 1], ["좌판", 2]]);
+  const VILLAGE_MARKET_SOURCE_STOCK_MODIFIER = new Map([
+    ["production", 1],
+    ["import", -1],
+    ["logistics", -1]
+  ]);
+  const DISTINCTIVE_LOCAL_STOCK_CATEGORIES = new Set(["마을", "도시", "대도시"]);
   const SIZE_WEALTH = new Map([["마을", 1], ["도시", 2], ["대도시", 4], ["관문", 2]]);
   const FACILITY_WEALTH = new Map([["시장", 1], ["교역소", 1.5], ["상회", 2], ["좌판", 1.5], ["환전상", 2.5]]);
   const OFFER_FILTERS = new Set(["all", "goods", "currencies", "information", "notes"]);
@@ -45,7 +51,7 @@
   const REGIONAL_CAMP_SUPPLY_REGIONS = new Map([["G_0278", "북부"], ["G_0279", "남부"]]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
   const MERCHANT_WALLET_SCHEMA_VERSION = 2;
-  const MERCHANT_STOCK_SCHEMA_VERSION = 7;
+  const MERCHANT_STOCK_SCHEMA_VERSION = 8;
   const PRODUCTION_CLEARANCE_CHANCE = .1;
   const PRODUCTION_DURABILITY_DAMAGE_MAX = new Map([["상회", 10], ["교역소", 15], ["시장", 20]]);
   const PRODUCTION_CLEARANCE_CONDITION_MIN = .4;
@@ -1177,6 +1183,10 @@
       return connectionWeight * sharedWeight;
     }, rng);
     const specialties = new Set(settlement.specialtyNames || []);
+    const distinctiveLocalProducts = new Set([
+      ...(settlement.specialtyNames || []),
+      ...(settlement.famousProductNames || [])
+    ]);
     const cityEventStock = getCityEventModifiers(settlement).stockBySubcategory || {};
     const stockLots = [];
     const appendLot = (definition, sourceType, quantity, origin, baseQuantity = quantity) => {
@@ -1198,7 +1208,10 @@
       stockLots.push(lot);
     };
     displayedProduction.forEach(definition => {
-      const baseQuantity = productionStock(definition, settlement.category, facilityType);
+      const baseQuantity = productionStock(definition, settlement.category, facilityType, {
+        sourceType: "production",
+        distinctive: distinctiveLocalProducts.has(definition.name1)
+      });
       const eventAdjustment = Number(cityEventStock[definition.subcategory]) || 0;
       appendLot(definition, "production", variedStock(baseQuantity, settlement.category, rng) + eventAdjustment, settlement, baseQuantity);
     });
@@ -1210,7 +1223,7 @@
       appendLot(definition, "logistics", regularQuantity + eventAdjustment, origin, baseQuantity);
     });
     selectedImports.forEach(definition => {
-      const baseQuantity = productionStock(definition, settlement.category, facilityType);
+      const baseQuantity = productionStock(definition, settlement.category, facilityType, { sourceType: "import" });
       const eventAdjustment = Number(cityEventStock[definition.subcategory]) || 0;
       appendLot(definition, "import", variedStock(baseQuantity, settlement.category, rng) + eventAdjustment, chooseOriginNode(definition, settlement.id, worldData.nodes, rng), baseQuantity);
     });
@@ -1250,7 +1263,10 @@
           effect.sourceType,
           Math.max(1, effect.amount),
           effect.sourceType === "production" ? settlement : chooseOriginNode(definition, settlement.id, worldData.nodes, rng),
-          productionStock(definition, settlement.category, facilityType)
+          productionStock(definition, settlement.category, facilityType, {
+            sourceType: effect.sourceType,
+            distinctive: effect.sourceType === "production" && distinctiveLocalProducts.has(definition.name1)
+          })
         );
       }
     });
@@ -1287,7 +1303,9 @@
       originDistance: nonTradeItem ? null : originDistance,
       originProductKind: nonTradeItem ? "" : String(originProductKind || ""),
       sourceType,
-      importMarkup: ["logistics", "import", "resale"].includes(sourceType) ? randomRange(rng, 5, 15) : 0,
+      importMarkup: ["logistics", "import", "resale"].includes(sourceType)
+        ? randomRange(rng, 5, 15) * (facilityType === "좌판" && sourceType === "import" ? .5 : 1)
+        : 0,
       durability: rollMerchantDurability(
         definition.durability,
         facilityType,
@@ -1464,17 +1482,28 @@
     return weighted.at(-1)?.item || null;
   }
 
-  function productionStock(definition, settlementCategory, facilityType) {
+  function productionStock(definition, settlementCategory, facilityType, options = {}) {
     const tier = Math.min(4, Math.max(1, Math.trunc(Number(definition.rarity) || 1)));
+    const sourceType = String(options.sourceType || "production");
+    const villageMarketModifier = settlementCategory === "마을" && facilityType === "시장"
+      ? VILLAGE_MARKET_SOURCE_STOCK_MODIFIER.get(sourceType)
+      : undefined;
+    const sizeModifier = villageMarketModifier ?? (SIZE_STOCK_MODIFIER.get(settlementCategory) || 0);
+    const distinctiveModifier = sourceType === "production"
+      && options.distinctive
+      && DISTINCTIVE_LOCAL_STOCK_CATEGORIES.has(settlementCategory)
+      ? 1
+      : 0;
     return Math.max(1,
       (TIER_STOCK.get(tier) || 1)
-      + (SIZE_STOCK_MODIFIER.get(settlementCategory) || 0)
-      + (FACILITY_STOCK_MODIFIER.get(facilityType) || 0));
+      + sizeModifier
+      + (FACILITY_STOCK_MODIFIER.get(facilityType) || 0)
+      + distinctiveModifier);
   }
 
   function fixedLogisticsStock(definition, settlementCategory, facilityType) {
     return Math.max(1,
-      productionStock(definition, settlementCategory, facilityType)
+      productionStock(definition, settlementCategory, facilityType, { sourceType: "logistics" })
       + (FIXED_LOGISTICS_SIZE_MODIFIER.get(settlementCategory) || 0)
       + (FIXED_LOGISTICS_FACILITY_MODIFIER.get(facilityType) || 0));
   }
@@ -2038,6 +2067,12 @@
     quality.textContent = knowledge.qualityText;
     const metaText = document.createElement("span");
     metaText.textContent = `${knowledge.showOrigin ? `${originDisplayName(entry.originName)} · ` : ""}${slotCount}칸 · 무게 ${formatNumber(entry.definition.weight)}`;
+    if (owner === "player" && ["protected", "secret"].includes(entry.slotType)) {
+      const compartment = document.createElement("span");
+      compartment.className = `trade-item-compartment is-${entry.slotType}`;
+      compartment.textContent = entry.slotType === "secret" ? "비밀 화물칸" : "보호 화물칸";
+      meta.append(compartment);
+    }
     const durability = document.createElement("span");
     const maximumDurability = Math.max(0, Number(entry.definition.durability) || 0);
     const currentDurability = Number.isFinite(Number(entry.durability)) ? Number(entry.durability) : maximumDurability;
@@ -2211,7 +2246,7 @@
     const nonTradeItem = isNonTradeCategory(definition.category);
     const qualityAdjustment = nonTradeItem ? 0 : qualityAdjustmentFor(lot, QUALITY_SELL_RANGES);
     const importMarkup = ["logistics", "import", "resale"].includes(lot.sourceType)
-      ? clamp(Number(lot.importMarkup) || 0, 5, 15)
+      ? clamp(Number(lot.importMarkup) || 0, 0, 15)
       : 0;
     const market = regionalMarketValuation(lot, definition, "merchantSell");
     const facilityAdjustment = nonTradeItem ? 0 : (FACILITY_SELL_SPREAD.get(current?.facilityType) || 0);
@@ -2706,7 +2741,11 @@
         || (!localProductionNames.has(definition.name1) && !localLogisticsNames.has(definition.name1))
         || stockedItemIds.has(definition.id)) return;
       const expected = localProductionNames.has(definition.name1)
-        ? productionStock(definition, current.settlement.category, current.facilityType)
+        ? productionStock(definition, current.settlement.category, current.facilityType, {
+          sourceType: "production",
+          distinctive: (current.settlement.specialtyNames || []).includes(definition.name1)
+            || (current.settlement.famousProductNames || []).includes(definition.name1)
+        })
         : fixedLogisticsStock(definition, current.settlement.category, current.facilityType);
       addStock(localProductionNames.has(definition.name1) ? "production" : "logistics", expected, expected);
     });

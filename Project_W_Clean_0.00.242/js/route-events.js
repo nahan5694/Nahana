@@ -333,7 +333,11 @@
 
   function specialAvailability(event) {
     if (event.id !== "R_E_004") return true;
-    return window.ProjectWCargo?.getItemQuantity?.("G_0269") > 0 || window.ProjectWCargo?.getItemQuantity?.("G_0270") > 0;
+    return (window.ProjectWCargo?.getInventoryItems?.() || []).some(item => {
+      return ["G_0269", "G_0270"].includes(item.itemId)
+        && !["protected", "secret"].includes(item.slotType)
+        && Number(item.quantity) > 0;
+    });
   }
 
   function isUnlockedForDay(event, worldDay) {
