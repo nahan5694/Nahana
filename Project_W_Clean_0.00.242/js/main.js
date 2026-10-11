@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.301";
+const GAME_VERSION = "0.00.304";
 const ACCOUNT_SCHEMA_VERSION = 48;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -453,7 +453,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     contexts: ["merchant-path"],
     pages: [
       { title: "상품 상세 기록", text: "행상인의 길 5조에서 상품을 열면 취급처, 직접 적는 메모와 교역 여정을 한곳에서 관리합니다.", selector: ".merchant-path-note-editor" },
-      { title: "취급처", text: "직접 구입한 거점은 취급처 뱃지로 쌓입니다.\n뱃지를 눌러 생산지로 추정하거나 생산지가 아닌 곳으로 제외 표시할 수 있습니다.", selector: ".merchant-path-outlet-history" },
+      { title: "취급처", text: "직접 구입한 거점은 취급처 뱃지로 쌓입니다.\n뱃지를 눌러 생산지로 추정하거나 생산지가 아닌 곳으로 제외 표시할 수 있습니다. 지도의 취급처 표시를 켜면 제외하지 않은 상품을 거점별 뱃지로 확인할 수 있습니다.", selector: ".merchant-path-outlet-history" },
       { title: "직접 남기는 메모", text: "상품마다 짧은 메모를 세 개까지 적을 수 있습니다.\n직접 알아낸 특징과 다음 거래 계획을 기록해 두세요.", selector: ".merchant-path-note-fields" },
       { title: "거래 기록", text: "구입과 판매를 모두 마친 교역만 한 묶음으로 남습니다.\n상행 복기를 마친 기록에는 이익 또는 손실 뱃지도 표시됩니다.", selector: ".merchant-path-trade-history" },
       { title: "화물뷰에서도 확인", text: "작성한 메모와 거래 기록은 화물의 툴팁에도 표시됩니다.\n화물을 길게 누르면 해당 상품 기록으로 바로 이동합니다.", selector: "#cargo-grid", preview: "cargo" }
@@ -1125,6 +1125,7 @@ window.ProjectWMapView.init({
   getInformationCards: () => window.ProjectWInformation?.getCards?.() || [],
   getCityEvents: placement => window.ProjectWCityEvents?.getViewedSettlementEvents?.(placement) || [],
   getSettlementNotes: settlementId => settlementNotesFor(settlementId),
+  getSettlementOutletGoods: placement => window.ProjectWMerchantPath?.getSettlementOutletGoods?.(placement) || [],
   editSettlementNotes: settlementId => openSettlementNoteEditor(settlementId),
   notify: showGameNotice
 });
@@ -6590,7 +6591,7 @@ function renderSpiritBlessingFeature(partner) {
   actionDescription.textContent = partner.spirit < 1
     ? "정령력이 부족합니다."
     : availableNames.length
-      ? "정령력 1을 사용해 현재 등급 확률에 따라 가호를 얻습니다."
+      ? "정령력 1을 사용해 가호를 얻습니다. 같은 종류의 상위 등급은 기존 가호를 교체합니다."
       : "획득 가능한 가호가 없습니다.";
   actionCopy.append(actionTitle, actionDescription);
   const obtain = document.createElement("button");
@@ -6739,10 +6740,19 @@ function availableBuffNames(partner) {
 }
 
 function availableBuffDefinitions(partner) {
-  const activeNames = new Set((partner?.activeBuffs || []).map(buff => buff.name));
+  const activeGradeByName = new Map();
+  (partner?.activeBuffs || []).forEach(buff => {
+    const name = String(buff?.name || "").trim();
+    if (!name) return;
+    activeGradeByName.set(name, Math.max(
+      activeGradeByName.get(name) || 0,
+      Math.min(3, Math.max(1, Number(buff?.gradeNumber) || romanGradeNumber(buff?.grade)))
+    ));
+  });
   const chance = companionBuffGradeChances(partner?.companionRank);
   return [...nahanaBuffDefinitions.values()].filter(definition => (
-    !activeNames.has(definition.name) && (Number(chance[definition.gradeNumber]) || 0) > 0
+    definition.gradeNumber > (activeGradeByName.get(definition.name) || 0)
+      && (Number(chance[definition.gradeNumber]) || 0) > 0
   ));
 }
 
@@ -6808,12 +6818,18 @@ async function acquireRandomSpiritBlessing() {
   if (!definition) return;
   const gradeNumber = definition.gradeNumber;
   const acquiredDay = normalizeWorldTime(account.worldTime).day;
+  const replacedBuffs = partner.activeBuffs.filter(buff => buff.name === definition.name);
+  const replacedBuff = replacedBuffs
+    .slice()
+    .sort((left, right) => right.gradeNumber - left.gradeNumber)[0] || null;
+  const inheritedAutoExtend = replacedBuffs.some(buff => buff.autoExtend);
   partner.spirit -= 1;
+  partner.activeBuffs = partner.activeBuffs.filter(buff => buff.name !== definition.name);
   partner.activeBuffs.push({
     ...definition,
     acquiredDay,
     expiresDay: acquiredDay + gradeNumber + 2,
-    autoExtend: false
+    autoExtend: inheritedAutoExtend
   });
   persistAccount();
   spiritBlessingInProgress = true;
@@ -6836,7 +6852,9 @@ async function acquireRandomSpiritBlessing() {
   renderPartnerFeature();
   updatePartnerUi();
   spiritBlessingInProgress = false;
-  showGameNotice(`${definition.name} ${definition.grade}등급 가호를 얻었습니다. · ${gradeNumber + 2}일 지속`);
+  showGameNotice(replacedBuff
+    ? `${definition.name} ${replacedBuff.grade}등급 → ${definition.grade}등급으로 가호가 강화되었습니다. · ${gradeNumber + 2}일 지속`
+    : `${definition.name} ${definition.grade}등급 가호를 얻었습니다. · ${gradeNumber + 2}일 지속`);
   if (isTutorialActive(TUTORIAL_IDS.SPIRIT_BLESSING)) {
     completeTutorial(TUTORIAL_IDS.SPIRIT_BLESSING);
   }
@@ -8838,16 +8856,16 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
   if (!isNodeId(placementId)) {
     applyTravelMoodChange(conditions);
     const conditionChanceMultiplier = wagonEffectChanceMultiplier(account.wagon);
-    const axleChance = hasPartnerBlessing("N_Bless_006") ? 0.002 : 0.003;
+    const axleChance = hasPartnerBlessing("N_Bless_006") ? 0.004 : 0.006;
     if (Math.random() < axleChance * conditionChanceMultiplier) addWagonEffect("차축 삐걱임");
-    const baseWheelChance = hasPartnerBlessing("N_Bless_007") ? 0.0007 : 0.001;
-    const wheelDamageChance = (account.wagon.effects.includes("차축 삐걱임") ? baseWheelChance * 5 : baseWheelChance)
+    const baseWheelChance = hasPartnerBlessing("N_Bless_007") ? 0.0021 : 0.003;
+    const wheelDamageChance = (account.wagon.effects.includes("차축 삐걱임") ? baseWheelChance * 10 : baseWheelChance)
       * conditionChanceMultiplier;
     if (Math.random() < wheelDamageChance) addWagonEffect("수레바퀴 손상");
-    if (Math.random() < (hasPartnerBlessing("N_Bless_024") ? 0.002 : 0.003) * conditionChanceMultiplier) {
+    if (Math.random() < (hasPartnerBlessing("N_Bless_024") ? 0.004 : 0.006) * conditionChanceMultiplier) {
       addWagonEffect("화물 고정 불량");
     }
-    if (Math.random() < (hasPartnerBlessing("N_Bless_025") ? 0.002 : 0.003) * conditionChanceMultiplier) {
+    if (Math.random() < (hasPartnerBlessing("N_Bless_025") ? 0.004 : 0.006) * conditionChanceMultiplier) {
       addWagonEffect("물 새는 천막");
     }
   } else {
@@ -13371,7 +13389,7 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["행상인의 길", "1조부터 3조는 행상포인트로 능력을 익히고, 4조와 5조에서는 조합과 상품 지식을 확인합니다. 5조 아래에는 지난 복기를 보는 상행록이 있습니다.", ".merchant-path-articles", false, { padding: 12 }],
       ["상품 지식", "5조에서 교역품을 사고팔며 쌓은 지식 단계와 해금된 정보를 확인합니다.", "button[data-merchant-path-article='5']", false, { padding: 10 }],
       ["상품 상세 기록", "상품을 열면 취급처, 직접 적는 메모와 최근 교역 여정을 한곳에서 확인할 수 있습니다.", ".merchant-path-note-editor", false, { padding: 12 }],
-      ["취급처", "직접 구입한 거점은 취급처 뱃지로 남습니다. 뱃지를 눌러 생산지로 추정하거나 생산지가 아닌 곳으로 제외 표시할 수 있습니다.", ".merchant-path-outlet-history", false, { padding: 10 }],
+      ["취급처", "직접 구입한 거점은 취급처 뱃지로 남습니다. 뱃지를 눌러 생산지로 추정하거나 생산지가 아닌 곳으로 제외 표시할 수 있습니다. 지도의 취급처 표시를 켜면 제외하지 않은 상품을 현재 지식 단계의 이름으로 확인할 수 있습니다.", ".merchant-path-outlet-history", false, { padding: 10 }],
       ["메모", "상품마다 짧은 메모를 세 개까지 남길 수 있습니다. 직접 알아낸 특징과 다음 거래 계획을 기록해 두세요.", ".merchant-path-note-fields", false, { padding: 10 }],
       ["거래 기록", "구입과 판매를 모두 마친 교역만 기록됩니다. 한 번에 사고판 수량은 한 묶음으로 표시되며, 운송 거리와 손익, 상행 복기 결과를 함께 확인할 수 있습니다.", ".merchant-path-trade-history", false, { padding: 10 }],
       ["상행록", "5조 아래의 상행록에서는 최근 10일 동안 완료한 복기를 날짜별로 다시 볼 수 있습니다. 날짜를 고른 뒤 관세, 식비와 교역 결과를 차례로 확인합니다.", "#merchant-path-trade-log", false, { padding: 10 }],
@@ -13420,7 +13438,7 @@ function tutorialStepConfiguration(tutorialId, step) {
     ],
     [TUTORIAL_IDS.SPIRIT_BLESSING]: [
       ["정령의 가호 해금", "정령력을 사용해 여정에 도움이 되는 일시적인 가호를 얻을 수 있습니다. 정령의 가호를 열어보세요.", "#partner-spirit-blessing", true, { padding: 10 }],
-      ["정령력과 가호", "가호 하나를 얻을 때 정령력 1을 사용합니다. 1등급에서는 I등급 가호만 나오며, 동행등급이 높아질수록 II·III등급 확률이 서서히 높아집니다.", ".partner-feature-panel", false, { padding: 14 }],
+      ["정령력과 가호", "가호 하나를 얻을 때 정령력 1을 사용합니다. 1등급에서는 I등급 가호만 나오며, 동행등급이 높아질수록 II·III등급 확률이 서서히 높아집니다. 같은 종류의 상위 가호를 얻으면 보유 중인 하위 가호를 교체합니다.", ".partner-feature-panel", false, { padding: 14 }],
       ["매일 회복", "정령력은 날짜가 바뀔 때 1등급에서 1, 50등급에서 5를 회복합니다. 중간 등급에서는 기본 회복량에 더해 확률로 1을 추가 회복합니다.", ".partner-spirit-resource", false, { padding: 12 }],
       ["가호 자동연장", "가호별 자동연장을 켜면 매일 회복할 정령력 1을 사용해 남은 기간을 하루 연장합니다. 확정 일일 회복량을 넘는 수의 자동연장은 켤 수 없습니다.", ".active-buff-section", false, { padding: 12 }],
       ["첫 가호", "가호 획득을 눌러 정령력으로 첫 가호를 받아보세요.", ".partner-feature-confirm", true, { padding: 10 }]

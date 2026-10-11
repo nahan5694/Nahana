@@ -1397,6 +1397,36 @@
     };
   }
 
+  function getSettlementOutletGoods(placement) {
+    const settlementId = String(typeof placement === "string" ? placement : placement?.id || "").trim();
+    const settlementName = String(typeof placement === "object" ? placement?.name || "" : "").trim();
+    if (!settlementId && !settlementName) return [];
+
+    const catalog = knowledgeDefinitions(window.ProjectWCargo?.getItemDefinitions?.() || []);
+    if (catalog.length) definitions = catalog;
+    const definitionsById = new Map(definitions.map(definition => [String(definition.id), definition]));
+    return Object.keys(state.notebooks || {}).flatMap(itemId => {
+      const definition = definitionsById.get(itemId);
+      if (!definition) return [];
+      const matchingOutlets = ensureNotebook(itemId).outlets.filter(outlet => {
+        if (outlet.state === "excluded") return false;
+        const outletId = String(outlet.settlementId || "").trim();
+        const outletName = String(outlet.settlementName || "").trim();
+        return (settlementId && outletId === settlementId)
+          || (settlementName && outletName === settlementName);
+      });
+      if (!matchingOutlets.length) return [];
+      const production = matchingOutlets.some(outlet => outlet.state === "production");
+      return [{
+        itemId,
+        name: getDisplayProfile(definition).name,
+        state: production ? "production" : "observed",
+        stateLabel: production ? "생산지로 표시" : "취급 확인",
+        facilityTypes: [...new Set(matchingOutlets.map(outlet => outlet.facilityType).filter(Boolean))]
+      }];
+    }).sort((left, right) => left.name.localeCompare(right.name, "ko") || left.itemId.localeCompare(right.itemId));
+  }
+
   function getPendingTradeReviews() {
     pruneTradeJourneys();
     const reviewDay = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
@@ -2127,6 +2157,7 @@
     getInformationBonuses,
     getDeteriorationProtectionChances,
     getItemNotebook,
+    getSettlementOutletGoods,
     recordReviewExpense,
     getPendingTradeReviews,
     getTradeReviewHistory,

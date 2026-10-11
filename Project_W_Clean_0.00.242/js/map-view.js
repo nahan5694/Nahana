@@ -16,6 +16,7 @@
   let getInformationCards = () => [];
   let getCityEvents = () => [];
   let getSettlementNotes = () => [];
+  let getSettlementOutletGoods = () => [];
   let editSettlementNotes = () => {};
   let notify = () => {};
   let initialized = false;
@@ -50,6 +51,7 @@
     getInformationCards = typeof options.getInformationCards === "function" ? options.getInformationCards : getInformationCards;
     getCityEvents = typeof options.getCityEvents === "function" ? options.getCityEvents : getCityEvents;
     getSettlementNotes = typeof options.getSettlementNotes === "function" ? options.getSettlementNotes : getSettlementNotes;
+    getSettlementOutletGoods = typeof options.getSettlementOutletGoods === "function" ? options.getSettlementOutletGoods : getSettlementOutletGoods;
     editSettlementNotes = typeof options.editSettlementNotes === "function" ? options.editSettlementNotes : editSettlementNotes;
     notify = typeof options.notify === "function" ? options.notify : notify;
 
@@ -93,7 +95,11 @@
       if (Object.hasOwn(tooltipSections, key)) tooltipSections[key] = Boolean(input.checked);
       updateInformationToggleLabel();
       hideTooltip();
+      renderMapContents();
     }));
+    window.addEventListener("projectw:notebookchange", () => {
+      if (loaded) renderMapContents();
+    });
     window.addEventListener("resize", () => {
       if (!elements.tooltip.hidden && lastPointer) positionTooltip(lastPointer.x, lastPointer.y);
     });
@@ -601,6 +607,11 @@
       marker.append(name);
     }
 
+    if (placement.kind === "node" && tooltipSections.dealers) {
+      const outletGoods = getSettlementOutletGoods(placement);
+      if (outletGoods.length) marker.append(createOutletBadgeGroup(outletGoods));
+    }
+
     marker.setAttribute("aria-label", placement.kind === "node" ? `${placement.name || "이름 없는 거점"} 정보` : `${placement.name || "이름 없는 경로"} 정보`);
     if (placement.kind === "node") attachSettlementNoteLongPress(marker, placement);
     if (destinationSelection) {
@@ -626,6 +637,20 @@
       attachTooltipEvents(marker, placement);
     }
     return marker;
+  }
+
+  function createOutletBadgeGroup(outletGoods) {
+    const group = document.createElement("span");
+    group.className = "map-marker-outlet-badges";
+    group.setAttribute("aria-label", `확인한 취급 상품 ${outletGoods.length}개`);
+    outletGoods.forEach(good => {
+      const badge = document.createElement("span");
+      badge.className = `map-marker-outlet-badge is-${good.state || "observed"}`;
+      badge.textContent = good.name || "이름을 알 수 없는 상품";
+      badge.title = [good.stateLabel, ...(good.facilityTypes || [])].filter(Boolean).join(" · ");
+      group.append(badge);
+    });
+    return group;
   }
 
   function attachSettlementNoteLongPress(marker, placement) {
@@ -919,15 +944,22 @@
     }
     fragment.append(description);
     if (placement.kind === "node" && tooltipSections.dealers) {
-      const dealers = settlementDealerLabels(placement);
-      if (dealers.length) {
+      const outletGoods = getSettlementOutletGoods(placement);
+      if (outletGoods.length) {
         const section = document.createElement("section");
         section.className = "map-tooltip-dealers";
         const title = document.createElement("strong");
-        title.textContent = "취급처";
-        const content = document.createElement("span");
-        content.textContent = dealers.join(" · ");
-        section.append(title, content);
+        title.textContent = "확인한 취급 상품";
+        const badges = document.createElement("div");
+        badges.className = "map-tooltip-dealer-badges";
+        outletGoods.forEach(good => {
+          const badge = document.createElement("span");
+          badge.className = `map-tooltip-dealer-badge is-${good.state || "observed"}`;
+          badge.textContent = good.name || "이름을 알 수 없는 상품";
+          badge.title = [good.stateLabel, ...(good.facilityTypes || [])].filter(Boolean).join(" · ");
+          badges.append(badge);
+        });
+        section.append(title, badges);
         fragment.append(section);
       }
     }
@@ -949,17 +981,6 @@
       }
     }
     return fragment;
-  }
-
-  function settlementDealerLabels(placement) {
-    const companies = [...new Set((placement.companyNames || []).filter(Boolean))];
-    const common = ({
-      대도시: ["교역소", "시장", "환전상"],
-      도시: ["교역소", "시장", "환전상"],
-      마을: ["시장"],
-      관문: ["좌판"]
-    })[placement.category] || [];
-    return [...companies, ...common];
   }
 
   function buildBorderTaxPreview(weatherInfo) {
