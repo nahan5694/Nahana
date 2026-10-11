@@ -2151,7 +2151,7 @@
       const maxStack = Math.max(1, definition.maxStack || 1);
       const tradeMetadata = createDefaultTradeMetadata(addition, definition);
       const incomingJourneyLots = normalizeJourneyLots(addition.journeyLots, addition.quantity);
-      const targetSlotType = preferredTradeCompartment(remainingItems, addition, definition);
+      let targetSlotType = preferredTradeCompartment(remainingItems, addition, definition);
       const incomingDurability = addition.durability != null
         && addition.durability !== ""
         && Number.isFinite(Number(addition.durability))
@@ -2204,6 +2204,10 @@
           quantity -= added;
         });
       while (quantity > 0) {
+        // 특수 화물칸을 한 상품의 첫 묶음 기준으로 고정하면 남은 묶음까지
+        // 보호/비밀 한도를 넘겨 담게 된다. 묶음마다 남은 칸을 다시 확인해
+        // 특수칸에 들어가지 않는 나머지는 일반(필요하면 임시) 화물칸으로 보낸다.
+        targetSlotType = preferredTradeCompartment(remainingItems, addition, definition);
         const occupiedSlots = remainingItems.filter(item => (item.slotType || "normal") === targetSlotType).reduce((sum, item) => {
           const itemDefinition = itemDefinitions.get(item.itemId) || sampleDefinition;
           return sum + itemDefinition.slotCount;
