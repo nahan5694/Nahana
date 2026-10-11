@@ -2985,13 +2985,13 @@
           ? "불가 · 화물칸 부족"
           : !balance.nonCurrencyAssetValid
             ? "불가 · 비화폐 자산 부족"
-            : current.currencyOnly && balance.merchantDisadvantaged
+            : balance.merchantDisadvantaged
               ? "불가 · 내가 건네는 가치 부족"
               : balance.difference > 20
                 ? "불가 · 가치 차이 초과"
                 : "불가 · 거래 조건 미충족";
     const lines = [
-      ["가치 차이", `${formatNumber(balance.difference)}%`, balance.difference <= 20],
+      ["가치 차이", `${formatNumber(balance.difference)}%`, !balance.merchantDisadvantaged && balance.difference <= 20],
       ["비화폐 자산", `${formatNumber(balance.nonCurrencyAssetRatio)}% / 45%`, balance.nonCurrencyAssetValid],
       ["거래 가능 여부", availability, valid]
     ];
@@ -3677,7 +3677,7 @@
     }
     const difference = Math.abs(playerValue - requiredPlayerValue) / Math.max(playerValue, requiredPlayerValue) * 100;
     const merchantDisadvantaged = playerValue < requiredPlayerValue;
-    const valueRangeValid = difference <= 20 && (!current?.currencyOnly || !merchantDisadvantaged);
+    const valueRangeValid = !merchantDisadvantaged && difference <= 20;
     const valid = valueRangeValid && nonCurrencyAssetValid;
     return {
       valid,
@@ -3700,8 +3700,10 @@
       merchantDisadvantaged,
       message: !nonCurrencyAssetValid
         ? `비화폐 거래자산 ${formatNumber(nonCurrencyAssetRatio)}% · 일반 상점 거래는 상품과 정보가 양측 가치 합계의 45% 이상이어야 합니다.`
-        : current?.currencyOnly && merchantDisadvantaged
-        ? `환전 할증 ${formatNumber(exchangeFeeRate)}%를 포함한 가치보다 지불 가치가 낮습니다.`
+        : merchantDisadvantaged
+        ? current?.currencyOnly
+          ? `환전 할증 ${formatNumber(exchangeFeeRate)}%를 포함한 가치보다 지불 가치가 낮습니다.`
+          : `흥정 보정을 포함해도 내가 건네는 가치가 ${formatNumber(Math.max(0, requiredPlayerValue - playerValue))} 부족합니다.`
         : difference <= 20
           ? `가치 차이 ${formatNumber(difference)}% · 비화폐 거래자산 ${formatNumber(nonCurrencyAssetRatio)}% · 거래할 수 있습니다.`
           : `가치 차이 ${formatNumber(difference)}% · 20% 이내로 맞춰야 합니다.`
