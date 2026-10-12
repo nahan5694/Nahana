@@ -1253,6 +1253,7 @@
       day: date.day,
       settlementId: String(context.settlementId || "").trim(),
       settlementName: String(context.settlementName || "이름 없는 거점").trim() || "이름 없는 거점",
+      settlementCategory: String(context.settlementCategory || "").trim(),
       facilityType: normalizeFacilityType(context.facilityType),
       facilityName: tradeFacilityName(context.facilityType, context.companyName),
       unitValue: Math.max(0, Number(transaction.unitValue) || 0),
@@ -1271,7 +1272,7 @@
       close: null,
       review: { completed: false, outcome: "", completedDay: 0 }
     });
-    upsertOutlet(notebook, purchase);
+    if (purchase.settlementCategory !== "관문") upsertOutlet(notebook, purchase);
     trimJourneys(notebook);
   }
 
@@ -1854,12 +1855,17 @@
     const settlementId = String(outlet.settlementId || "").trim();
     const settlementName = String(outlet.settlementName || "").trim();
     if (!settlementId && !settlementName) return null;
+    const settlementCategory = String(outlet.settlementCategory || "").trim();
+    const facilityType = normalizeFacilityType(outlet.facilityType);
+    // 이전 저장에는 거점 분류가 없으므로, 관문에서만 운영되는 좌판 기록도 함께 정리한다.
+    if (settlementCategory === "관문" || (!settlementCategory && facilityType === "좌판")) return null;
     const stateName = OUTLET_STATES.includes(outlet.state) ? outlet.state : "observed";
     return {
       key: String(outlet.key || settlementId || settlementName).trim(),
       settlementId,
       settlementName: settlementName || settlementId,
-      facilityType: normalizeFacilityType(outlet.facilityType),
+      settlementCategory,
+      facilityType,
       state: stateName,
       year: Math.max(1, Math.trunc(Number(outlet.year) || CONTRACT_START_DATE.year)),
       month: Math.max(1, Math.min(12, Math.trunc(Number(outlet.month) || 1))),
@@ -1868,6 +1874,7 @@
   }
 
   function upsertOutlet(notebook, purchase) {
+    if (String(purchase?.settlementCategory || "").trim() === "관문") return;
     const key = String(purchase.settlementId || purchase.settlementName || "").trim();
     if (!key) return;
     const existing = notebook.outlets.find(outlet => outlet.key === key);
@@ -1879,7 +1886,8 @@
       existing.day = purchase.day;
       return;
     }
-    notebook.outlets.push(normalizeOutlet({ key, ...purchase, state: "observed" }));
+    const normalized = normalizeOutlet({ key, ...purchase, state: "observed" });
+    if (normalized) notebook.outlets.push(normalized);
   }
 
   function cycleOutletState(itemId, outletKey) {

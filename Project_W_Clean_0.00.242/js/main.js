@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.310";
-const ACCOUNT_SCHEMA_VERSION = 48;
+const GAME_VERSION = "0.00.314";
+const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -14,7 +14,8 @@ const INFORMATION_RULE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX
 const sceneOrder = ["road", "partner", "cargo", "map"];
 const PARTNER_APPETITE_STAGES = ["기피", "불호", "통상", "선호", "갈망"];
 const PARTNER_APPETITE_STATUS_IDS = new Set([
-  "N_S_005", "N_S_017", "N_S_018", "N_S_019", "N_S_020", "N_S_021", "N_S_022"
+  "N_S_005", "N_S_017", "N_S_018", "N_S_019", "N_S_020", "N_S_021", "N_S_022",
+  "N_S_025", "N_S_026", "N_S_027", "N_S_028", "N_S_029", "N_S_030", "N_S_031", "N_S_032", "N_S_034"
 ]);
 const TRAVEL_STEP_MS = 30_000;
 const TURN_BACK_DURATION_MS = 10_000;
@@ -95,7 +96,9 @@ const TUTORIAL_IDS = Object.freeze({
   SPIRIT_BLESSING: 23,
   GUILD_CONTRIBUTION: 24,
   TRADE_REVIEW: 25,
-  PARTNER_SOOTHE: 26
+  PARTNER_SOOTHE: 26,
+  GATE_OVERVIEW: 27,
+  GATE_PASS: 28
 });
 const TUTORIAL_MAX_ID = Math.max(...Object.values(TUTORIAL_IDS));
 const ADVANCED_TRADE_CONTEXTS = ["trade:상회", "trade:교역소", "trade:좌판", "trade:시장"];
@@ -162,7 +165,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "시장 잡무 의뢰",
     contexts: ["trade:시장"],
     pages: [
-      { title: "시장 잡무 의뢰", text: "아침과 낮에는 시장 상인들의 운반, 진열과 정리 일을 도울 수 있습니다. 일을 마치면 가치 50~75에 해당하는 동화를 받습니다.", selector: "#trade-odd-jobs", padding: 10 },
+      { title: "시장 잡무 의뢰", text: "도시와 대도시의 시장에서는 아침과 낮에 상인들의 운반, 진열과 정리 일을 도울 수 있습니다. 마을 시장에서는 잡무 의뢰를 받지 않습니다. 일을 마치면 가치 50~75에 해당하는 동화를 받습니다.", selector: "#trade-odd-jobs", padding: 10 },
       { title: "하루의 시간을 사용합니다", text: "잡무를 맡으면 현재 시간이 아침이든 낮이든 일을 마친 뒤 저녁이 됩니다. 출발이나 다른 용무가 있다면 먼저 마치는 편이 좋습니다." },
       { title: "나하나의 상태", text: "긴 잡무 뒤에는 나하나가 대부분 따분함을 느끼며, 때로는 불만 상태가 됩니다. 당장의 보수와 이후 여정을 함께 고려하세요." }
     ]
@@ -200,7 +203,9 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     lockLabel: "정보 기능 해금 필요",
     pages: [
       { title: "관문에서 정보 판매", text: "관문의 좌판에도 보유한 정보를 거래 자산으로 올릴 수 있습니다.", selector: ".trade-player-catalog-tabs" },
-      { title: "관문마다 다른 취급 분야", text: "관문은 정보 종류별로 기준가치의 25~150%를 인정합니다.\n취급 가중치는 좌판과 상품 갱신 시점에 따라 달라지며, 상회와 달리 정보 수용량에 따른 가치 감소는 없습니다.", selector: "#trade-player-items" }
+      { title: "관문마다 다른 취급 분야", text: "관문은 정보 종류별로 기준가치의 25~150%를 인정합니다.\n취급 가중치는 좌판과 상품 갱신 시점에 따라 달라지며, 상회와 달리 정보 수용량에 따른 가치 감소는 없습니다.", selector: "#trade-player-items" },
+      { title: "같은 관문의 소식", text: "현재 관문의 주점이나 여관에서 얻은 정보는 같은 관문에 곧바로 팔면 매입가가 50%로 줄어듭니다. 다른 거래처를 찾거나 여정에 직접 활용하세요.", selector: "#trade-player-items" },
+      { title: "통관 게시판", text: "관문에 들어오면 통관 게시판에서 경제 소식 1~3건을 볼 수 있습니다. 게시판은 7일마다 바뀌며, 소식은 정보 카드에 기록되지 않으므로 관문 안에서 다시 확인하거나 직접 메모해야 합니다." }
     ]
   },
   {
@@ -703,6 +708,7 @@ const SETTLEMENT_FACILITIES = {
     { id: "stall-1", label: "좌판 1", type: "좌판", trade: true },
     { id: "stall-2", label: "좌판 2", type: "좌판", trade: true },
     { id: "stall-3", label: "좌판 3", type: "좌판", trade: true },
+    { id: "customs-board", label: "통관 게시판", type: "통관 게시판", trade: false },
     { id: "tavern", label: "주점", type: "주점", trade: false },
     { id: "inn", label: "여관", type: "여관", trade: false }
   ]
@@ -807,6 +813,11 @@ const sceneSituationAsset = document.querySelector("#scene-situation-asset");
 const walletModal = document.querySelector("#wallet-modal");
 const informationModal = document.querySelector("#information-modal");
 const informationAcquiredModal = document.querySelector("#information-acquired-modal");
+const gateBulletinModal = document.querySelector("#gate-bulletin-modal");
+const gateBulletinLocation = document.querySelector("#gate-bulletin-location");
+const gateBulletinStatus = document.querySelector("#gate-bulletin-status");
+const gateBulletinList = document.querySelector("#gate-bulletin-list");
+const gateBulletinClose = document.querySelector("#gate-bulletin-close");
 const merchantPathModal = document.querySelector("#merchant-path-modal");
 const memorialModal = document.querySelector("#memorial-modal");
 const tradeModal = document.querySelector("#trade-modal");
@@ -870,6 +881,7 @@ const settlementExitTooltip = document.querySelector("#settlement-exit-tooltip")
 const settlementTutorialPrompts = document.querySelector("#settlement-tutorial-prompts");
 const settlementCommerceGuide = document.querySelector("#settlement-commerce-guide");
 const settlementNewsGuide = document.querySelector("#settlement-news-guide");
+const settlementGateGuide = document.querySelector("#settlement-gate-guide");
 const travelToolbarStatus = document.querySelector("#travel-toolbar-status");
 const travelToolbarTime = document.querySelector("#travel-toolbar-time");
 const gameClock = document.querySelector("#game-clock");
@@ -915,6 +927,9 @@ const settlementFacilities = document.querySelector("#settlement-facilities");
 const settlementFacilitiesTitle = document.querySelector("#settlement-facilities-title");
 const settlementFacilitiesCategory = document.querySelector("#settlement-facilities-category");
 const settlementFacilityList = document.querySelector("#settlement-facility-list");
+const settlementGatePass = document.querySelector("#settlement-gate-pass");
+const settlementGatePassCountry = document.querySelector("#settlement-gate-pass-country");
+const settlementGatePassDays = document.querySelector("#settlement-gate-pass-days");
 const settlementNoteButton = document.querySelector("#settlement-note-button");
 const settlementNoteLayer = document.querySelector("#settlement-note-layer");
 const settlementNoteTitle = document.querySelector("#settlement-note-title");
@@ -1109,6 +1124,7 @@ let roadTalkCardPeekHoldTimer = 0;
 let roadTalkCardPeekRemoveTimer = 0;
 let roadTalkCardPeekSequence = 0;
 let pendingNarrativePresentationTimer = 0;
+let pendingGateBulletinId = "";
 let smallPopupSequence = 0;
 let smallPopupLayoutFrame = 0;
 let partnerTouchDialogueLoadPromise;
@@ -1131,6 +1147,7 @@ window.ProjectWMapView.init({
   getCityEvents: placement => window.ProjectWCityEvents?.getViewedSettlementEvents?.(placement) || [],
   getSettlementNotes: settlementId => settlementNotesFor(settlementId),
   getSettlementOutletGoods: placement => window.ProjectWMerchantPath?.getSettlementOutletGoods?.(placement) || [],
+  getEntryTariffPreview: (placement, routePreview) => mapEntryTariffPreview(placement, routePreview),
   editSettlementNotes: settlementId => openSettlementNoteEditor(settlementId),
   notify: showGameNotice
 });
@@ -1318,7 +1335,7 @@ window.ProjectWTrade.init({
     placement,
     { companyName }
   ),
-  getMarketOddJobsProfile: () => marketOddJobsProfile(),
+  getMarketOddJobsProfile: placement => marketOddJobsProfile(placement),
   completeMarketOddJobs: details => completeMarketOddJobs(details),
   requestMapView: () => openTradeMapView(),
   recordMerchantProfit: amount => window.ProjectWMerchantPath.recordMerchantProfit(amount),
@@ -1361,6 +1378,7 @@ window.ProjectWMeal.init({
     const previousPartner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
     account.partner = normalizePartnerState({ ...previousPartner, ...partner, effects: previousPartner.effects });
     account.partnerMoodAdjustment = account.partner.mood - 50;
+    resolvePartnerTasteDreamStatuses();
     syncMoodDrivenPartnerStatuses();
     account.lastMeal = lastMeal;
     awardMealCompanionExperience(lastMeal);
@@ -1397,6 +1415,7 @@ window.ProjectWMeal.init({
       forcedWaterCount: partnerHasStatus(partner, "아린 혀") ? 3 : 0,
       forceMostExpensive: partnerHasStatus(partner, "수행자"),
       moodGainMultiplier: partnerHasStatus(partner, "느글거림") ? 0.5 : 1,
+      foodieMoodBonus: kind === "meal" && vendor === "주점" && partnerHasStatus(partner, "식도락"),
       fullnessMaximum: fullnessRestriction.maximum,
       fullnessLimitReason: fullnessRestriction.reason,
       tutorialMeal: tutorialMealRestriction(vendor),
@@ -1663,6 +1682,16 @@ memorialButton.addEventListener("click", () => {
 informationButton?.addEventListener("click", () => {
   window.setTimeout(() => maybeStartEarlyFeatureTutorial(TUTORIAL_IDS.INFORMATION_ARCHIVE), 0);
 });
+gateBulletinClose?.addEventListener("click", closeGateBulletin);
+gateBulletinModal?.addEventListener("pointerdown", event => {
+  if (event.target === gateBulletinModal) closeGateBulletin();
+});
+window.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !gateBulletinModal || gateBulletinModal.hidden) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  closeGateBulletin();
+}, true);
 ["#wallet-close", "#information-close", "#merchant-path-close", "#memorial-close"].forEach(selector => {
   document.querySelector(selector)?.addEventListener("click", schedulePendingNarrativePresentation);
 });
@@ -1770,6 +1799,7 @@ roadAction.addEventListener("focus", showSettlementExitTooltip);
 roadAction.addEventListener("blur", hideSettlementExitTooltip);
 settlementCommerceGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.CITY_COMMERCE));
 settlementNewsGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.CITY_NEWS));
+settlementGateGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.GATE_OVERVIEW));
 settlementNoteButton?.addEventListener("click", () => {
   const settlementId = settlementNoteButton.dataset.settlementId
     || account?.travel?.settlementId
@@ -2011,7 +2041,7 @@ window.addEventListener("keydown", event => {
     closeServiceModal();
     return;
   }
-  if (!dialogModal.hidden || !walletModal.hidden || !informationModal.hidden || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden || (partnerEventPanel && !partnerEventPanel.hidden) || !sceneTransition.hidden || gameScreen.hidden || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+  if (!dialogModal.hidden || !walletModal.hidden || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden || (partnerEventPanel && !partnerEventPanel.hidden) || !sceneTransition.hidden || gameScreen.hidden || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
   if (isTextInput) return;
   if ((tutorialRuntime && tutorialLayer && !tutorialLayer.hidden)
     || (advancedTutorialRuntime && advancedTutorialLayer && !advancedTutorialLayer.hidden)) return;
@@ -2114,6 +2144,8 @@ function chooseAnonymousName() {
     partnerWeatherStreak: createInitialPartnerWeatherStreak(),
     informationUsage: createInitialInformationUsage(),
     informationState: window.ProjectWInformation.createState(),
+    gatePass: createInitialGatePass(),
+    gateBulletins: {},
     guildContribution: createInitialGuildContribution(),
     featureUnlocks: createInitialFeatureUnlocks(false),
     codeUnlocks: createInitialCodeUnlocks(),
@@ -2215,6 +2247,8 @@ function confirmName() {
       partnerWeatherStreak: createInitialPartnerWeatherStreak(),
       informationUsage: createInitialInformationUsage(),
       informationState: window.ProjectWInformation.createState(),
+      gatePass: createInitialGatePass(),
+      gateBulletins: {},
       guildContribution: createInitialGuildContribution(),
       featureUnlocks: createInitialFeatureUnlocks(false),
       codeUnlocks: createInitialCodeUnlocks(),
@@ -2689,6 +2723,7 @@ function clearSavedJourneyData() {
   window.clearTimeout(pendingNarrativePresentationTimer);
   interfacePersistTimer = undefined;
   pendingNarrativePresentationTimer = 0;
+  pendingGateBulletinId = "";
   talkCardGenerationInProgress = 0;
   activeTalkCardId = "";
   nahanaEventOpeningId = "";
@@ -2708,6 +2743,7 @@ function clearSavedJourneyData() {
   window.ProjectWMeal.close();
   window.ProjectWInn.close();
   window.ProjectWEntryTax.close(false);
+  closeGateBulletin(false);
   window.ProjectWMapView.endDestinationSelection();
   gameScreen.classList.remove("is-destination-picking", "is-wagon-moving");
   travelPauseReasons.clear();
@@ -3035,6 +3071,10 @@ function loadAccount() {
     parsed.informationUsage = normalizeInformationUsage(parsed.informationUsage, parsed.worldTime);
     if (!parsed.informationState) migrated = true;
     parsed.informationState = window.ProjectWInformation.normalizeState(parsed.informationState);
+    if (!parsed.gatePass) migrated = true;
+    parsed.gatePass = normalizeGatePass(parsed.gatePass, parsed.worldTime.day);
+    if (!parsed.gateBulletins || typeof parsed.gateBulletins !== "object") migrated = true;
+    parsed.gateBulletins = normalizeGateBulletins(parsed.gateBulletins);
     if (!parsed.guildContribution) migrated = true;
     parsed.guildContribution = normalizeGuildContribution(parsed.guildContribution);
     if (!parsed.featureUnlocks) migrated = true;
@@ -3353,6 +3393,7 @@ function partnerAppetiteSnapshot(partner = normalizePartnerState(account?.partne
       category: definition?.category || "상태",
       description1: definition?.description1 || "",
       description2: definition?.description2 || "",
+      description3: definition?.description3 || "",
       duration: definition?.duration || ""
     }];
   });
@@ -3721,7 +3762,19 @@ function partnerHasStatus(partner, statusName) {
     "느글거림": "N_S_021",
     "수행자": "N_S_022",
     "따분함": "N_S_023",
-    "감기 기운": "N_S_024"
+    "감기 기운": "N_S_024",
+    "설탕의 꿈": "N_S_025",
+    "소금의 꿈": "N_S_026",
+    "후추의 꿈": "N_S_027",
+    "지방의 꿈": "N_S_028",
+    "설탕의 악몽": "N_S_029",
+    "소금의 악몽": "N_S_030",
+    "후추의 악몽": "N_S_031",
+    "지방의 악몽": "N_S_032",
+    "콧노래": "N_S_033",
+    "식도락": "N_S_034",
+    "기분 좋음": "N_S_035",
+    "배려심": "N_S_036"
   };
   const expectedId = knownStatusIds[String(statusName || "").trim()] || "";
   return partner.effects.some(effect => {
@@ -3990,6 +4043,7 @@ function applyTalkCardOutcome(definition, alreadyUnlocked = false, outcomeBefore
   state.readCount += 1;
   account.talkCards = state;
   account.partnerMoodAdjustment = partner.mood - 50;
+  resolvePartnerTasteDreamStatuses();
   syncMoodDrivenPartnerStatuses();
   definition.effects.statuses.forEach(status => {
     const statusId = nahanaStatusDefinitions.get(status)?.id || status;
@@ -4007,7 +4061,8 @@ function applyTalkCardOutcome(definition, alreadyUnlocked = false, outcomeBefore
   const previousMood = Number(outcomeBefore?.mood);
   const previousExperience = Number(outcomeBefore?.companionExperience);
   const currentExperience = companionLifetimeExperience(account.partner);
-  const moodChange = partner.mood - (Number.isFinite(previousMood) ? previousMood : partner.mood);
+  const resolvedMood = normalizePartnerState(account.partner, account.partnerMoodAdjustment).mood;
+  const moodChange = resolvedMood - (Number.isFinite(previousMood) ? previousMood : resolvedMood);
   const experienceChange = Math.max(0, currentExperience
     - (Number.isFinite(previousExperience) ? previousExperience : currentExperience));
   const moodCopy = moodChange > 0
@@ -4071,7 +4126,8 @@ function rollTalkCardGeneration(placementId) {
   if (account.talkCards.hand.length >= TALK_CARD_HAND_SIZE) return false;
   const mood = normalizePartnerState(account.partner, account.partnerMoodAdjustment).mood;
   const baseChance = talkCardGenerationChance(mood);
-  const chance = baseChance <= 0 ? 0 : Math.min(1, baseChance + partnerDialogueCardChanceBonus());
+  const cheerfulStatusBonus = partnerHasStatus(account.partner, "기분 좋음") ? .03 : 0;
+  const chance = baseChance <= 0 ? 0 : Math.min(1, baseChance + partnerDialogueCardChanceBonus() + cheerfulStatusBonus);
   if (Math.random() >= chance) return false;
   const context = talkCardContextAtPlacement(placementId);
   talkCardGenerationInProgress += 1;
@@ -4690,7 +4746,7 @@ function systemMiniDialoguePresentationBlocked() {
     || travelPauseReasons.has("advanced-tutorial") || travelPauseReasons.has("dialog")
     || travelPauseReasons.has("road-comment") || travelPauseReasons.has("route-event-check")
     || travelPauseReasons.has("route-event") || !dialogModal.hidden || !walletModal.hidden
-    || !informationModal.hidden || !merchantPathModal.hidden || !memorialModal.hidden
+    || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden
     || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden
     || !entryTaxModal.hidden || !routeEventModal.hidden || !sceneTransition.hidden
     || (partnerEventPanel && !partnerEventPanel.hidden));
@@ -5296,6 +5352,7 @@ function loadNahanaStatusDefinitions() {
           category: String(row["분류"] ?? "").trim(),
           description1: String(row["설명_1"] ?? "").trim(),
           description2: String(row["설명_2"] ?? "").trim(),
+          description3: String(row["설명_3"] ?? "").trim(),
           duration: String(row["지속 시간"] ?? row["지속시간"] ?? "").trim()
         };
         nahanaStatusDefinitions.set(id, definition);
@@ -6351,6 +6408,7 @@ function driftPartnerTasteParameters(placementId = "") {
     trend.macroRemaining -= 1;
     trend.microRemaining -= 1;
   });
+  resolvePartnerTasteDreamStatuses();
 }
 
 function recoverDailyPartnerGreasiness() {
@@ -6359,6 +6417,7 @@ function recoverDailyPartnerGreasiness() {
   // 다른 입맛과 마찬가지로 weight도 높을수록 해당 맛을 갈망한다.
   // 하루가 지나 느끼함이 해소되면 기름진 음식에 대한 갈망이 다시 오른다.
   account.partner.weight = Math.min(100, account.partner.weight + DAILY_GREASINESS_RECOVERY);
+  resolvePartnerTasteDreamStatuses();
 }
 
 function awardMealCompanionExperience(lastMeal) {
@@ -6394,6 +6453,7 @@ function handleFoodConsumptionComplete(record) {
     return;
   }
   if (record?.kind !== "meal") return;
+  if (record.vendor === "주점") removePartnerStatus("N_S_034");
 
   const consumedSingleMealStatuses = ["N_S_019", "N_S_021", "N_S_022"]
     .filter(effectId => account.partner.effects.includes(effectId));
@@ -6975,7 +7035,7 @@ function showPartnerStatusTooltip(definition, fallbackName, anchor) {
   const header = document.createElement("header");
   header.append(title, category);
   const body = document.createElement("div");
-  [["상태 설명", definition?.description1], ["적용 효과", definition?.description2]]
+  [["상태 설명", definition?.description1], ["적용 효과", definition?.description2], ["세부 수치", definition?.description3]]
     .filter(([, description]) => Boolean(description))
     .forEach(([label, description]) => {
       const section = document.createElement("section");
@@ -7191,6 +7251,7 @@ function createInitialPartnerState() {
     upgradePoints: 0,
     spirit: 0,
     lastSpiritRecoveryDay: 0,
+    lastDangerEncounterDay: 0,
     arrivalCount: 0,
     visitedNodeIds: [],
     consumedFoodIds: [],
@@ -7277,7 +7338,8 @@ function createInitialTutorialProgress() {
     waitingForInnExit: false,
     earlyTutorialBranchReached: false,
     talkCardTutorialPending: false,
-    sootheTutorialPending: false
+    sootheTutorialPending: false,
+    gatePassTutorialPending: false
   };
 }
 
@@ -7592,6 +7654,134 @@ function normalizeWorldTime(value) {
   };
 }
 
+function createInitialGatePass() {
+  return { affiliation: "", expiresDay: 0 };
+}
+
+function normalizeGatePass(value, referenceDay = normalizeWorldTime(account?.worldTime).day) {
+  const pass = {
+    affiliation: String(value?.affiliation || "").trim(),
+    expiresDay: Math.max(0, Math.trunc(Number(value?.expiresDay) || 0))
+  };
+  const today = Math.max(1, Math.trunc(Number(referenceDay) || 1));
+  return pass.affiliation && pass.expiresDay >= today ? pass : createInitialGatePass();
+}
+
+function normalizeGateBulletinEntry(value) {
+  return {
+    id: String(value?.id || "").trim(),
+    category: String(value?.category || "경제").trim() || "경제",
+    special: String(value?.special || "").trim(),
+    title: String(value?.title || "이름 없는 소식").trim() || "이름 없는 소식",
+    content: String(value?.content || "확인할 수 있는 내용이 없습니다.").trim() || "확인할 수 있는 내용이 없습니다.",
+    grade: Math.max(0, Math.trunc(Number(value?.grade) || 0)),
+    trust: Math.max(0, Math.trunc(Number(value?.trust) || 0)),
+    gradeLabel: String(value?.gradeLabel || "등급 미상").trim() || "등급 미상",
+    trustLabel: String(value?.trustLabel || "신뢰도 미상").trim() || "신뢰도 미상"
+  };
+}
+
+function normalizeGateBulletins(value) {
+  const result = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return result;
+  Object.entries(value).forEach(([settlementId, record]) => {
+    const id = String(settlementId || "").trim();
+    if (!id || !record || typeof record !== "object") return;
+    const generatedDay = Math.max(1, Math.trunc(Number(record.generatedDay) || 1));
+    const refreshDay = Math.max(generatedDay + 7, Math.trunc(Number(record.refreshDay) || 0));
+    result[id] = {
+      generatedDay,
+      refreshDay,
+      entries: (Array.isArray(record.entries) ? record.entries : [])
+        .slice(0, 3)
+        .map(normalizeGateBulletinEntry)
+    };
+  });
+  return result;
+}
+
+function activeGatePass() {
+  if (!account) return createInitialGatePass();
+  account.gatePass = normalizeGatePass(account.gatePass, normalizeWorldTime(account.worldTime).day);
+  return account.gatePass;
+}
+
+function gatePassTariffDiscountFor(placement) {
+  if (String(placement?.category || "") !== "관문") return 0;
+  const pass = activeGatePass();
+  return pass.affiliation && pass.affiliation === String(placement?.affiliation || "").trim() ? 1 : 0;
+}
+
+function markGatePassTutorialPending() {
+  if (!account) return;
+  const progress = normalizeTutorialProgress(account.tutorialProgress);
+  if (!progress.completed.includes(TUTORIAL_IDS.GATE_PASS)) progress.gatePassTutorialPending = true;
+  account.tutorialProgress = progress;
+}
+
+function applyGatePassOnSettlementEntry(placement, context = {}) {
+  if (!account || !placement) return "";
+  const today = normalizeWorldTime(account.worldTime).day;
+  const affiliation = String(placement.affiliation || "").trim();
+  const existing = activeGatePass();
+  if (context.crossesBorder) {
+    account.gatePass = createInitialGatePass();
+    if (context.borderCleared && affiliation) {
+      account.gatePass = { affiliation, expiresDay: today + 4 };
+      markGatePassTutorialPending();
+      return `${affiliation} 통행증을 받았습니다. 5일간 관문 기본 관세가 1%p 줄어듭니다.`;
+    }
+    return "";
+  }
+  if (String(placement.category || "") === "관문"
+    && affiliation && existing.affiliation === affiliation) {
+    account.gatePass = { affiliation, expiresDay: existing.expiresDay + 3 };
+    const remainingDays = account.gatePass.expiresDay - today + 1;
+    return `${affiliation} 통행증이 3일 연장되었습니다. 남은 기간은 ${remainingDays}일입니다.`;
+  }
+  return "";
+}
+
+function currentTravelAffiliation() {
+  const travel = account?.travel;
+  if (!travel) return "";
+  const placementIds = travel.mode === "settlement"
+    ? [travel.settlementId, travel.positionId]
+    : [travel.departureNodeId, travel.positionId];
+  for (const placementId of placementIds) {
+    const affiliation = String(window.ProjectWMapView.getPlacement(placementId)?.affiliation || "").trim();
+    if (affiliation) return affiliation;
+  }
+  return "";
+}
+
+function mapEntryTariffPreview(placement, routePreview = null) {
+  if (!placement || placement.kind !== "node") return null;
+  const routeTariffMultiplier = window.ProjectWRouteEvents?.getDestinationTariffMultiplier?.(placement.id) || 1;
+  const baseRate = Math.max(0, Number(placement.entryTariffRate) || 0);
+  const passDiscount = gatePassTariffDiscountFor(placement);
+  const passRemainingDays = passDiscount
+    ? activeGatePass().expiresDay - normalizeWorldTime(account?.worldTime).day + 1
+    : 0;
+  const cityEventPoints = window.ProjectWCityEvents?.getModifiers?.(placement)?.entryTariffPoints || 0;
+  const entryRate = Math.max(0, ((baseRate - passDiscount) + cityEventPoints) * routeTariffMultiplier);
+  const currentAffiliation = currentTravelAffiliation();
+  const crossesBorder = Boolean(currentAffiliation && placement.affiliation
+    && currentAffiliation !== placement.affiliation);
+  const previewBorderRate = Number(routePreview?.borderTaxRate);
+  const borderRate = Number.isFinite(previewBorderRate)
+    ? Math.max(0, previewBorderRate * routeTariffMultiplier)
+    : (crossesBorder ? 5 * routeTariffMultiplier : 0);
+  return {
+    entryLabel: passDiscount
+      ? `${formatCompactNumber(entryRate)}% · 통행증 -1%p (${passRemainingDays}일)`
+      : `${formatCompactNumber(entryRate)}%`,
+    entryClass: passDiscount ? "is-tariff-discount" : "is-tariff",
+    borderLabel: borderRate > 0 ? `+${formatCompactNumber(borderRate)}%` : "없음",
+    borderClass: borderRate > 0 ? "is-border-tax" : ""
+  };
+}
+
 function normalizeHorseState(value) {
   const maxHealth = Math.max(1, Number(value?.maxHealth) || 100);
   const maxHunger = Math.max(1, Number(value?.maxHunger) || 100);
@@ -7607,13 +7797,15 @@ function normalizePartnerState(value, legacyMoodAdjustment = 0) {
   const initial = createInitialPartnerState();
   const companionRank = Math.min(MAX_COMPANION_RANK, Math.max(1, Math.trunc(Number(value?.companionRank) || 1)));
   const maxSpirit = companionSpiritMaximum(companionRank);
+  const effects = Array.isArray(value?.effects) ? value.effects.map(effect => String(effect).trim()).filter(Boolean) : [];
+  const moodFloor = effects.includes("N_S_036") ? 51 : 0;
   return {
-    mood: clampNumber(Number(value?.mood), 0, 100, clampNumber(initial.mood + (Number(legacyMoodAdjustment) || 0), 0, 100, initial.mood)),
+    mood: clampNumber(Number(value?.mood), moodFloor, 100, clampNumber(initial.mood + (Number(legacyMoodAdjustment) || 0), moodFloor, 100, initial.mood)),
     sweet: clampNumber(Number(value?.sweet), 0, 100, initial.sweet),
     salty: clampNumber(Number(value?.salty), 0, 100, initial.salty),
     stimulus: clampNumber(Number(value?.stimulus), 0, 100, initial.stimulus),
     weight: clampNumber(Number(value?.weight), 0, 100, initial.weight),
-    effects: Array.isArray(value?.effects) ? value.effects.map(effect => String(effect).trim()).filter(Boolean) : [],
+    effects,
     statusTimers: normalizePartnerStatusTimers(value?.statusTimers),
     pendingMorningStatuses: [...new Set((Array.isArray(value?.pendingMorningStatuses) ? value.pendingMorningStatuses : [])
       .map(id => String(id || "").trim()).filter(Boolean))],
@@ -7624,6 +7816,7 @@ function normalizePartnerState(value, legacyMoodAdjustment = 0) {
     upgradePoints: Math.max(0, Math.trunc(Number(value?.upgradePoints) || 0)),
     spirit: Math.min(maxSpirit, Math.max(0, Math.trunc(Number(value?.spirit) || 0))),
     lastSpiritRecoveryDay: Math.max(0, Math.trunc(Number(value?.lastSpiritRecoveryDay) || 0)),
+    lastDangerEncounterDay: Math.max(0, Math.trunc(Number(value?.lastDangerEncounterDay) || 0)),
     arrivalCount: Math.max(0, Math.trunc(Number(value?.arrivalCount) || 0)),
     visitedNodeIds: [...new Set((Array.isArray(value?.visitedNodeIds) ? value.visitedNodeIds : [])
       .map(id => String(id || "").trim()).filter(Boolean))],
@@ -7755,7 +7948,9 @@ function normalizeTutorialProgress(value) {
     waitingForInnExit: Boolean(value?.waitingForInnExit),
     earlyTutorialBranchReached: Boolean(value?.earlyTutorialBranchReached),
     talkCardTutorialPending: Boolean(value?.talkCardTutorialPending),
-    sootheTutorialPending: Boolean(value?.sootheTutorialPending)
+    sootheTutorialPending: Boolean(value?.sootheTutorialPending),
+    gatePassTutorialPending: Boolean(value?.gatePassTutorialPending)
+      && !completed.includes(TUTORIAL_IDS.GATE_PASS)
   };
 }
 
@@ -7983,11 +8178,15 @@ function normalizeInnErrandState(value) {
   return result;
 }
 
+function partnerMoodFloor(partner = account?.partner) {
+  return partnerHasStatus(normalizePartnerState(partner, account?.partnerMoodAdjustment), "배려심") ? 51 : 0;
+}
+
 function changePartnerMood(amount) {
   if (!account) return 0;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const before = account.partner.mood;
-  account.partner.mood = clampNumber(before + (Number(amount) || 0), 0, 100, before);
+  account.partner.mood = clampNumber(before + (Number(amount) || 0), partnerMoodFloor(account.partner), 100, before);
   account.partnerMoodAdjustment = account.partner.mood - 50;
   syncMoodDrivenPartnerStatuses();
   updatePartnerUi();
@@ -8053,6 +8252,11 @@ function addPartnerStatus(effectId, options = {}) {
   if (!alreadyApplied) account.partner.effects.push(normalizedId);
   const timer = partnerStatusTimer(normalizedId, options);
   if (timer) account.partner.statusTimers[normalizedId] = timer;
+  if (normalizedId === "N_S_036" && account.partner.mood < 51) {
+    account.partner.mood = 51;
+    account.partnerMoodAdjustment = 1;
+    syncMoodDrivenPartnerStatuses();
+  }
   updatePartnerUi();
   if (!alreadyApplied) void showPartnerStatusAcquiredDialogue(normalizedId);
   return !alreadyApplied;
@@ -8074,6 +8278,10 @@ function partnerStatusTimer(effectId, options = {}) {
   if (["N_S_007", "N_S_008", "N_S_010", "N_S_011", "N_S_012", "N_S_013", "N_S_014", "N_S_015", "N_S_016", "N_S_017", "N_S_023"].includes(effectId)) {
     return { remainingTimes: 0, expiresAfterDay: day, appliedDay: day };
   }
+  if (["N_S_025", "N_S_026", "N_S_027", "N_S_028", "N_S_029", "N_S_030", "N_S_031", "N_S_032", "N_S_033", "N_S_034", "N_S_035"].includes(effectId)) {
+    return { remainingTimes: 0, expiresAfterDay: day, appliedDay: day };
+  }
+  if (effectId === "N_S_036") return { remainingTimes: 10, expiresAfterDay: 0, appliedDay: day };
   return null;
 }
 
@@ -8104,6 +8312,27 @@ function removePartnerStatus(effectId) {
   return account.partner.effects.length !== before;
 }
 
+function resolvePartnerTasteDreamStatuses() {
+  if (!account) return [];
+  account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  const rules = [
+    ["N_S_025", "sweet", 4], ["N_S_026", "salty", 4], ["N_S_027", "stimulus", 4], ["N_S_028", "weight", 4],
+    ["N_S_029", "sweet", 0], ["N_S_030", "salty", 0], ["N_S_031", "stimulus", 0], ["N_S_032", "weight", 0]
+  ];
+  const resolved = rules.filter(([effectId, key, requiredStage]) => (
+    account.partner.effects.includes(effectId)
+    && partnerAppetiteStageIndex(account.partner[key]) !== requiredStage
+  )).map(([effectId]) => effectId);
+  if (!resolved.length) return [];
+  const resolvedSet = new Set(resolved);
+  account.partner.effects = account.partner.effects.filter(effectId => !resolvedSet.has(effectId));
+  resolved.forEach(effectId => delete account.partner.statusTimers[effectId]);
+  const recovered = changePartnerMood(20 * resolved.length);
+  const names = resolved.map(effectId => nahanaStatusDefinitions.get(effectId)?.name || effectId);
+  showGameNotice(`${names.join(" · ")}에서 벗어났습니다 · 나하나 기분 +${Math.max(0, recovered)}`);
+  return resolved;
+}
+
 function ensurePartnerStatusTimers() {
   if (!account) return;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
@@ -8121,7 +8350,7 @@ function processPartnerStatusesAfterTimeAdvance() {
   const day = normalizeWorldTime(account.worldTime).day;
   const removals = new Set();
   const adjustMood = amount => {
-    partner.mood = clampNumber(partner.mood + (Number(amount) || 0), 0, 100, partner.mood);
+    partner.mood = clampNumber(partner.mood + (Number(amount) || 0), partnerMoodFloor(partner), 100, partner.mood);
   };
   partner.effects.forEach(effectId => {
     const timer = partner.statusTimers[effectId];
@@ -8142,6 +8371,7 @@ function processPartnerStatusesAfterTimeAdvance() {
     if (effectId === "N_S_016") adjustMood(-2);
     if (effectId === "N_S_023" && partner.mood > 20) adjustMood(-Math.min(3, partner.mood - 20));
     if (effectId === "N_S_024" && partner.mood > 30) adjustMood(-Math.min(3, partner.mood - 30));
+    if (["N_S_025", "N_S_026", "N_S_027", "N_S_028", "N_S_029", "N_S_030", "N_S_031", "N_S_032"].includes(effectId)) adjustMood(-1);
     if (effectId === "N_S_002" && partner.mood > 25) removals.add(effectId);
     if (!timer) return;
     if (timer.remainingTimes > 0) {
@@ -8359,6 +8589,8 @@ function ensureTravelState() {
   account.partnerWeatherStreak = normalizePartnerWeatherStreak(account.partnerWeatherStreak);
   account.informationUsage = normalizeInformationUsage(account.informationUsage, account.worldTime);
   account.informationState = window.ProjectWInformation.normalizeState(account.informationState);
+  account.gatePass = normalizeGatePass(account.gatePass, account.worldTime.day);
+  account.gateBulletins = normalizeGateBulletins(account.gateBulletins);
   account.guildContribution = normalizeGuildContribution(account.guildContribution);
   account.featureUnlocks = normalizeFeatureUnlocks(account.featureUnlocks, false);
   account.advancedTutorials = normalizeAdvancedTutorialState(account.advancedTutorials);
@@ -8679,6 +8911,10 @@ function continueTravelAfterRouteEvent(travel = account?.travel) {
 }
 
 function handleRouteEventResolved(event) {
+  if (account && ["R_E_005", "R_E_006", "R_E_007"].includes(event?.id)) {
+    account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+    account.partner.lastDangerEncounterDay = normalizeWorldTime(account.worldTime).day;
+  }
   if (["R_E_002", "R_E_003", "R_E_004"].includes(event?.id)) {
     unlockFootprint("FOOTPRINT_010");
     queueNahanaSituationEvent("E_008");
@@ -8702,6 +8938,9 @@ function handleRouteEventResolved(event) {
 
 function advanceGameTime(options = {}) {
   if (!options.roadSurfaceAlreadyAdvanced) advanceRoadSurfaceState();
+  if (!options.skipCargoTimeDeterioration && account?.travel?.mode === "settlement") {
+    window.ProjectWCargo?.applyTimeDeterioration?.(1);
+  }
   const time = normalizeWorldTime(account?.worldTime);
   const previousDay = time.day;
   time.phaseIndex += 1;
@@ -8710,6 +8949,7 @@ function advanceGameTime(options = {}) {
     time.day += 1;
   }
   account.worldTime = time;
+  account.gatePass = normalizeGatePass(account.gatePass, time.day);
   if (time.day > previousDay) window.ProjectWWallet.advanceMarketToDay(time.day);
   if (time.day > previousDay) window.ProjectWInformation.advanceToDay(time.day);
   if (time.day > previousDay) addCompanionExperience(1, "함께한 하루");
@@ -8743,13 +8983,19 @@ function currentTimePhase() {
   return TIME_PHASES[time.phaseIndex];
 }
 
-function marketOddJobsProfile() {
+function marketOddJobsProfile(placement = currentSettlementPlacement()) {
   const phase = currentTimePhase();
-  const available = phase === "아침" || phase === "낮";
+  const category = String(placement?.category || "").trim();
+  const supportedSettlement = category === "도시" || category === "대도시";
+  const available = supportedSettlement && (phase === "아침" || phase === "낮");
   return {
     available,
     phase,
-    reason: available ? "" : "잡무 의뢰는 아침과 낮에만 받을 수 있습니다."
+    reason: available
+      ? ""
+      : !supportedSettlement
+        ? "잡무 의뢰는 도시와 대도시의 시장에서만 받을 수 있습니다."
+        : "잡무 의뢰는 아침과 낮에만 받을 수 있습니다."
   };
 }
 
@@ -9497,6 +9743,8 @@ function applyOutdoorSceneContext() {
   campSetup.hidden = true;
   if (campCardPanel) campCardPanel.hidden = true;
   settlementFacilities.hidden = true;
+  pendingGateBulletinId = "";
+  closeGateBulletin(false);
   if (settlementMealStatus) settlementMealStatus.hidden = true;
   if (settlementDailyStatus) settlementDailyStatus.hidden = true;
   if (settlementTutorialPrompts) settlementTutorialPrompts.hidden = true;
@@ -9547,6 +9795,7 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
   const category = placement?.category || "";
   const facilities = settlementFacilitiesFor(placement);
   renderSettlementDailyStatus(placement, facilities);
+  renderSettlementGatePass();
   renderSettlementTutorialPrompts(placement);
   settlementFacilitiesTitle.textContent = placement?.name || fallbackName;
   settlementFacilitiesCategory.textContent = category ? `${category} 시설` : "거점 시설";
@@ -9561,7 +9810,7 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
     const button = document.createElement("button");
     button.type = "button";
     const mealFacility = facility.type === "주점";
-    const serviceFacility = ["주점", "여관", "상업조합"].includes(facility.type);
+    const serviceFacility = ["주점", "여관", "상업조합", "통관 게시판"].includes(facility.type);
     const repairing = facility.type === "여관"
       && placement.id === START_DESTINATION_ID
       && !normalizeTutorialProgress(account?.tutorialProgress).reachedHirenbach;
@@ -9595,6 +9844,8 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
         ? "정비 숙박"
       : facility.type === "상업조합"
         ? "정보 수집"
+      : facility.type === "통관 게시판"
+        ? "경제 정보 1~3건"
       : facility.trade
         ? "구입 · 판매"
         : "준비 중";
@@ -9634,6 +9885,29 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
   }));
   window.ProjectWCityEvents.mountButton(settlementFacilityList, placement);
   settlementFacilities.hidden = false;
+}
+
+function renderSettlementGatePass() {
+  if (!settlementGatePass || !settlementGatePassCountry || !settlementGatePassDays || !account) return;
+  const pass = activeGatePass();
+  const today = normalizeWorldTime(account.worldTime).day;
+  const affiliation = String(pass.affiliation || "").trim();
+  const remainingDays = affiliation ? Math.max(0, pass.expiresDay - today + 1) : 0;
+  settlementGatePass.classList.remove("is-maresia", "is-rabere", "is-braven");
+  if (!affiliation || remainingDays < 1) {
+    settlementGatePass.hidden = true;
+    return;
+  }
+  const nationClass = new Map([
+    ["마레시아", "is-maresia"],
+    ["라베르", "is-rabere"],
+    ["브라벤", "is-braven"]
+  ]).get(affiliation);
+  if (nationClass) settlementGatePass.classList.add(nationClass);
+  settlementGatePassCountry.textContent = `${affiliation} 통행증`;
+  settlementGatePassDays.textContent = `남은 ${remainingDays}일`;
+  settlementGatePass.title = `${affiliation} 관문의 기본 관세가 1%p 감소합니다.`;
+  settlementGatePass.hidden = false;
 }
 
 function settlementFacilitiesFor(placement) {
@@ -9688,24 +9962,27 @@ function renderSettlementDailyStatus(placement, facilities = settlementFacilitie
 }
 
 function renderSettlementTutorialPrompts(placement) {
-  if (!settlementTutorialPrompts || !settlementCommerceGuide || !settlementNewsGuide || !account) return;
-  const eligible = ["도시", "대도시"].includes(String(placement?.category || ""));
-  if (!eligible) {
-    settlementTutorialPrompts.hidden = true;
-    return;
-  }
+  if (!settlementTutorialPrompts || !settlementCommerceGuide || !settlementNewsGuide || !settlementGateGuide || !account) return;
+  const category = String(placement?.category || "");
+  const cityEligible = ["도시", "대도시"].includes(category);
+  const gateEligible = category === "관문";
   const progress = normalizeTutorialProgress(account.tutorialProgress);
   const commerceCompleted = progress.completed.includes(TUTORIAL_IDS.CITY_COMMERCE);
   const newsCompleted = progress.completed.includes(TUTORIAL_IDS.CITY_NEWS);
-  const eventCount = window.ProjectWCityEvents.getSettlementEvents(placement).length;
-  settlementCommerceGuide.hidden = commerceCompleted;
+  const gateCompleted = progress.completed.includes(TUTORIAL_IDS.GATE_OVERVIEW);
+  const eventCount = cityEligible ? window.ProjectWCityEvents.getSettlementEvents(placement).length : 0;
+  settlementCommerceGuide.hidden = !cityEligible || commerceCompleted;
   settlementCommerceGuide.disabled = Boolean(progress.activeId && progress.activeId !== TUTORIAL_IDS.CITY_COMMERCE);
-  settlementNewsGuide.hidden = newsCompleted;
+  settlementNewsGuide.hidden = !cityEligible || newsCompleted;
   settlementNewsGuide.disabled = eventCount < 1 || Boolean(progress.activeId && progress.activeId !== TUTORIAL_IDS.CITY_NEWS);
   settlementNewsGuide.classList.toggle("has-news", eventCount > 0);
   const newsCopy = settlementNewsGuide.querySelector("span");
   if (newsCopy) newsCopy.textContent = eventCount > 0 ? `현재 소식 ${eventCount}건` : "현재 소식 없음";
-  settlementTutorialPrompts.hidden = commerceCompleted && newsCompleted;
+  settlementGateGuide.hidden = !gateEligible || gateCompleted;
+  settlementGateGuide.disabled = Boolean(progress.activeId && progress.activeId !== TUTORIAL_IDS.GATE_OVERVIEW);
+  settlementTutorialPrompts.hidden = settlementCommerceGuide.hidden
+    && settlementNewsGuide.hidden
+    && settlementGateGuide.hidden;
 }
 
 function showSettlementExitTooltip() {
@@ -9867,6 +10144,10 @@ function handleSettlementFacilityClick(event) {
     return;
   }
   const facilityType = button.dataset.facilityType || "";
+  if (facilityType === "통관 게시판") {
+    void openGateBulletin(placement);
+    return;
+  }
   if (facilityType === "상업조합" && !isFeatureUnlocked("guildAccess")) {
     showGameNotice("상업조합을 이용할 자격이 부족합니다. 메인 퀘스트를 진행하면 해금됩니다.");
     return;
@@ -9899,7 +10180,7 @@ function handleSettlementFacilityClick(event) {
 }
 
 function isFacilityOpen(type) {
-  if (type === "여관") return true;
+  if (type === "여관" || type === "통관 게시판") return true;
   return BUSINESS_OPEN_PHASES.has(currentTimePhase());
 }
 
@@ -9907,6 +10188,78 @@ function currentSettlementPlacement() {
   const travel = ensureTravelState();
   if (!travel || travel.mode !== "settlement") return null;
   return window.ProjectWMapView.getPlacement(travel.settlementId || travel.positionId);
+}
+
+async function ensureGateBulletin(placement) {
+  if (!account || String(placement?.category || "") !== "관문") return null;
+  const today = normalizeWorldTime(account.worldTime).day;
+  account.gateBulletins = normalizeGateBulletins(account.gateBulletins);
+  let record = account.gateBulletins[placement.id];
+  if (!record || today >= record.refreshDay) {
+    const entries = await window.ProjectWInformation.createGateBulletin(placement);
+    record = {
+      generatedDay: today,
+      refreshDay: today + 7,
+      entries: entries.map(normalizeGateBulletinEntry)
+    };
+    account.gateBulletins[placement.id] = record;
+    persistAccount();
+  }
+  return record;
+}
+
+async function openGateBulletin(placement = currentSettlementPlacement()) {
+  if (!gateBulletinModal || !gateBulletinList || String(placement?.category || "") !== "관문") {
+    showGameNotice("통관 게시판은 관문 안에서만 확인할 수 있습니다.");
+    return false;
+  }
+  const current = currentSettlementPlacement();
+  if (!current || current.id !== placement.id) return false;
+  if (pendingGateBulletinId === placement.id) pendingGateBulletinId = "";
+  const record = await ensureGateBulletin(placement);
+  if (!record) return false;
+  const today = normalizeWorldTime(account.worldTime).day;
+  if (gateBulletinLocation) gateBulletinLocation.textContent = `${placement.name || "관문"} · 통관 게시판`;
+  if (gateBulletinStatus) {
+    const remaining = Math.max(0, record.refreshDay - today);
+    gateBulletinStatus.textContent = `경제 소식 ${record.entries.length}건 · ${remaining}일 후 게시판 갱신`;
+  }
+  const cards = record.entries.map((entry, index) => {
+    const article = document.createElement("article");
+    article.className = "gate-bulletin-card";
+    const header = document.createElement("header");
+    const number = document.createElement("span");
+    const title = document.createElement("strong");
+    const badges = document.createElement("div");
+    number.textContent = String(index + 1).padStart(2, "0");
+    title.textContent = entry.title;
+    badges.className = "gate-bulletin-badges";
+    [entry.gradeLabel, entry.trustLabel].forEach(label => {
+      const badge = document.createElement("span");
+      badge.textContent = label;
+      badges.append(badge);
+    });
+    header.append(number, title, badges);
+    const content = document.createElement("p");
+    window.ProjectWInformation.appendRichText(content, entry.content);
+    article.append(header, content);
+    return article;
+  });
+  if (!cards.length) {
+    const empty = document.createElement("p");
+    empty.className = "gate-bulletin-empty";
+    empty.textContent = "이번 주기에 게시된 경제 소식이 없습니다.";
+    cards.push(empty);
+  }
+  gateBulletinList.replaceChildren(...cards);
+  gateBulletinModal.hidden = false;
+  return true;
+}
+
+function closeGateBulletin(scheduleNext = true) {
+  if (!gateBulletinModal) return;
+  gateBulletinModal.hidden = true;
+  if (scheduleNext) schedulePendingNarrativePresentation();
 }
 
 function openServiceModal(placement, type, label = type, options = {}) {
@@ -10626,6 +10979,44 @@ function advanceUntilNextMorning() {
   } while (normalizeWorldTime(account.worldTime).day === startingDay || currentTimePhase() !== "아침");
 }
 
+function playerWalletTotalValue() {
+  const region = window.ProjectWMapView.getPlacement(currentEnvironmentPlacementId())?.region || "중부";
+  return window.ProjectWWallet.getCurrencies().reduce((total, currency) => (
+    total + (walletCurrencyQuantity(currency.id) * Math.max(0, Number(window.ProjectWWallet.getCurrencyValue(currency, region)) || 0))
+  ), 0);
+}
+
+function rollPartnerWakeStatuses() {
+  if (!account) return [];
+  account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  const partner = account.partner;
+  const day = normalizeWorldTime(account.worldTime).day;
+  const acquired = [];
+  const add = (effectId, options = { expiresAfterDay: day }) => {
+    if (addPartnerStatus(effectId, options)) acquired.push(effectId);
+  };
+  [
+    ["sweet", "N_S_025", "N_S_029"],
+    ["salty", "N_S_026", "N_S_030"],
+    ["stimulus", "N_S_027", "N_S_031"],
+    ["weight", "N_S_028", "N_S_032"]
+  ].forEach(([key, dreamId, nightmareId]) => {
+    if (partner[key] >= 100 && Math.random() < .5) add(dreamId);
+    if (partner[key] <= 0 && Math.random() < .5) add(nightmareId);
+  });
+  if (partner.mood >= 90) {
+    if (Math.random() < .66) add("N_S_033");
+    if (Math.random() < .66) add("N_S_035");
+  }
+  if ([partner.sweet, partner.salty, partner.stimulus, partner.weight]
+    .every(value => partnerAppetiteStageIndex(value) > 0 && partnerAppetiteStageIndex(value) < 4)) {
+    add("N_S_034");
+  }
+  const dangerYesterday = partner.lastDangerEncounterDay === day - 1;
+  if (dangerYesterday || playerWalletTotalValue() < 300) add("N_S_036", { remainingTimes: 10 });
+  return acquired;
+}
+
 async function performLodging() {
   if (!account) return false;
   const lodgingPlacement = currentSettlementPlacement();
@@ -10642,6 +11033,7 @@ async function performLodging() {
     account.horse.hunger = account.horse.maxHunger;
     appliedMoodChange = changePartnerMood(requestedMoodChange);
     advanceUntilNextMorning();
+    rollPartnerWakeStatuses();
     addPartnerStatus("N_S_007", { expiresAfterDay: normalizeWorldTime(account.worldTime).day });
     addCompanionExperience(2);
     recoverSpiritAfterSleep();
@@ -11308,12 +11700,14 @@ function campComfortDetails() {
   const weatherComfort = weatherEntries.reduce((sum, entry) => sum + entry.value, 0);
   const itemComfort = itemEntries.reduce((sum, entry) => sum + entry.value, 0);
   const buffComfort = partnerCampComfortBonus();
+  const hummingComfort = partnerHasStatus(account?.partner, "콧노래") ? 4 : 0;
   const routeEventComfort = window.ProjectWRouteEvents.getCampComfortBonus();
   return {
-    total: CAMP_BASE_COMFORT + noMealComfort + environmentComfort + weatherComfort + itemComfort + buffComfort + routeEventComfort,
+    total: CAMP_BASE_COMFORT + noMealComfort + environmentComfort + weatherComfort + itemComfort + buffComfort + hummingComfort + routeEventComfort,
     hasMeal,
     noMealComfort,
     buffComfort,
+    hummingComfort,
     routeEventComfort,
     environmentEntries,
     weatherEntries,
@@ -11355,6 +11749,7 @@ function updateCampComfortDisplay() {
   details.weatherEntries.forEach(entry => breakdown.push(`${entry.weather} ${formatSigned(entry.value)}`));
   details.itemEntries.forEach(entry => breakdown.push(`${entry.item.definition.displayName} ${formatSigned(entry.value)}`));
   if (details.buffComfort) breakdown.push(`정령의 가호 ${formatSigned(details.buffComfort)}`);
+  if (details.hummingComfort) breakdown.push(`콧노래 ${formatSigned(details.hummingComfort)}`);
   if (details.routeEventComfort) breakdown.push(`경로 사건 ${formatSigned(details.routeEventComfort)}`);
   campComfortBreakdown.textContent = breakdown.join(" · ");
   const meals = [...campMealInstanceIds]
@@ -11466,6 +11861,7 @@ async function performCamp(forceConfirmation = false) {
       completedTravel.progressUpdatedAt = null;
     }
     advanceUntilNextMorning();
+    rollPartnerWakeStatuses();
     if (fatigue) {
       uncomfortableStatusAdded = addPartnerStatus("N_S_012", { expiresAfterDay: normalizeWorldTime(account.worldTime).day });
       account.lastCamp.uncomfortableStatusAdded = uncomfortableStatusAdded;
@@ -11540,9 +11936,10 @@ async function enterSettlement() {
   const routeTariffMultiplier = window.ProjectWRouteEvents.getDestinationTariffMultiplier(placement.id);
   const borderTaxRate = (crossesBorder ? 5 : 0) * routeTariffMultiplier;
   const cityEventTariffPoints = window.ProjectWCityEvents.getModifiers(placement).entryTariffPoints;
+  const gatePassDiscount = gatePassTariffDiscountFor(placement);
   const effectivePlacement = {
     ...placement,
-    entryTariffRate: Math.max(0, ((Number(placement.entryTariffRate) || 0) + cityEventTariffPoints) * routeTariffMultiplier)
+    entryTariffRate: Math.max(0, (((Number(placement.entryTariffRate) || 0) - gatePassDiscount) + cityEventTariffPoints) * routeTariffMultiplier)
   };
   const taxable = ["대도시", "도시", "관문"].includes(placement.category)
     && (Number(effectivePlacement.entryTariffRate) > 0 || borderTaxRate > 0);
@@ -11555,7 +11952,7 @@ async function enterSettlement() {
       departure,
       onPaid: () => {
         window.ProjectWRouteEvents.consumeDestinationTariffDiscount(placement.id);
-        completeSettlementEntry(placement);
+        completeSettlementEntry(placement, { crossesBorder, borderCleared: crossesBorder });
       },
       onCancel: () => showGameNotice(`${placement.name || "거점"} 입장을 취소했습니다.`)
     });
@@ -11563,10 +11960,10 @@ async function enterSettlement() {
   }
 
   window.ProjectWRouteEvents.consumeDestinationTariffDiscount(placement.id);
-  completeSettlementEntry(placement);
+  completeSettlementEntry(placement, { crossesBorder, borderCleared: false });
 }
 
-function completeSettlementEntry(placement) {
+function completeSettlementEntry(placement, context = {}) {
   const travel = ensureTravelState();
   if (!travel || !placement) return;
   travel.mode = "settlement";
@@ -11577,6 +11974,7 @@ function completeSettlementEntry(placement) {
   travel.settlementId = placement.id;
   travel.settlementName = placement.name || "거점";
   travel.settlementAssetId = SETTLEMENT_ASSETS[placement.category] || "Asset_A_06";
+  const gatePassNotice = applyGatePassOnSettlementEntry(placement, context);
   account.settlementDialogueVisit = {
     settlementId: placement.id,
     token: `${placement.id}:${normalizeWorldTime(account.worldTime).day}:${Date.now()}`
@@ -11590,9 +11988,16 @@ function completeSettlementEntry(placement) {
   syncTravelExperience();
   refreshAdvancedTutorialLaunchers();
   void handleNahanaEventSettlementEntry(placement)
-    .finally(() => window.ProjectWCityEvents.observeSettlementEntry(placement));
+    .finally(() => {
+      window.ProjectWCityEvents.observeSettlementEntry(placement);
+      if (placement.category === "관문") {
+        pendingGateBulletinId = placement.id;
+        schedulePendingNarrativePresentation();
+      }
+    });
   handleTutorialSettlementEntry(placement);
   void collectBrightEarInformation(placement);
+  if (gatePassNotice) showGameNotice(gatePassNotice);
 }
 
 function settlementDialogueVisitToken() {
@@ -13089,6 +13494,7 @@ function maybeStartPendingTalkCardTutorial() {
     if (!hasUsableCampCard) return false;
   }
   const modalOpen = !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
+    || (gateBulletinModal && !gateBulletinModal.hidden)
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
     || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
     || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
@@ -13117,6 +13523,7 @@ function maybeStartPendingSootheTutorial() {
     || activeTalkCardId || activeNahanaSituationEventId || tutorialRuntime || advancedTutorialRuntime
     || (tutorialLayer && !tutorialLayer.hidden) || (advancedTutorialLayer && !advancedTutorialLayer.hidden)) return false;
   const modalOpen = !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
+    || (gateBulletinModal && !gateBulletinModal.hidden)
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
     || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
     || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
@@ -13125,6 +13532,25 @@ function maybeStartPendingSootheTutorial() {
   if (!startTutorial(TUTORIAL_IDS.PARTNER_SOOTHE)) return false;
   account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
   account.tutorialProgress.sootheTutorialPending = false;
+  persistAccount();
+  return true;
+}
+
+function maybeStartPendingGatePassTutorial() {
+  if (!account) return false;
+  const progress = normalizeTutorialProgress(account.tutorialProgress);
+  if (!progress.gatePassTutorialPending) return false;
+  if (!shouldStartTutorial(TUTORIAL_IDS.GATE_PASS)) {
+    progress.gatePassTutorialPending = false;
+    account.tutorialProgress = progress;
+    persistAccount();
+    return false;
+  }
+  if (account.travel?.mode !== "settlement" || narrativePresentationBlocked()) return false;
+  if (currentScene !== "road") showScene("road", -1, true);
+  if (!startTutorial(TUTORIAL_IDS.GATE_PASS)) return false;
+  account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
+  account.tutorialProgress.gatePassTutorialPending = false;
   persistAccount();
   return true;
 }
@@ -13142,6 +13568,7 @@ function narrativePresentationBlocked(options = {}) {
   const progress = normalizeTutorialProgress(account.tutorialProgress);
   if (progress.activeId || (progress.talkCardTutorialPending && !options.ignoreTalkCardTutorialPending)) return true;
   return !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
+    || (gateBulletinModal && !gateBulletinModal.hidden)
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
     || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
     || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
@@ -13171,6 +13598,16 @@ function continuePendingNarrativePresentation() {
   if (situationState.pendingIds.length) {
     void beginNextNahanaSituationEvent();
     return true;
+  }
+  if (maybeStartPendingGatePassTutorial()) return true;
+  if (pendingGateBulletinId) {
+    const placement = currentSettlementPlacement();
+    const bulletinId = pendingGateBulletinId;
+    pendingGateBulletinId = "";
+    if (placement?.category === "관문" && placement.id === bulletinId) {
+      void openGateBulletin(placement);
+      return true;
+    }
   }
   schedulePendingRoadArrivalContinuation();
   return false;
@@ -13262,7 +13699,7 @@ function completeTutorial(tutorialId = tutorialRuntime?.id) {
   if (currentScene === "partner" && tutorialId !== TUTORIAL_IDS.TALK_CARD) {
     window.setTimeout(maybeStartEarlyPartnerTutorial, 0);
   }
-  const modalOpen = !walletModal.hidden || !informationModal.hidden || !merchantPathModal.hidden || !memorialModal.hidden
+  const modalOpen = !walletModal.hidden || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden
     || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden
     || !entryTaxModal.hidden || !routeEventModal.hidden || !dialogModal.hidden;
   if (account.travel?.mode === "road" && !modalOpen) {
@@ -13373,7 +13810,7 @@ function tutorialStepConfiguration(tutorialId, step) {
     ],
     9: [
       ["시장 간식", "도시와 대도시의 시장에서는 이 버튼으로 나하나에게 줄 간식을 살 수 있습니다.", "#trade-snack-open"],
-      ["시장 잡무 의뢰", "아침과 낮에는 시장의 잡무를 돕고 가치 50~75에 해당하는 동화를 받을 수 있습니다. 일을 마치면 저녁이 되며 나하나가 따분함이나 불만 상태가 될 수 있습니다.", "#trade-odd-jobs"]
+      ["시장 잡무 의뢰", "도시와 대도시의 시장에서는 아침과 낮에 잡무를 돕고 가치 50~75에 해당하는 동화를 받을 수 있습니다. 마을 시장에서는 이용할 수 없습니다. 일을 마치면 저녁이 되며 나하나가 따분함이나 불만 상태가 될 수 있습니다.", "#trade-odd-jobs"]
     ],
     10: [
       ["축복 부여", "동행 중 얻은 강화포인트로 짐마차에 영구적인 축복을 부여할 수 있습니다. 축복 부여를 눌러 확인하세요.", "#partner-blessing-toggle", true],
@@ -13484,6 +13921,17 @@ function tutorialStepConfiguration(tutorialId, step) {
     [TUTORIAL_IDS.PARTNER_SOOTHE]: [
       ["화난 나하나 달래기", "나하나가 화난 상태라면 간식 주기 버튼이 달래기로 바뀝니다.\n달래기에 성공하면 기분이 1~2 회복됩니다.", "#partner-snack-open", false, { padding: 12 }],
       ["오늘은 거절할 수도 있습니다", "달래기를 거절하면 오늘은 더 시도할 수 없습니다.\n다음 날에도 화난 상태라면 다시 달랠 수 있습니다.", "#partner-snack-open", false, { padding: 12 }]
+    ],
+    [TUTORIAL_IDS.GATE_OVERVIEW]: [
+      ["관문", "관문은 국경과 주요 길목을 관리하는 거점입니다. 지나가는 수입품을 취급하고, 경제 소식과 통관 정보를 얻기 좋습니다.", "#settlement-facilities", false, { padding: 12 }],
+      ["국경 관세", "다른 국가로 넘어가면 관문 자체의 입장관세와 별도로 국경 관세가 붙습니다. 화물의 과세 가치가 클수록 지불액도 커집니다.", "#settlement-facilities", false, { padding: 12 }],
+      ["국가 통행증", "국경 관세를 지불하면 그 국가의 통행증을 5일간 받습니다. 유효한 동안 같은 국가 관문의 기본 관세가 1%p 줄고, 같은 국가의 관문에 들어갈 때마다 3일 연장됩니다.", "#settlement-facilities-title", false, { padding: 10 }],
+      ["통관 게시판", "게시판에는 이 관문에서 확인할 수 있는 경제 정보가 1~3건 올라옵니다. 7일마다 바뀌며 정보 카드로 저장되지 않으므로, 관문을 떠나기 전에 직접 메모하거나 기억해야 합니다.", "#settlement-facility-list button[data-facility-type='통관 게시판']", false, { padding: 10 }]
+    ],
+    [TUTORIAL_IDS.GATE_PASS]: [
+      ["통행증 획득", "국경 관세를 지불해 통행증을 받았습니다. 거점 시설의 이름 위에서 소속 국가와 남은 기간을 확인할 수 있습니다.", "#settlement-gate-pass", false, { padding: 10 }],
+      ["관문 관세 할인", "통행증이 유효한 동안 해당 국가 관문의 기본 관세가 1%p 감소합니다. 국경 관세 자체와 도시 입장관세에는 적용되지 않습니다.", "#settlement-gate-pass", false, { padding: 10 }],
+      ["연장과 출국", "같은 국가의 다른 관문에 들어가면 기간이 3일 연장됩니다. 다른 국가로 출국하면 기존 통행증은 사라지고, 새 국경 관세를 지불한 국가의 통행증으로 바뀝니다.", "#settlement-gate-pass", false, { padding: 10 }]
     ]
   };
   const entry = configurations[tutorialId]?.[step];

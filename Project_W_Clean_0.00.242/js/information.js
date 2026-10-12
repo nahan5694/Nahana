@@ -12,6 +12,13 @@
   const MIDRANGE_INFORMATION_WEIGHT_MULTIPLIER = 3;
   const DISTANT_INFORMATION_WEIGHT_MULTIPLIER = .35;
   const LOCAL_FACILITY_WEATHER_WEIGHT_MULTIPLIER = 2;
+  const GATE_ECONOMIC_INFORMATION_WEIGHT_MULTIPLIER = 3;
+  const ECONOMIC_INFORMATION_SPECIALS = new Set([
+    "MARKET_SUBCATEGORY",
+    "PRODUCTION_FORECAST",
+    "IMPORT_LOGISTICS",
+    "CURRENCY_TREND"
+  ]);
   const GRADE_VI_EFFECTIVE_WEIGHT = 11;
   const INITIAL_INFORMATION_AGE_BANDS = [
     [
@@ -360,6 +367,9 @@
         : "unverified",
       verifiedDay: Math.max(0, integer(card?.verifiedDay)),
       verifiedSettlementId: text(card?.verifiedSettlementId),
+      sourceSettlementId: text(card?.sourceSettlementId),
+      sourceSettlementCategory: text(card?.sourceSettlementCategory),
+      sourceFacility: text(card?.sourceFacility),
       target: card?.target && typeof card.target === "object" ? { ...card.target } : {},
       specialExpiresDay: Math.max(0, integer(card?.specialExpiresDay))
     };
@@ -468,6 +478,9 @@
       verificationStatus: "unverified",
       verifiedDay: 0,
       verifiedSettlementId: "",
+      sourceSettlementId: text(placement?.id),
+      sourceSettlementCategory: text(placement?.category),
+      sourceFacility: text(facility),
       target,
       specialExpiresDay: template.special === "WOLFEN_TRACK" ? today + randomInteger(3, 7) - 1 : 0
     });
@@ -497,6 +510,84 @@
     };
   }
 
+  async function createGateBulletin(placement, requestedCount = 0) {
+    if (text(placement?.category) !== "관문" || !await load()) return [];
+    const scratchState = {
+      ...currentState(),
+      discoveredKeys: []
+    };
+    const candidates = (await buildCandidates(scratchState, placement, "통관 게시판"))
+      .filter(candidate => ECONOMIC_INFORMATION_SPECIALS.has(text(candidate.template?.special))
+        || array(candidate.variants).some(variant => ECONOMIC_INFORMATION_SPECIALS.has(text(variant?.special))));
+    const count = clamp(integer(requestedCount) || randomInteger(1, 3), 1, 3);
+    const pool = [...candidates];
+    const entries = [];
+    while (entries.length < count && pool.length) {
+      const selected = weightedEntry(pool, candidate => candidate.weight);
+      const selectedIndex = pool.indexOf(selected);
+      if (selectedIndex >= 0) pool.splice(selectedIndex, 1);
+      if (!selected) break;
+      const variants = array(selected.variants).filter(variant => ECONOMIC_INFORMATION_SPECIALS.has(text(variant?.special)));
+      const template = variants.length
+        ? weightedEntry(variants, variant => variant.weight)
+        : selected.template;
+      if (!template || !ECONOMIC_INFORMATION_SPECIALS.has(text(template.special))) continue;
+      const grade = weightedStep(ruleBook.grades, template.gradeMinimum || 1, template.gradeMaximum || 6);
+      const trust = weightedStep(ruleBook.trusts, template.trustMinimum || 1, template.trustMaximum || 6);
+      const variables = selected.variables || {};
+      const card = normalizeCard({
+        id: `GATE_BOARD_${Date.now().toString(36)}_${entries.length}`,
+        templateId: template.id,
+        instanceKey: selected.instanceKey,
+        category: template.category,
+        subcategory: template.subcategory,
+        special: template.special,
+        title: interpolate(template.title, variables),
+        correct: interpolate(template.correct, variables),
+        wrong: template.wrong.map(content => interpolate(content, variables)),
+        wrongTitles: template.wrongTitles.map(title => interpolate(title, variables)),
+        grade,
+        trust,
+        typeMultiplier: template.typeMultiplier,
+        sellable: false,
+        maximumAgeDays: template.maximumAgeDays,
+        acquiredDay: currentDay(),
+        initialAgeDays: 0,
+        trustRoll: Math.random(),
+        ageRoll: Math.random(),
+        intuitionRoll: 1,
+        misinformationReduction: 0,
+        read: true,
+        falseIndex: Math.floor(Math.random() * Math.max(1, template.wrong.length)),
+        valueFactor: 1,
+        saleCount: 0,
+        soldShopKeys: [],
+        soldCompanyKeys: [],
+        verificationStatus: "unverified",
+        verifiedDay: 0,
+        verifiedSettlementId: "",
+        sourceSettlementId: text(placement.id),
+        sourceSettlementCategory: "관문",
+        sourceFacility: "통관 게시판",
+        target: { ...(selected.target || {}) },
+        specialExpiresDay: 0
+      });
+      const presented = presentCard(card);
+      entries.push({
+        id: card.id,
+        category: presented.category,
+        special: presented.special,
+        title: presented.title,
+        content: presented.content,
+        grade: presented.grade,
+        trust: presented.trust,
+        gradeLabel: presented.gradeLabel,
+        trustLabel: presented.trustLabel
+      });
+    }
+    return entries;
+  }
+
   async function buildCandidates(state, placement, facility = "") {
     // Trade signals load the map and current city events before these snapshots are read.
     const signals = await getInformationSignals();
@@ -511,14 +602,14 @@
     const push = (template, instanceKey, variables = {}, target = {}, multiplier = 1) => {
       if (!template || discovered.has(instanceKey)) return;
       const locality = informationLocalityMultiplier({ facility, placement, target, settlements, routes });
-      const facilityMultiplier = informationFacilitySpecialMultiplier(facility, template.special);
+      const facilityMultiplier = informationFacilitySpecialMultiplier(facility, template.special, placement);
       candidates.push({ template, instanceKey, variables, target, weight: Math.max(.01, template.weight * multiplier * locality * facilityMultiplier) });
     };
     const pushVariants = (variants, instanceKey, variables = {}, target = {}, multiplier = 1) => {
       const available = array(variants).filter(Boolean);
       if (!available.length || discovered.has(instanceKey)) return;
       const averageWeight = available.reduce((sum, variant) => sum + variant.weight, 0) / available.length;
-      const facilityMultiplier = informationFacilitySpecialMultiplier(facility, available[0].special);
+      const facilityMultiplier = informationFacilitySpecialMultiplier(facility, available[0].special, placement);
       candidates.push({
         template: available[0],
         variants: available,
@@ -618,10 +709,15 @@
     return DISTANT_INFORMATION_WEIGHT_MULTIPLIER;
   }
 
-  function informationFacilitySpecialMultiplier(facility, special) {
-    return LOCAL_INFORMATION_FACILITIES.has(text(facility)) && isWeatherInformationSpecial(special)
+  function informationFacilitySpecialMultiplier(facility, special, placement = null) {
+    if (!LOCAL_INFORMATION_FACILITIES.has(text(facility))) return 1;
+    let multiplier = isWeatherInformationSpecial(special)
       ? ruleBook.localFacilityWeatherWeightMultiplier
       : 1;
+    if (text(placement?.category) === "관문" && ECONOMIC_INFORMATION_SPECIALS.has(text(special))) {
+      multiplier *= GATE_ECONOMIC_INFORMATION_WEIGHT_MULTIPLIER;
+    }
+    return multiplier;
   }
 
   function informationTargetPlacementIds(target = {}, settlements = [], routes = []) {
@@ -1541,6 +1637,7 @@
     createState,
     normalizeState,
     collect,
+    createGateBulletin,
     acquisitionChance,
     updateCollectionTooltip,
     getCards,

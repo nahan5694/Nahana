@@ -45,6 +45,12 @@
   const FIXED_LOGISTICS_FACILITY_MODIFIER = new Map([["교역소", -1], ["상회", -1]]);
   const IMPORT_COUNTS = new Map([["상회", 10], ["교역소", 5], ["시장", 0]]);
   const DURABILITY_DAMAGE_MAX = new Map([["상회", 20], ["교역소", 40], ["시장", 60], ["좌판", 40]]);
+  const MERCHANT_DAILY_DURABILITY_DAMAGE = new Map([
+    ["상회", [1, 1]],
+    ["교역소", [1, 2]],
+    ["시장", [1, 3]],
+    ["좌판", [1, 3]]
+  ]);
   const INDESTRUCTIBLE_DURABILITY = 9999;
   const INDESTRUCTIBLE_DISTANCE_VALUE_FACTOR = .5;
   const CAMP_SUPPLY_RARITY_LIMIT = new Map([["마을", 1], ["도시", 3], ["대도시", Number.POSITIVE_INFINITY]]);
@@ -166,6 +172,7 @@
   let currencyAnalysisReport = null;
   let currencyAnalysisView = "table";
   let suspendedForMap = false;
+  let activeTradeScrollTarget = null;
   const merchantCommentPlans = new Map();
   let elements = {};
 
@@ -273,6 +280,11 @@
     elements.travelFilter?.addEventListener("click", toggleTravelFilter);
     elements.travelHideFilter?.addEventListener("click", toggleTravelHideFilter);
     elements.playerCatalogTabs.forEach(button => button.addEventListener("click", switchPlayerCatalog));
+    tradeScrollLists().forEach(list => {
+      list.addEventListener("pointerenter", rememberTradeScrollTarget);
+      list.addEventListener("focusin", rememberTradeScrollTarget);
+    });
+    elements.modal.addEventListener("wheel", handleTradeModalWheel, { passive: false });
     elements.modal.addEventListener("click", handleClick);
     elements.modal.addEventListener("pointerdown", event => {
       if (event.target === elements.modal) close();
@@ -287,6 +299,67 @@
       }
       close();
     });
+  }
+
+  function tradeScrollLists() {
+    return [
+      elements.playerItems,
+      elements.merchantItems,
+      elements.playerCurrencies,
+      elements.merchantCurrencies,
+      elements.playerOffer,
+      elements.merchantOffer
+    ].filter(Boolean);
+  }
+
+  function rememberTradeScrollTarget(event) {
+    const list = event?.currentTarget;
+    if (list instanceof HTMLElement) activeTradeScrollTarget = list;
+  }
+
+  function isUsableTradeScrollTarget(list) {
+    return list instanceof HTMLElement
+      && list.isConnected
+      && list.getClientRects().length > 0
+      && list.scrollHeight > list.clientHeight + 1;
+  }
+
+  function defaultTradeScrollTarget(clientX) {
+    const windowRect = elements.modal?.querySelector(".trade-window")?.getBoundingClientRect();
+    const usePlayerSide = !windowRect || !Number.isFinite(clientX) || clientX < windowRect.left + (windowRect.width / 2);
+    const preferred = usePlayerSide
+      ? [elements.playerItems, elements.playerCurrencies, elements.playerOffer]
+      : [elements.merchantItems, elements.merchantCurrencies, elements.merchantOffer];
+    return preferred.find(isUsableTradeScrollTarget)
+      || tradeScrollLists().find(isUsableTradeScrollTarget)
+      || null;
+  }
+
+  function handleTradeModalWheel(event) {
+    if (!elements.modal || elements.modal.hidden || event.ctrlKey) return;
+    if (elements.currencyAnalysisLayer && !elements.currencyAnalysisLayer.hidden) return;
+    const source = event.target instanceof Element
+      ? event.target.closest(".trade-item-list, .trade-currency-list, .trade-offer-list")
+      : null;
+    if (source) {
+      activeTradeScrollTarget = source;
+      return;
+    }
+    const list = isUsableTradeScrollTarget(activeTradeScrollTarget)
+      ? activeTradeScrollTarget
+      : defaultTradeScrollTarget(event.clientX);
+    if (!list) return;
+    const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? event.deltaY * 24
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? event.deltaY * Math.max(1, list.clientHeight)
+        : event.deltaY;
+    const previousScrollTop = list.scrollTop;
+    list.scrollTop += delta;
+    if (list.scrollTop !== previousScrollTop) {
+      activeTradeScrollTarget = list;
+      event.preventDefault();
+    }
   }
 
   async function open(options = {}) {
@@ -306,10 +379,12 @@
 
     const currencyOnly = facilityType === "환전상";
     const snackAvailable = facilityType === "시장" && String(settlement.category || "").trim() !== "마을";
-    const oddJobsAvailable = facilityType === "시장";
+    const oddJobsAvailable = facilityType === "시장"
+      && ["도시", "대도시"].includes(String(settlement.category || "").trim());
     const mapAvailable = ["상회", "교역소", "시장"].includes(facilityType)
       || String(settlement.category || "").trim() === "관문";
     suspendedForMap = false;
+    activeTradeScrollTarget = null;
     if (elements.mapButton) {
       elements.mapButton.hidden = !mapAvailable;
       elements.mapButton.disabled = !mapAvailable;
@@ -483,7 +558,7 @@
 
   function updateMarketOddJobsButton() {
     if (!elements.oddJobsButton || !current || current.facilityType !== "시장") return;
-    const profile = getMarketOddJobsProfile() || {};
+    const profile = getMarketOddJobsProfile(current?.settlement) || {};
     elements.oddJobsButton.disabled = !profile.available;
     elements.oddJobsButton.classList.toggle("is-limit-exhausted", !profile.available);
     elements.oddJobsButton.title = profile.available
@@ -495,7 +570,7 @@
 
   function performMarketOddJobs() {
     if (!current || current.facilityType !== "시장" || !elements.oddJobsButton) return;
-    const profile = getMarketOddJobsProfile() || {};
+    const profile = getMarketOddJobsProfile(current?.settlement) || {};
     if (!profile.available) {
       notify(profile.reason || "잡무 의뢰는 아침과 낮에만 받을 수 있습니다.");
       updateMarketOddJobsButton();
@@ -847,6 +922,9 @@
       return prepared;
     });
     changed = catchUpMerchantRefreshes(merchants, currentTick) || changed;
+    merchants.forEach(entry => {
+      changed = applyMerchantStockDeterioration(entry, worldTime.day) || changed;
+    });
     if (changed) persistState();
   }
 
@@ -874,7 +952,8 @@
       worldTime,
       currentTick
     });
-    const changed = catchUpMerchantRefreshes([prepared], currentTick) || prepared.changed;
+    let changed = catchUpMerchantRefreshes([prepared], currentTick) || prepared.changed;
+    changed = applyMerchantStockDeterioration(prepared, worldTime.day) || changed;
     if (changed) persistState();
     return { merchant: prepared.merchant, unresolvedProducts: prepared.merchant.unresolvedProducts };
   }
@@ -893,9 +972,10 @@
       : Math.max(0, Math.trunc(Number(getCityEventModifiers(settlement).revision) || 0));
     const cityEventChanged = merchant.cityEventRevision !== cityEventRevision;
     const isNewMerchant = merchant.refreshSerial === 0;
+    const needsDeteriorationMigration = merchant.stockDeteriorationDay <= 0;
     const needsSnapshotReset = isNewMerchant || needsStockMigration || sourceUpgraded
       || cityEventChanged;
-    let changed = didRepairIndestructibleStock || needsWalletMigration || needsTimeMigration;
+    let changed = didRepairIndestructibleStock || needsWalletMigration || needsTimeMigration || needsDeteriorationMigration;
     if (needsSnapshotReset) {
       const refreshSerial = merchant.refreshSerial + 1;
       const scheduleRng = seededRandom(`${merchantKey}|restock-schedule`);
@@ -923,6 +1003,7 @@
       merchant.wallet = createMerchantWallet(settlement, facilityType, currencies, walletRng);
       merchant.walletSchemaVersion = MERCHANT_WALLET_SCHEMA_VERSION;
     }
+    if (needsDeteriorationMigration && !needsSnapshotReset) merchant.stockDeteriorationDay = worldTime.day;
     if (ensureRegionalCampSupplies({ merchantKey, merchant, settlement, facilityType, definitions })) changed = true;
     state.merchants[merchantKey] = merchant;
     return {
@@ -971,6 +1052,29 @@
     return changed;
   }
 
+  function applyMerchantStockDeterioration(entry, worldDay) {
+    const range = MERCHANT_DAILY_DURABILITY_DAMAGE.get(entry?.facilityType);
+    if (!range || !entry?.merchant) return false;
+    const currentDay = Math.max(1, Math.trunc(Number(worldDay) || 1));
+    const lastDay = Math.max(1, Math.trunc(Number(entry.merchant.stockDeteriorationDay) || currentDay));
+    if (currentDay <= lastDay) return false;
+    const definitionsById = new Map(entry.definitions.map(definition => [definition.id, definition]));
+    for (let day = lastDay + 1; day <= currentDay; day += 1) {
+      entry.merchant.stockLots.forEach(lot => {
+        const maximum = Math.max(0, Number(definitionsById.get(lot.itemId)?.durability) || 0);
+        if (maximum <= 0 || maximum >= INDESTRUCTIBLE_DURABILITY) return;
+        const current = Number.isFinite(Number(lot.durability)) ? Number(lot.durability) : maximum;
+        const rng = seededRandom(`${entry.merchantKey}|stock-deterioration|${day}|${lot.lotId}`);
+        const damage = range[0] + Math.floor(rng() * ((range[1] - range[0]) + 1));
+        lot.durability = Math.max(0, current - damage);
+      });
+      entry.merchant.stockLots = entry.merchant.stockLots.filter(lot => lot.quantity > 0 && Number(lot.durability) > 0);
+    }
+    entry.merchant.stockDeteriorationDay = currentDay;
+    state.merchants[entry.merchantKey] = entry.merchant;
+    return true;
+  }
+
   function createMerchantSnapshot({ merchantKey, merchant, settlement, facilityType, definitions, currencies, catalogSource, worldData, refreshSerial, refreshDay, nextRefreshTick, preserveWallet = false }) {
     const rng = seededRandom(`${merchantKey}|${refreshDay}|${refreshSerial}`);
     const walletRng = seededRandom(`${merchantKey}|wallet|${refreshSerial}`);
@@ -1002,6 +1106,7 @@
       timeSchemaVersion: TRADE_TIME_SCHEMA_VERSION,
       createdAt: merchant.createdAt || new Date().toISOString(),
       refreshedAtDay: refreshDay,
+      stockDeteriorationDay: refreshDay,
       cityEventRevision: facilityType === "환전상"
         ? 0
         : Math.max(0, Math.trunc(Number(getCityEventModifiers(settlement).revision) || 0))
@@ -1047,6 +1152,7 @@
       refreshSerial: Math.max(0, Math.trunc(Number(merchant.refreshSerial) || 0)),
       createdAt: String(merchant.createdAt || ""),
       refreshedAtDay: Math.max(0, Math.trunc(Number(merchant.refreshedAtDay) || 0)),
+      stockDeteriorationDay: Math.max(0, Math.trunc(Number(merchant.stockDeteriorationDay) || 0)),
       cityEventRevision: Math.max(0, Math.trunc(Number(merchant.cityEventRevision) || 0))
     };
   }
@@ -1825,6 +1931,7 @@
     const value = document.createElement("div");
     value.className = "trade-information-value";
     const weightPercent = informationPurchaseWeightPercent(card);
+    const sameGateSourceDiscount = gateSourceInformationMultiplier(card) < 1;
     const price = document.createElement("strong");
     price.textContent = `매입 가치 약 ${formatNumber(informationSaleValue(card, capacityOffset))}`;
     value.append(price);
@@ -1833,10 +1940,16 @@
       capacityLabel.textContent = `정보 수용량 ${formatNumber(capacity.current)} / ${formatNumber(capacity.maximum)}`;
       value.append(capacityLabel);
     }
+    if (sameGateSourceDiscount) {
+      const sourceDiscount = document.createElement("small");
+      sourceDiscount.className = "is-source-discount";
+      sourceDiscount.textContent = "이 관문에서 얻은 정보 · 매입가 50%";
+      value.append(sourceDiscount);
+    }
     value.title = current?.facilityType === "상회"
       ? `이 점포의 ${informationTypeLabel(card)} 정보 매입 가중치 ${formatNumber(weightPercent)}% · 수용량 보정 ${formatNumber(capacity.valuePercent)}%`
       : current?.settlement?.category === "관문"
-        ? `이 관문의 ${informationTypeLabel(card)} 정보 매입 가중치 ${formatNumber(weightPercent)}%`
+        ? `이 관문의 ${informationTypeLabel(card)} 정보 매입 가중치 ${formatNumber(weightPercent)}%${sameGateSourceDiscount ? " · 같은 관문 발생 정보 매입가 50%" : ""}`
         : "";
     const content = document.createElement("p");
     window.ProjectWInformation.appendRichText(content, card.content);
@@ -1978,8 +2091,16 @@
     )) || 0);
     const capacity = companyInformationCapacityProfile(capacityOffset);
     return Math.max(baseValue > 0 ? 1 : 0, Math.round(
-      baseValue * informationPurchaseWeightPercent(card) / 100 * capacity.valuePercent / 100
+      baseValue
+        * informationPurchaseWeightPercent(card) / 100
+        * capacity.valuePercent / 100
+        * gateSourceInformationMultiplier(card)
     ));
+  }
+
+  function gateSourceInformationMultiplier(card) {
+    if (current?.settlement?.category !== "관문") return 1;
+    return String(card?.sourceSettlementId || "") === String(current.settlement.id || "") ? .5 : 1;
   }
 
   function toggleTravelFilter() {
@@ -4050,6 +4171,7 @@
     window.ProjectWMerchantPath?.recordTrade(knowledgeTransactions, {
       settlementId: current.settlement?.id || "",
       settlementName: current.settlement?.name || "이름 없는 거점",
+      settlementCategory: current.settlement?.category || "",
       facilityType: current.facilityType,
       companyName: current.companyName || "",
       bargainSuccesses
@@ -4333,6 +4455,7 @@
     }));
     window.dispatchEvent(new CustomEvent("projectw:tradeclose"));
     current = null;
+    activeTradeScrollTarget = null;
     proposal = createProposal();
     offerFilters = { player: "all", merchant: "all" };
     merchantTravelFilterMode = "all";

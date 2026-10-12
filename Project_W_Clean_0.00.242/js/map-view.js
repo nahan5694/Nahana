@@ -17,6 +17,7 @@
   let getCityEvents = () => [];
   let getSettlementNotes = () => [];
   let getSettlementOutletGoods = () => [];
+  let getEntryTariffPreview = () => null;
   let editSettlementNotes = () => {};
   let notify = () => {};
   let initialized = false;
@@ -52,6 +53,7 @@
     getCityEvents = typeof options.getCityEvents === "function" ? options.getCityEvents : getCityEvents;
     getSettlementNotes = typeof options.getSettlementNotes === "function" ? options.getSettlementNotes : getSettlementNotes;
     getSettlementOutletGoods = typeof options.getSettlementOutletGoods === "function" ? options.getSettlementOutletGoods : getSettlementOutletGoods;
+    getEntryTariffPreview = typeof options.getEntryTariffPreview === "function" ? options.getEntryTariffPreview : getEntryTariffPreview;
     editSettlementNotes = typeof options.editSettlementNotes === "function" ? options.editSettlementNotes : editSettlementNotes;
     notify = typeof options.notify === "function" ? options.notify : notify;
 
@@ -913,6 +915,11 @@
     const list = document.createElement("dl");
     if (placement.kind === "node") {
       appendTooltipRow(list, "소속", placement.affiliation, affiliationClassName(placement.affiliation));
+      const tariff = getEntryTariffPreview(placement, destinationSelection?.weatherInfoByPlacementId.get(placement.id));
+      if (tariff) {
+        appendTooltipRow(list, "입장관세", tariff.entryLabel || "없음", tariff.entryClass || "");
+        appendTooltipRow(list, "입국관세", tariff.borderLabel || "없음", tariff.borderClass || "");
+      }
     }
     appendTooltipRow(list, "지형 분류", placement.terrains.join(", "));
     appendTooltipRow(list, "환경 분류", placement.environments.join(", "));
@@ -921,7 +928,6 @@
     const weatherInfo = destinationSelection?.weatherInfoByPlacementId.get(placement.id);
     if (weatherInfo) {
       fragment.append(buildWeatherPreview(weatherInfo));
-      if (Number(weatherInfo.borderTaxRate) > 0) fragment.append(buildBorderTaxPreview(weatherInfo));
     }
     fragment.append(description);
     if (placement.kind === "node" && tooltipSections.dealers) {

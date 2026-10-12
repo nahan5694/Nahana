@@ -411,6 +411,7 @@
       forcedWaterCount: Math.max(0, Math.trunc(Number(restrictions.forcedWaterCount) || 0)),
       forceMostExpensive: Boolean(restrictions.forceMostExpensive),
       moodGainMultiplier: Math.max(0, Number(restrictions.moodGainMultiplier) || 1),
+      foodieMoodBonus: Boolean(restrictions.foodieMoodBonus),
       fullnessMaximum: Math.max(0, Number(restrictions.fullnessMaximum) || 0),
       fullnessLimitReason: String(restrictions.fullnessLimitReason || "현재 상태").trim() || "현재 상태",
       tavernQuestionMaximum: Math.max(0, Math.trunc(Number(restrictions.tavernQuestionMaximum) || 3)),
@@ -1449,6 +1450,7 @@
         overflowPenalty: preview.overflowPenalty,
         duplicateMoodPenalty: preview.duplicateMoodPenalty,
         tavernSpecialMoodBonus: preview.tavernSpecialMoodBonus,
+        foodieMoodBonus: preview.foodieMoodBonus,
         alcoholCount: alcoholCount(entries),
         tasteDelta: { ...preview.delta },
         completedAt: new Date().toISOString()
@@ -1518,7 +1520,8 @@
     });
     const overflowPenalty = Math.min(60, Math.ceil(overflow / 2));
     const tavernSpecialMoodBonus = calculateTavernSpecialMoodBonus(entries);
-    const unscaledMoodChange = delta.mood + tier.moodBonus + tavernSpecialMoodBonus - duplicateMoodPenalty - overflowPenalty;
+    const foodieMoodBonus = calculateFoodieMoodBonus(entries);
+    const unscaledMoodChange = delta.mood + tier.moodBonus + tavernSpecialMoodBonus + foodieMoodBonus - duplicateMoodPenalty - overflowPenalty;
     const moodMultiplier = currentRestrictions().moodGainMultiplier;
     const moodChange = unscaledMoodChange > 0 ? Math.floor(unscaledMoodChange * moodMultiplier) : unscaledMoodChange;
     raw.mood = before.mood + moodChange;
@@ -1534,9 +1537,25 @@
       overflowPenalty,
       duplicateMoodPenalty,
       tavernSpecialMoodBonus,
+      foodieMoodBonus,
       moodMultiplier,
       moodChange
     };
+  }
+
+  function calculateFoodieMoodBonus(entries) {
+    if (!currentRestrictions().foodieMoodBonus || consumptionKind !== "meal" || vendor !== "주점") return 0;
+    const day = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
+    const ids = [...new Set(entries.map(entry => String(entry?.food?.id || "").trim()).filter(Boolean))];
+    return ids.reduce((total, foodId) => {
+      const seed = `${settlement?.id || settlement?.name || "settlement"}|${day}|${foodId}|foodie`;
+      let hash = 2166136261;
+      for (let index = 0; index < seed.length; index += 1) {
+        hash ^= seed.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      return total + (Math.abs(hash) % 4);
+    }, 0);
   }
 
   function calculateTavernSpecialMoodBonus(entries) {

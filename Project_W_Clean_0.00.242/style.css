@@ -546,6 +546,11 @@ label:has(input:not(:disabled)):hover { filter: brightness(1.045) saturate(1.025
   font-weight: 900;
   white-space: nowrap;
 }
+.trade-information-value > small.is-source-discount {
+  border-color: #a65e5180;
+  background: #f1d2c2c7;
+  color: #923f32;
+}
 .trade-offer-row.is-information { border-left-color: #4d7889; background: rgba(219, 229, 218, .72); }
 
 .map-wolfen-marker {
@@ -2230,6 +2235,37 @@ h1, p { margin-top: 0; }
 .settlement-heading-copy { display: grid; gap: 2px; min-width: 0; }
 .settlement-facilities header .settlement-heading-copy > span { color: #846542; font-size: .62rem; font-weight: 850; }
 .settlement-facilities h2 { margin: 0; font-size: 1.34rem; }
+.settlement-gate-pass {
+  --pass-color: #796245;
+  --pass-soft: #ead8b4;
+  display: grid;
+  grid-template-columns: auto auto auto;
+  width: max-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 4px 8px 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--pass-color) 74%, #5c4228);
+  border-left: 4px solid var(--pass-color);
+  border-radius: 4px;
+  background: linear-gradient(105deg, color-mix(in srgb, var(--pass-soft) 88%, #fff6dc), var(--pass-soft));
+  box-shadow: inset 0 0 0 1px #fff7dd70, 0 2px 6px #4a2e1830;
+  color: #3e2b1e;
+}
+.settlement-gate-pass[hidden] { display: none; }
+.settlement-gate-pass > span {
+  padding-right: 6px;
+  border-right: 1px solid color-mix(in srgb, var(--pass-color) 42%, transparent);
+  color: var(--pass-color);
+  font-size: .56rem;
+  font-weight: 950;
+}
+.settlement-gate-pass > strong { overflow: hidden; font-size: .68rem; font-weight: 950; text-overflow: ellipsis; white-space: nowrap; }
+.settlement-gate-pass > small { color: #5f4c37; font-size: .56rem; font-weight: 850; white-space: nowrap; }
+.settlement-gate-pass.is-maresia { --pass-color: #9b4038; --pass-soft: #e9c5b7; }
+.settlement-gate-pass.is-rabere { --pass-color: #3f7658; --pass-soft: #c8dec7; }
+.settlement-gate-pass.is-braven { --pass-color: #3e6486; --pass-soft: #c7d8e3; }
 .settlement-note-button {
   position: relative;
   flex: 0 0 38px;
@@ -13520,4 +13556,118 @@ body:has(#dialog-modal:not([hidden])) .advanced-tutorial-launcher { display: non
   18% { opacity: 1; transform: translate(-50%, -55%) scale(1.08); }
   72% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -145%) scale(.96); }
+}
+
+/* Gate customs bulletin and tariff previews. */
+.gate-bulletin-layer {
+  position: fixed;
+  z-index: 310;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(31, 22, 15, .64);
+  backdrop-filter: blur(4px);
+}
+.gate-bulletin-layer[hidden] { display: none; }
+.gate-bulletin-window {
+  width: min(860px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 2px solid #725332;
+  border-radius: 5px;
+  background: linear-gradient(145deg, #ead7aa, #f5e8c8 58%, #dfbf83);
+  box-shadow: 0 18px 54px #1f150ec7, inset 0 0 0 2px #fff3d073;
+  color: #49341e;
+}
+.gate-bulletin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #96764d;
+}
+.gate-bulletin-header p,
+.gate-bulletin-header h2 { margin: 0; }
+.gate-bulletin-header p { color: #806442; font-size: .68rem; font-weight: 850; }
+.gate-bulletin-header h2 { margin-top: 3px; font-size: 1.25rem; }
+.gate-bulletin-header button {
+  min-width: 70px;
+  min-height: 40px;
+  border: 1px solid #684521;
+  border-radius: 3px;
+  background: linear-gradient(#976638, #74481f);
+  color: #fff1cf;
+  font-weight: 900;
+}
+.gate-bulletin-status {
+  margin: 12px 20px 0;
+  padding: 9px 12px;
+  border: 1px solid #ad8a58;
+  background: #fff2ce91;
+  color: #705335;
+  font-size: .7rem;
+  font-weight: 850;
+}
+.gate-bulletin-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px 20px 16px;
+}
+.gate-bulletin-card {
+  padding: 12px 14px;
+  border: 1px solid #9b7747;
+  border-left: 5px solid #587783;
+  background: linear-gradient(100deg, #efe5c9d9, #fff4d5bf);
+  box-shadow: 0 2px 7px #63431d26;
+}
+.gate-bulletin-card > header {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+.gate-bulletin-card > header > span:first-child {
+  color: #957449;
+  font-size: .66rem;
+  font-weight: 950;
+  letter-spacing: .08em;
+}
+.gate-bulletin-card > header > strong { font-size: .93rem; }
+.gate-bulletin-badges { display: flex; gap: 5px; }
+.gate-bulletin-badges span {
+  padding: 3px 6px;
+  border: 1px solid #82694a;
+  border-radius: 2px;
+  background: #e0ca9c;
+  font-size: .59rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.gate-bulletin-card > p {
+  margin: 9px 0 0 39px;
+  padding-top: 8px;
+  border-top: 1px solid #a7865e70;
+  font-size: .76rem;
+  font-weight: 750;
+  line-height: 1.55;
+}
+.gate-bulletin-empty { margin: 12px 0; padding: 24px; text-align: center; font-weight: 850; }
+.gate-bulletin-window > footer {
+  padding: 11px 20px 15px;
+  border-top: 1px solid #a58458;
+  background: #cda96d35;
+}
+.gate-bulletin-window > footer p { margin: 0; color: #745536; font-size: .65rem; font-weight: 800; }
+.map-tooltip dd.is-tariff { color: #795329; font-weight: 900; }
+.map-tooltip dd.is-tariff-discount { color: #287353; font-weight: 950; }
+.map-tooltip dd.is-border-tax { color: #a14336; font-weight: 950; }
+
+@media (max-width: 720px) {
+  .gate-bulletin-layer { padding: 12px; }
+  .gate-bulletin-window { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
+  .gate-bulletin-card > header { grid-template-columns: 26px minmax(0, 1fr); }
+  .gate-bulletin-badges { grid-column: 2; }
+  .gate-bulletin-card > p { margin-left: 35px; }
 }

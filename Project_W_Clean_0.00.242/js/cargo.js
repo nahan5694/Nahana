@@ -1899,6 +1899,55 @@
     return results;
   }
 
+  function applyTimeDeterioration(amount = 1) {
+    const damage = Math.max(0, Number(amount) || 0);
+    if (damage <= 0) return [];
+    const results = [];
+    state.items.forEach(item => {
+      const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
+      const maximum = Math.max(0, Number(definition.durability) || 0);
+      if (maximum <= 0 || maximum >= INDESTRUCTIBLE_DURABILITY) return;
+      const current = Number.isFinite(Number(item.durability)) ? Number(item.durability) : maximum;
+      const appliedDamage = Math.min(current, damage);
+      if (appliedDamage <= 0) return;
+      item.durability = Math.max(0, current - appliedDamage);
+      results.push({
+        instanceId: item.instanceId,
+        itemId: item.itemId,
+        damage: appliedDamage,
+        current: item.durability,
+        maximum
+      });
+    });
+
+    const discardedResults = results.filter(result => result.current <= 0);
+    if (discardedResults.length) {
+      const discardedIds = new Set(discardedResults.map(result => result.instanceId));
+      state.items.filter(item => discardedIds.has(item.instanceId)).forEach(item => {
+        recordJourneyLoss(item, item.journeyLots, "열화내구도 소진");
+      });
+      state.items = state.items.filter(item => !discardedIds.has(item.instanceId));
+      reflowItemPlacements();
+      const names = discardedResults.map(result => (itemDefinitions.get(result.itemId) || sampleDefinition).displayName);
+      notify(`${names.join(", ")}의 열화내구도가 소진되어 자동으로 폐기되었습니다.`);
+      window.ProjectWAudio?.playEffect("goods");
+    }
+
+    if (results.length) {
+      persistState();
+      render();
+      window.dispatchEvent(new CustomEvent("projectw:cargochange", {
+        detail: {
+          timeDeterioration: true,
+          affectedItems: results.length,
+          totalDamage: results.reduce((sum, result) => sum + result.damage, 0),
+          discardedItems: discardedResults.length
+        }
+      }));
+    }
+    return results;
+  }
+
   function discardAll(reason = "짐마차가 반파되어 화물을 모두 폐기했습니다.") {
     const discardedQuantity = state.items.reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0);
     if (!state.items.length) return 0;
@@ -2324,6 +2373,7 @@
     consumeInstance,
     damageItem,
     applyTravelDeterioration,
+    applyTimeDeterioration,
     discardAll,
     showItemTooltip,
     showDefinitionTooltip,
