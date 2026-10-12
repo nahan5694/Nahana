@@ -297,6 +297,7 @@
 
   function normalizeFood(row) {
     const id = text(row, "ID");
+    const vendors = values(row, "상세 판매처");
     return {
       id,
       name: text(row, "이름"),
@@ -305,7 +306,8 @@
       places: values(row, "상세지역"),
       terrains: values(row, "상세지형"),
       sellerScale: text(row, "판매처"),
-      vendor: text(row, "상세 판매처"),
+      vendor: vendors[0] || "",
+      vendors,
       value: number(row, "기준 가치"),
       sweet: number(row, "단맛"),
       salty: number(row, "짠맛"),
@@ -341,8 +343,7 @@
     const terrains = Array.isArray(targetSettlement?.terrains) ? targetSettlement.terrains : [];
     return foods.filter(food => {
       const innSpecial = isInnSpecialFood(food, targetSettlement, targetVendor);
-      if (!innSpecial && food.vendor !== targetVendor) return false;
-      if (targetVendor === "여관" && !INN_FOOD_IDS.has(food.id) && !innSpecial) return false;
+      if (!innSpecial && !food.vendors.includes(targetVendor)) return false;
       if (targetVendor === "주점" && INN_FOOD_IDS.has(food.id)) return false;
       if (innSpecial) return true;
       if (food.sellerScale && scale < (SETTLEMENT_RANK[food.sellerScale] || 99)) return false;
@@ -823,9 +824,10 @@
   function tasteEffectLevel(value) {
     const amount = Math.abs(Number(value) || 0);
     if (amount <= 0) return 0;
-    if (amount <= 14) return 1;
-    if (amount <= 29) return 2;
-    return 3;
+    if (amount <= 9) return 1;
+    if (amount <= 19) return 2;
+    if (amount <= 29) return 3;
+    return 4;
   }
 
   function displayedTasteDirection(label, storedValue) {
@@ -841,6 +843,8 @@
     const level = tasteEffectLevel(storedValue);
     const marks = direction === 0
       ? "0"
+      : level >= 4
+        ? direction > 0 ? "< ➕ >" : "< ➖ >"
       : direction > 0
         ? "+".repeat(level)
         : Array.from({ length: level }, () => "−").join(" ");

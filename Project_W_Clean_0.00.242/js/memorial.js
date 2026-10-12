@@ -148,12 +148,12 @@
   function normalizeFoodEntry(row) {
     const id = foodValue(row, "ID");
     const title = foodValue(row, "이름");
-    const vendor = foodValue(row, "상세 판매처");
-    if (!id || !title || !["주점", "시장"].includes(vendor)) return null;
+    const vendors = foodValue(row, "상세 판매처").split(/[,/]/).map(value => value.trim()).filter(Boolean);
+    if (!id || !title || !vendors.some(vendor => ["주점", "시장"].includes(vendor))) return null;
     return {
       id,
       title,
-      vendor,
+      vendors,
       type: foodValue(row, "종류"),
       description: foodValue(row, "설명")
     };
@@ -161,8 +161,8 @@
 
   function entriesForCategory(category) {
     if (category === "발자취") return [...FOOTPRINTS];
-    if (category === "주점 음식") return foodCatalog.filter(entry => entry.vendor === "주점");
-    if (category === "시장 간식") return foodCatalog.filter(entry => entry.vendor === "시장");
+    if (category === "주점 음식") return foodCatalog.filter(entry => entry.vendors.includes("주점"));
+    if (category === "시장 간식") return foodCatalog.filter(entry => entry.vendors.includes("시장"));
     return catalog.filter(entry => entry.category === category);
   }
 
