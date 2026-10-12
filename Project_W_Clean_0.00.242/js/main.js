@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.319";
+const GAME_VERSION = "0.00.320";
 const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -67,7 +67,7 @@ const PARTNER_SICK_STATUS_NAMES = Object.freeze([
   "고혈당", "아린 혀", "속쓰림", "느글거림", "감기 기운"
 ]);
 const TALK_CARD_HAND_SIZE = 3;
-const TALK_CARD_LOVE_CHANCE = 0.03;
+const TALK_CARD_LOVE_CHANCE = 0.06;
 const TALK_CARD_CAMP_CHANCE = 0.1;
 const TALK_CARD_AREA_SLOT_OFFSETS = Object.freeze([-0.4, -0.2, 0.2, 0.4]);
 const TALK_CARD_BUFF_CHANCE_BONUSES = Object.freeze({
