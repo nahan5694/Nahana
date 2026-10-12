@@ -2252,8 +2252,13 @@
     const quality = document.createElement("span");
     quality.className = `trade-item-quality trade-quality-${qualityClassName(entry.quality)}`;
     quality.textContent = knowledge.qualityText;
+    const origin = document.createElement("span");
+    const originDistance = originDisplayDistance(entry);
+    origin.className = `trade-item-origin ${originDistanceClassName(originDistance)}`.trim();
+    origin.textContent = originDisplayLabel(entry);
     const metaText = document.createElement("span");
-    metaText.textContent = `${knowledge.showOrigin ? `${originDisplayLabel(entry)} · ` : ""}${slotCount}칸 · 무게 ${formatNumber(entry.definition.weight)}`;
+    metaText.className = "trade-item-load-badge";
+    metaText.textContent = `${slotCount}칸 · 무게${formatNumber(entry.definition.weight)}`;
     const durability = document.createElement("span");
     const maximumDurability = Math.max(0, Number(entry.definition.durability) || 0);
     const currentDurability = Number.isFinite(Number(entry.durability)) ? Number(entry.durability) : maximumDurability;
@@ -2269,6 +2274,7 @@
       restriction.textContent = "시장 매입 불가";
       meta.append(restriction);
     }
+    if (knowledge.showOrigin) meta.append(origin);
     meta.append(metaText);
     if (knowledge.showDurability) meta.append(durability);
     const value = document.createElement("span");
@@ -3089,16 +3095,30 @@
     return name.endsWith("산") ? name : `${name}산`;
   }
 
-  function originDisplayLabel(entry) {
-    const name = originDisplayName(entry?.originName);
-    if (String(entry?.originId || "") === FOREIGN_FIXED_LOGISTICS_ORIGIN.id) return `${name}(???)`;
+  function originDisplayDistance(entry) {
+    if (String(entry?.originId || "") === FOREIGN_FIXED_LOGISTICS_ORIGIN.id) return 40;
     const measuredDistance = safeDistance(entry?.originId, current?.settlement?.id);
     const storedDistance = entry?.originDistance === null || entry?.originDistance === undefined
       ? Number.NaN
       : Number(entry.originDistance);
-    const distance = Number.isFinite(measuredDistance)
+    return Number.isFinite(measuredDistance)
       ? measuredDistance
       : (Number.isFinite(storedDistance) ? Math.max(0, storedDistance) : null);
+  }
+
+  function originDistanceClassName(distance) {
+    if (!Number.isFinite(distance)) return "";
+    if (distance >= 29) return "is-distance-orange";
+    if (distance >= 25) return "is-distance-purple";
+    if (distance >= 20) return "is-distance-blue";
+    if (distance >= 15) return "is-distance-green";
+    return "";
+  }
+
+  function originDisplayLabel(entry) {
+    const name = originDisplayName(entry?.originName);
+    if (String(entry?.originId || "") === FOREIGN_FIXED_LOGISTICS_ORIGIN.id) return `${name}(???)`;
+    const distance = originDisplayDistance(entry);
     return Number.isFinite(distance) ? `${name}(${formatNumber(Math.trunc(distance))})` : name;
   }
 

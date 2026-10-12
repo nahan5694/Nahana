@@ -3547,7 +3547,13 @@ h1, p { margin-top: 0; }
 .cargo-tooltip-meta .cargo-quality-low { border-color: #765c47; background: #8b725b; color: #fff4e5; }
 .cargo-tooltip-meta .cargo-quality-common { border-color: #5f684c; background: #77815f; color: #fff9e8; }
 .cargo-tooltip-meta .cargo-quality-high { border-color: #42677c; background: #5d8195; color: #f3fbff; }
-.cargo-tooltip-meta .cargo-quality-masterpiece { border-color: #8a6427; background: #ad7f34; color: #fff7dc; }
+.cargo-tooltip-meta .cargo-quality-masterpiece {
+  border-color: #9e3f08;
+  background: linear-gradient(110deg, #f0a52b, #d9680d);
+  color: #fff8df;
+  text-shadow: 0 1px #6f2704;
+  box-shadow: inset 0 1px #ffe4a6, 0 0 4px #d85d165c;
+}
 .origin-product-badge {
   display: inline-flex;
   align-items: center;
@@ -6359,11 +6365,36 @@ button.map-marker:active { cursor: grabbing; }
 .trade-quality-low { color: #945044; text-shadow: 0 1px #fff1dc; }
 .trade-quality-common { color: #4f703f; text-shadow: 0 1px #fff3d5; }
 .trade-quality-high { color: #356b8a; text-shadow: 0 1px #f0f7ff; }
-.trade-quality-masterpiece { color: #9a5f16; text-shadow: 0 1px #fff2bd, 0 0 2px #f4d984; }
+.trade-quality-masterpiece { color: #9d3f08; text-shadow: 0 1px #ffe7ad, 0 0 3px #e66e176b; }
 .trade-item-quality.trade-quality-low { background: #f0d4cbd9; }
 .trade-item-quality.trade-quality-common { background: #dce7cfd9; }
 .trade-item-quality.trade-quality-high { background: #d3e4edd9; }
-.trade-item-quality.trade-quality-masterpiece { background: linear-gradient(110deg, #f5e3b4e8, #e9c879e8); }
+.trade-item-quality.trade-quality-masterpiece {
+  border-color: #a84609;
+  background: linear-gradient(110deg, #ffd06a, #ed851c);
+  color: #6f2904;
+  text-shadow: 0 1px #fff0bc;
+  box-shadow: inset 0 1px #fff3c6, 0 0 5px #d85d1666;
+}
+.trade-item-origin { font-weight: 950; }
+.trade-item-origin.is-distance-green { color: #2e7540; text-shadow: 0 1px #f3ffe9; }
+.trade-item-origin.is-distance-blue { color: #24679e; text-shadow: 0 1px #eff9ff; }
+.trade-item-origin.is-distance-purple { color: #744a9d; text-shadow: 0 1px #fbf1ff; }
+.trade-item-origin.is-distance-orange { color: #ad480a; text-shadow: 0 1px #fff0bd, 0 0 3px #ed851c70; }
+.trade-item-load-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 19px;
+  padding: 2px 7px;
+  border: 1px solid #83613c73;
+  border-radius: 3px;
+  background: #f3e4c8b8;
+  color: #62472e;
+  font-size: .65rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: inset 0 1px #fff9ec99;
+}
 .trade-exchange { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 240px) minmax(0, 1fr); gap: 10px; min-height: 0; }
 .trade-offer { grid-template-rows: auto auto minmax(66px, 1fr); }
 .trade-offer-tools { display: flex; align-items: center; gap: 6px; }
