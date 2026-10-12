@@ -34,6 +34,10 @@
   const MERCHANT_IMPORT_DISTANCE_FACTOR = .35;
   const MERCHANT_IMPORT_DISTANCE_MAX = 30;
   const FIXED_LOGISTICS_DISTANCE_FACTOR = .33;
+  const IMPORT_PLAYER_DISTANCE_FACTOR = 1.75;
+  const RESALE_DISTANCE_RELEASE_START = 14;
+  const RESALE_DISTANCE_RELEASE_FULL = 29;
+  const RESALE_DISTANCE_RESTRICTED_SOURCE_TYPES = new Set(["import", "logistics", "resale"]);
   const FOREIGN_FIXED_LOGISTICS_ORIGIN = Object.freeze({
     id: "FOREIGN_NISHUR",
     name: "니슈르 산",
@@ -41,8 +45,8 @@
   });
   const MIXED_NISHUR_LOGISTICS_NAMES = new Set(["보석세공", "은", "금"]);
   const SAME_MERCHANT_RESALE_PENALTY = 10;
-  const FIXED_LOGISTICS_SIZE_MODIFIER = new Map([["도시", -1], ["대도시", -2]]);
-  const FIXED_LOGISTICS_FACILITY_MODIFIER = new Map([["교역소", -1], ["상회", -1]]);
+  const IMPORT_SIZE_STOCK_MODIFIER = new Map([["도시", -1], ["대도시", -2]]);
+  const IMPORT_FACILITY_STOCK_MODIFIER = new Map([["교역소", -1], ["상회", -1]]);
   const IMPORT_COUNTS = new Map([["상회", 10], ["교역소", 5], ["시장", 0]]);
   const DURABILITY_DAMAGE_MAX = new Map([["상회", 20], ["교역소", 40], ["시장", 60], ["좌판", 40]]);
   const MERCHANT_DAILY_DURABILITY_DAMAGE = new Map([
@@ -57,7 +61,7 @@
   const REGIONAL_CAMP_SUPPLY_REGIONS = new Map([["G_0278", "북부"], ["G_0279", "남부"]]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
   const MERCHANT_WALLET_SCHEMA_VERSION = 2;
-  const MERCHANT_STOCK_SCHEMA_VERSION = 8;
+  const MERCHANT_STOCK_SCHEMA_VERSION = 9;
   const PRODUCTION_CLEARANCE_CHANCE = .1;
   const PRODUCTION_DURABILITY_DAMAGE_MAX = new Map([["상회", 10], ["교역소", 15], ["시장", 20]]);
   const PRODUCTION_CLEARANCE_CONDITION_MIN = .4;
@@ -1334,7 +1338,7 @@
       appendLot(definition, "logistics", regularQuantity + eventAdjustment, origin, baseQuantity);
     });
     selectedImports.forEach(definition => {
-      const baseQuantity = productionStock(definition, settlement.category, facilityType, { sourceType: "import" });
+      const baseQuantity = importStock(definition, settlement.category, facilityType);
       const eventAdjustment = Number(cityEventStock[definition.subcategory]) || 0;
       appendLot(definition, "import", variedStock(baseQuantity, settlement.category, rng) + eventAdjustment, chooseOriginNode(definition, settlement.id, worldData.nodes, rng), baseQuantity);
     });
@@ -1367,18 +1371,34 @@
         const targetLot = matchingLots.sort((left, right) => right.quantity - left.quantity)[0];
         targetLot.quantity = Math.max(0, targetLot.quantity + effect.amount);
       } else if (effect.amount > 0 || effect.guarantee) {
-        const candidates = effect.sourceType === "production" ? resolvedProduction : importCandidates;
+        const candidates = effect.sourceType === "production"
+          ? resolvedProduction
+          : effect.sourceType === "logistics"
+            ? resolvedLogistics
+            : importCandidates;
         const definition = candidates.find(entry => entry.subcategory === effect.subcategory);
-        if (definition) appendLot(
-          definition,
-          effect.sourceType,
-          Math.max(1, effect.amount),
-          effect.sourceType === "production" ? settlement : chooseOriginNode(definition, settlement.id, worldData.nodes, rng),
-          productionStock(definition, settlement.category, facilityType, {
-            sourceType: effect.sourceType,
-            distinctive: effect.sourceType === "production" && distinctiveLocalProducts.has(definition.name1)
-          })
-        );
+        if (definition) {
+          const origin = effect.sourceType === "production"
+            ? settlement
+            : effect.sourceType === "logistics"
+              ? chooseFixedLogisticsOrigin(definition, settlement.id, worldData.nodes, refreshSerial)
+              : chooseOriginNode(definition, settlement.id, worldData.nodes, rng);
+          const baseQuantity = effect.sourceType === "logistics"
+            ? fixedLogisticsStock(definition, settlement.category, facilityType)
+            : effect.sourceType === "import"
+              ? importStock(definition, settlement.category, facilityType)
+              : productionStock(definition, settlement.category, facilityType, {
+                sourceType: "production",
+                distinctive: distinctiveLocalProducts.has(definition.name1)
+              });
+          appendLot(
+            definition,
+            effect.sourceType,
+            Math.max(1, effect.amount),
+            origin,
+            baseQuantity
+          );
+        }
       }
     });
     if (pendingRestockEffects.length) {
@@ -1613,10 +1633,14 @@
   }
 
   function fixedLogisticsStock(definition, settlementCategory, facilityType) {
+    return productionStock(definition, settlementCategory, facilityType, { sourceType: "logistics" });
+  }
+
+  function importStock(definition, settlementCategory, facilityType) {
     return Math.max(1,
-      productionStock(definition, settlementCategory, facilityType, { sourceType: "logistics" })
-      + (FIXED_LOGISTICS_SIZE_MODIFIER.get(settlementCategory) || 0)
-      + (FIXED_LOGISTICS_FACILITY_MODIFIER.get(facilityType) || 0));
+      productionStock(definition, settlementCategory, facilityType, { sourceType: "import" })
+      + (IMPORT_SIZE_STOCK_MODIFIER.get(settlementCategory) || 0)
+      + (IMPORT_FACILITY_STOCK_MODIFIER.get(facilityType) || 0));
   }
 
   function variedStock(baseQuantity, settlementCategory, rng) {
@@ -2214,8 +2238,13 @@
     const category = document.createElement("span");
     category.className = "trade-item-category";
     category.textContent = entry.definition.category;
+    const nameRow = document.createElement("span");
+    nameRow.className = "trade-item-name-row";
     const name = document.createElement("strong");
     name.textContent = knowledge.name;
+    nameRow.append(name);
+    const outletBadge = owner === "merchant" ? createMerchantOutletBadge(entry) : null;
+    if (outletBadge) nameRow.append(outletBadge);
     const meta = document.createElement("small");
     const rarity = document.createElement("span");
     rarity.className = "trade-item-rarity";
@@ -2224,13 +2253,7 @@
     quality.className = `trade-item-quality trade-quality-${qualityClassName(entry.quality)}`;
     quality.textContent = knowledge.qualityText;
     const metaText = document.createElement("span");
-    metaText.textContent = `${knowledge.showOrigin ? `${originDisplayName(entry.originName)} · ` : ""}${slotCount}칸 · 무게 ${formatNumber(entry.definition.weight)}`;
-    if (owner === "player" && ["protected", "secret"].includes(entry.slotType)) {
-      const compartment = document.createElement("span");
-      compartment.className = `trade-item-compartment is-${entry.slotType}`;
-      compartment.textContent = entry.slotType === "secret" ? "비밀 화물칸" : "보호 화물칸";
-      meta.append(compartment);
-    }
+    metaText.textContent = `${knowledge.showOrigin ? `${originDisplayLabel(entry)} · ` : ""}${slotCount}칸 · 무게 ${formatNumber(entry.definition.weight)}`;
     const durability = document.createElement("span");
     const maximumDurability = Math.max(0, Number(entry.definition.durability) || 0);
     const currentDurability = Number.isFinite(Number(entry.durability)) ? Number(entry.durability) : maximumDurability;
@@ -2290,7 +2313,7 @@
     const selectedCopy = document.createElement("small");
     selectedCopy.textContent = selected > 0 ? `${selected} 선택` : "";
     amount.append(amountLabel, amountValue, selectedCopy);
-    button.append(category, name, meta, value, amount);
+    button.append(category, nameRow, meta, value, amount);
     stack.append(button);
     for (let index = 1; index < slotCount; index += 1) {
       const tail = document.createElement("span");
@@ -2586,6 +2609,14 @@
     return Math.min(MERCHANT_IMPORT_DISTANCE_MAX, transportDistanceValue * MERCHANT_IMPORT_DISTANCE_FACTOR);
   }
 
+  function resaleDistanceReleaseFactor(distance) {
+    const measuredDistance = Math.max(0, Number(distance) || 0);
+    if (measuredDistance <= RESALE_DISTANCE_RELEASE_START) return 0;
+    if (measuredDistance >= RESALE_DISTANCE_RELEASE_FULL) return 1;
+    return (measuredDistance - RESALE_DISTANCE_RELEASE_START)
+      / (RESALE_DISTANCE_RELEASE_FULL - RESALE_DISTANCE_RELEASE_START);
+  }
+
   function distanceBand(distance) {
     if (distance <= 0) return "현지 상품";
     if (distance <= 14) return "단거리";
@@ -2622,6 +2653,7 @@
     const imported = fixedLogistics || item?.sourceType === "import" || item?.sourceType === "resale";
     const purchaseContext = merchantSell ? emptyCargoPurchaseContext() : cargoPurchaseContext(item);
     const transportDistance = merchantSell ? 0 : purchaseContext.transportDistance;
+    const purchaseRouteDistance = merchantSell ? 0 : purchaseContext.purchaseRouteDistance;
     const externalOrigin = String(item?.originId || "") === FOREIGN_FIXED_LOGISTICS_ORIGIN.id;
     const storedOriginDistance = Number(item?.originDistance);
     const externalOriginDistance = externalOrigin
@@ -2631,26 +2663,25 @@
       : 0;
     const measuredDistance = safeDistance(item?.originId, current.settlement.id);
     const distance = externalOrigin
-      ? externalOriginDistance + transportDistance
+      ? externalOriginDistance + purchaseRouteDistance
       : (Number.isFinite(measuredDistance) ? measuredDistance : 0);
     const fullDistanceAdjustment = distanceValueAdjustment(distance);
     const localImportDistanceAdjustment = merchantImportDistanceAdjustment(distance);
     const externalOriginAdjustment = externalOrigin
       ? merchantImportDistanceAdjustment(externalOriginDistance) * FIXED_LOGISTICS_DISTANCE_FACTOR
       : 0;
-    const externalCarriedAdjustment = externalOrigin && transportDistance > 0
-      ? Math.max(0, distanceValueAdjustment(transportDistance))
+    const externalCarriedAdjustment = externalOrigin && purchaseRouteDistance > 0
+      ? Math.max(0, distanceValueAdjustment(purchaseRouteDistance))
       : 0;
     const rawDistanceAdjustment = externalOrigin
-      ? externalOriginAdjustment + (merchantSell ? 0 : externalCarriedAdjustment)
+      ? merchantSell
+        ? externalOriginAdjustment
+        : (externalOriginAdjustment + externalCarriedAdjustment) * purchaseContext.distanceValueMultiplier
       : merchantSell
         ? (fixedLogistics
           ? localImportDistanceAdjustment * FIXED_LOGISTICS_DISTANCE_FACTOR
           : (imported ? localImportDistanceAdjustment : 0))
-        : (fullDistanceAdjustment * purchaseContext.nonLocalShare)
-          + (fullDistanceAdjustment * purchaseContext.localProductionShare)
-          + (localImportDistanceAdjustment * FIXED_LOGISTICS_DISTANCE_FACTOR * purchaseContext.localLogisticsShare)
-          + (localImportDistanceAdjustment * purchaseContext.localImportShare);
+        : fullDistanceAdjustment * purchaseContext.distanceValueMultiplier;
     const distanceValueFactor = !merchantSell
       && rawDistanceAdjustment > 0
       && Number(definition?.durability) >= INDESTRUCTIBLE_DURABILITY
@@ -2679,6 +2710,11 @@
       distanceValueFactor,
       transportRiskAdjustment,
       transportDistance,
+      purchaseRouteDistance,
+      distanceReleaseFactor: purchaseContext.distanceReleaseFactor,
+      distanceValueMultiplier: purchaseContext.distanceValueMultiplier,
+      importShare: purchaseContext.importShare,
+      logisticsShare: purchaseContext.logisticsShare,
       externalOrigin,
       sameSettlementShare: purchaseContext.sameSettlementShare,
       sameMerchantShare: purchaseContext.sameMerchantShare,
@@ -2694,20 +2730,23 @@
       multiplier: Math.max(.25, 1 + (regionalAdjustment / 100)),
       breakdown: [
         externalOrigin
-          ? (merchantSell || transportDistance <= 0
+          ? (merchantSell
             ? `니슈르 해외 운송 ??? 거리 · 고정물류 할증 ${signedPercent(appliedExternalOriginAdjustment)}`
-            : `니슈르 수입 ??? 거리 ${signedPercent(appliedExternalOriginAdjustment)} · 직접 운송 ${formatNumber(transportDistance)} 거리 ${signedPercent(appliedExternalCarriedAdjustment)}`)
+            : `니슈르 수입 ??? 거리 · 구입처에서 ${formatNumber(purchaseRouteDistance)}칸 · 거리 해제 ${formatNumber(purchaseContext.distanceReleaseFactor * 100)}% · ${signedPercent(distanceAdjustment)}`)
           : merchantSell
             ? (fixedLogistics
               ? `고정물류 거리 ${distance}칸 · 상시 유통 할증 ${signedPercent(distanceAdjustment)}`
               : imported
               ? `수입 거리 ${distance}칸 · 물류 할증 ${signedPercent(distanceAdjustment)}`
               : "현지 생산품 · 수입 거리 할증 없음")
-            : (purchaseContext.sameSettlementShare > 0
+            : (purchaseContext.restrictedShare > 0
+              ? `원산지 거리 ${distance}칸 · 구입처에서 ${formatNumber(purchaseRouteDistance)}칸 · 거리 해제 ${formatNumber(purchaseContext.distanceReleaseFactor * 100)}% · ${signedPercent(distanceAdjustment)}`
+              : purchaseContext.sameSettlementShare > 0
               ? (purchaseContext.sameSettlementShare >= .999
                 ? `같은 거점 재판매 · 현지 유통 거리 보정 ${signedPercent(distanceAdjustment)}`
                 : `같은 거점 구매분 ${formatNumber(purchaseContext.sameSettlementShare * 100)}% · 거리 보정 ${signedPercent(distanceAdjustment)}`)
               : `거리 ${distance}칸 · ${distanceBand(distance)} ${signedPercent(distanceAdjustment)}`),
+        ...(purchaseContext.importShare > 0 ? [`수입품 거리 보정 ×${formatNumber(IMPORT_PLAYER_DISTANCE_FACTOR)} · 보유 수량 ${formatNumber(purchaseContext.importShare * 100)}%`] : []),
         ...(distanceValueFactor < 1 ? ["열화 면역 상품 · 운송거리 보너스 50% 적용"] : []),
         ...(transportRiskAdjustment ? [`실제 운반 ${formatNumber(transportDistance)} 거리 · 운송 위험 프리미엄 ${signedPercent(transportRiskAdjustment)}`] : []),
         `지역 수요 ${formatNumber(demandScore)}점 × 3% · ${signedPercent(demandAdjustment)}`,
@@ -2730,7 +2769,13 @@
       localLogisticsShare: 0,
       localImportShare: 0,
       nonLocalShare: 1,
-      transportDistance: 0
+      transportDistance: 0,
+      purchaseRouteDistance: 0,
+      distanceReleaseFactor: 1,
+      distanceValueMultiplier: 1,
+      restrictedShare: 0,
+      importShare: 0,
+      logisticsShare: 0
     };
   }
 
@@ -2748,6 +2793,13 @@
     let localImportQuantity = 0;
     let trackedTransportQuantity = 0;
     let weightedTransportDistance = 0;
+    let trackedPurchaseRouteQuantity = 0;
+    let weightedPurchaseRouteDistance = 0;
+    let weightedDistanceValueMultiplier = 0;
+    let restrictedQuantity = 0;
+    let weightedRestrictedReleaseFactor = 0;
+    let importQuantity = 0;
+    let logisticsQuantity = 0;
 
     for (const lot of Array.isArray(item?.journeyLots) ? item.journeyLots : []) {
       if (remaining <= 0) break;
@@ -2757,6 +2809,31 @@
       const legacyPurchase = journeyRecord?.purchase || null;
       const purchaseSettlementId = String(lot?.purchaseSettlementId || legacyPurchase?.settlementId || "");
       const purchaseFacilityType = String(lot?.purchaseFacilityType || legacyPurchase?.facilityType || "");
+      const sourceType = String(lot?.purchaseSourceType || "")
+        || (purchaseSettlementId
+          ? (String(item?.originId || "") === purchaseSettlementId ? "production" : "import")
+          : "");
+      const purchaseRouteDistance = purchaseSettlementId
+        ? safeDistance(purchaseSettlementId, settlementId)
+        : Number.POSITIVE_INFINITY;
+      let releaseFactor = 1;
+      let distanceValueMultiplier = 1;
+      if (RESALE_DISTANCE_RESTRICTED_SOURCE_TYPES.has(sourceType)) {
+        releaseFactor = Number.isFinite(purchaseRouteDistance)
+          ? resaleDistanceReleaseFactor(purchaseRouteDistance)
+          : 1;
+        distanceValueMultiplier = releaseFactor
+          * (sourceType === "logistics" ? 1 : IMPORT_PLAYER_DISTANCE_FACTOR);
+        restrictedQuantity += quantity;
+        weightedRestrictedReleaseFactor += releaseFactor * quantity;
+        if (sourceType === "logistics") logisticsQuantity += quantity;
+        else importQuantity += quantity;
+      }
+      weightedDistanceValueMultiplier += distanceValueMultiplier * quantity;
+      if (Number.isFinite(purchaseRouteDistance)) {
+        trackedPurchaseRouteQuantity += quantity;
+        weightedPurchaseRouteDistance += Math.max(0, purchaseRouteDistance) * quantity;
+      }
       if (quantity > 0 && purchaseSettlementId) {
         const recordedDistance = Number(journeyRecord?.distance);
         const carriedDistance = Number.isFinite(recordedDistance)
@@ -2775,12 +2852,12 @@
         && current?.facilityType !== "상회"
         && purchaseFacilityType === String(current?.facilityType || "");
       if (exactMerchant || recoverableLegacyMerchant) sameMerchantQuantity += quantity;
-      const sourceType = String(lot?.purchaseSourceType || "")
-        || (String(item?.originId || "") === purchaseSettlementId ? "production" : "import");
       if (sourceType === "production") localProductionQuantity += quantity;
       else if (sourceType === "logistics") localLogisticsQuantity += quantity;
       else localImportQuantity += quantity;
     }
+
+    weightedDistanceValueMultiplier += remaining;
 
     const fallbackQuantity = Math.max(0, totalQuantity - trackedTransportQuantity);
     const fallbackDistance = safeDistance(item?.originId, settlementId);
@@ -2794,7 +2871,17 @@
       localLogisticsShare: localLogisticsQuantity / totalQuantity,
       localImportShare: localImportQuantity / totalQuantity,
       nonLocalShare: Math.max(0, 1 - (sameSettlementQuantity / totalQuantity)),
-      transportDistance: weightedTransportDistance / totalQuantity
+      transportDistance: weightedTransportDistance / totalQuantity,
+      purchaseRouteDistance: trackedPurchaseRouteQuantity > 0
+        ? weightedPurchaseRouteDistance / trackedPurchaseRouteQuantity
+        : 0,
+      distanceReleaseFactor: restrictedQuantity > 0
+        ? weightedRestrictedReleaseFactor / restrictedQuantity
+        : 1,
+      distanceValueMultiplier: weightedDistanceValueMultiplier / totalQuantity,
+      restrictedShare: restrictedQuantity / totalQuantity,
+      importShare: importQuantity / totalQuantity,
+      logisticsShare: logisticsQuantity / totalQuantity
     };
   }
 
@@ -3000,6 +3087,36 @@
   function originDisplayName(value) {
     const name = String(value || "파르네").trim() || "파르네";
     return name.endsWith("산") ? name : `${name}산`;
+  }
+
+  function originDisplayLabel(entry) {
+    const name = originDisplayName(entry?.originName);
+    if (String(entry?.originId || "") === FOREIGN_FIXED_LOGISTICS_ORIGIN.id) return `${name}(???)`;
+    const measuredDistance = safeDistance(entry?.originId, current?.settlement?.id);
+    const storedDistance = entry?.originDistance === null || entry?.originDistance === undefined
+      ? Number.NaN
+      : Number(entry.originDistance);
+    const distance = Number.isFinite(measuredDistance)
+      ? measuredDistance
+      : (Number.isFinite(storedDistance) ? Math.max(0, storedDistance) : null);
+    return Number.isFinite(distance) ? `${name}(${formatNumber(Math.trunc(distance))})` : name;
+  }
+
+  function createMerchantOutletBadge(entry) {
+    const getItemOutletState = window.ProjectWMerchantPath?.getItemOutletState;
+    if (typeof getItemOutletState !== "function" || !current?.settlement) return null;
+    const outlet = getItemOutletState(entry?.itemId, current.settlement);
+    const profile = ({
+      production: ["고정 취급", "is-fixed"],
+      observed: ["취급 추정", "is-estimated"],
+      excluded: ["수입품", "is-imported"]
+    })[outlet?.state];
+    if (!profile) return null;
+    const badge = document.createElement("span");
+    badge.className = `trade-item-outlet-badge ${profile[1]}`;
+    badge.textContent = profile[0];
+    badge.title = `행상인의 길 취급처 메모: ${profile[0]}`;
+    return badge;
   }
 
   function formatDurability(currentValue, maximumValue) {
@@ -4803,7 +4920,10 @@
     const amount = Math.trunc(Number(effect.amount) || 0);
     if (!settlementId || !subcategory || !amount) return false;
     if (!state.restockEffects) state.restockEffects = [];
-    if (effect.cardId && state.restockEffects.some(entry => entry.cardId === effect.cardId)) return false;
+    const sourceType = ["production", "logistics", "import"].includes(String(effect.sourceType || ""))
+      ? String(effect.sourceType)
+      : "import";
+    if (effect.cardId && state.restockEffects.some(entry => entry.cardId === effect.cardId && entry.sourceType === sourceType)) return false;
     const merchantEntries = Object.entries(state.merchants)
       .filter(([key]) => key.startsWith(`${settlementId}|`) && !key.endsWith("|currency-exchange"))
       .sort((left, right) => (Number(left[1].nextRefreshTick) || 0) - (Number(right[1].nextRefreshTick) || 0));
@@ -4815,7 +4935,7 @@
       settlementId,
       merchantKey,
       subcategory,
-      sourceType: effect.sourceType === "production" ? "production" : "import",
+      sourceType,
       amount,
       guarantee: Boolean(effect.guarantee)
     });
@@ -4879,7 +4999,9 @@
           settlementId: String(effect?.settlementId || ""),
           merchantKey: String(effect?.merchantKey || ""),
           subcategory: String(effect?.subcategory || ""),
-          sourceType: effect?.sourceType === "production" ? "production" : "import",
+          sourceType: ["production", "logistics", "import"].includes(String(effect?.sourceType || ""))
+            ? String(effect.sourceType)
+            : "import",
           amount: Math.trunc(Number(effect?.amount) || 0),
           guarantee: Boolean(effect?.guarantee)
         })).filter(effect => effect.id && effect.settlementId && effect.merchantKey && effect.subcategory && effect.amount) : []

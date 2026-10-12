@@ -794,14 +794,25 @@
       });
     }
     if (card.special === "IMPORT_LOGISTICS") {
+      const amount = randomInteger(2, 4) * (target.direction === "DELAY" ? -1 : 1);
       scheduleRestockEffect({
         settlementId: target.settlementId,
         subcategory: target.subcategory,
         sourceType: "import",
-        amount: randomInteger(2, 4) * (target.direction === "DELAY" ? -1 : 1),
+        amount,
         guarantee: target.direction === "ARRIVAL",
         cardId: card.id
       });
+      if (target.direction === "ARRIVAL") {
+        scheduleRestockEffect({
+          settlementId: target.settlementId,
+          subcategory: target.subcategory,
+          sourceType: "logistics",
+          amount,
+          guarantee: true,
+          cardId: card.id
+        });
+      }
     }
   }
 

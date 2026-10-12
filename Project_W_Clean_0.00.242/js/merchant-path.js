@@ -1398,6 +1398,21 @@
     };
   }
 
+  function getItemOutletState(itemId, placement) {
+    const key = String(itemId || "").trim();
+    const source = state.notebooks?.[key];
+    if (!key || !source) return null;
+    const settlementId = String(typeof placement === "string" ? placement : placement?.id || "").trim();
+    const settlementName = String(typeof placement === "object" ? placement?.name || "" : "").trim();
+    if (!settlementId && !settlementName) return null;
+    const outlet = ensureNotebook(key).outlets.find(record => {
+      const outletId = String(record?.settlementId || "").trim();
+      if (settlementId && outletId) return outletId === settlementId;
+      return settlementName && String(record?.settlementName || "").trim() === settlementName;
+    });
+    return outlet ? { ...outlet } : null;
+  }
+
   function getSettlementOutletGoods(placement) {
     const settlementId = String(typeof placement === "string" ? placement : placement?.id || "").trim();
     const settlementName = String(typeof placement === "object" ? placement?.name || "" : "").trim();
@@ -2165,6 +2180,7 @@
     getInformationBonuses,
     getDeteriorationProtectionChances,
     getItemNotebook,
+    getItemOutletState,
     getSettlementOutletGoods,
     recordReviewExpense,
     getPendingTradeReviews,

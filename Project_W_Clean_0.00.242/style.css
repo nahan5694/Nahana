@@ -6201,7 +6201,21 @@ button.map-marker:active { cursor: grabbing; }
 }
 .trade-item-stack.is-nahana-event-gift .trade-item-category { border-color: #a85f788c; background: #f8dbe2; color: #77364d; }
 .trade-item-card > .trade-item-category { grid-area: category; align-self: center; padding: 3px 7px; border: 1px solid #9470477d; background: #f8ead0b8; font-size: .71rem; font-weight: 900; }
-.trade-item-card > strong { grid-area: name; align-self: center; font-size: .98rem; }
+.trade-item-name-row { display: flex; grid-area: name; align-self: center; align-items: center; min-width: 0; gap: 6px; }
+.trade-item-name-row > strong { overflow: hidden; min-width: 0; font-size: .98rem; text-overflow: ellipsis; white-space: nowrap; }
+.trade-item-outlet-badge {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid #8b704b78;
+  border-radius: 3px;
+  font-size: .62rem;
+  font-weight: 950;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.trade-item-outlet-badge.is-fixed { border-color: #a4772e8c; background: #f0d793d4; color: #75501d; }
+.trade-item-outlet-badge.is-estimated { border-color: #7a746b70; background: #ddd8cec7; color: #5f5950; }
+.trade-item-outlet-badge.is-imported { border-color: #985e537d; background: #ead3ccc7; color: #874b42; }
 .trade-item-card > small { display: flex; grid-area: meta; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: #62472e; font-size: .75rem; font-weight: 800; }
 .trade-item-rarity { padding: 1px 5px; border: 1px solid #83613e62; border-radius: 3px; background: #ead3a8b8; color: #654324; font-weight: 950; }
 .trade-item-compartment {
