@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.327";
+const GAME_VERSION = "0.00.328";
 const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -310,7 +310,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "수레 상태와 수레바퀴",
     contexts: ["road"],
     pages: [
-      { title: "짐마차 상태", text: "짐마차 상태에는 내구도와 이동에 영향을 주는 고장이 함께 표시됩니다.\n커서를 올려 현재 효과를 확인하세요.", selector: ".road-condition-wagon", shape: "diamond" },
+      { title: "짐마차 상태", text: "길 위의 Dot을 지날 때마다 내구도가 1 감소하며, 지형·노면·과적에 따라 1이 추가로 감소할 수 있습니다.\n과적은 차축과 수레바퀴 고장 확률도 높입니다. 커서를 올려 현재 위험을 확인하세요.", selector: ".road-condition-wagon", shape: "diamond" },
       { title: "수레바퀴 교체", text: "수레바퀴가 손상되고 화물에 예비 수레바퀴가 있다면 짐마차 상태 옆에 교체 버튼이 나타납니다.\n교체하면 예비 바퀴 하나를 사용해 손상을 제거합니다." }
     ]
   },
@@ -386,7 +386,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "화물칸", text: "화물뷰에서는 보유한 물건의 칸, 무게, 열화 상태와 구매 기록을 확인합니다.\n정렬 버튼으로 등급, 가치, 카테고리 순서를 바꿀 수 있습니다.", selector: ".cargo-ui" },
       { title: "화물 상세 정보", text: "물건에 커서를 올리면 현재 공개된 상품 정보와 사용 효과를 확인합니다.\n길게 누르면 행상인의 길에 있는 해당 상품 메모로 바로 이동합니다.", selector: "#cargo-grid" },
-      { title: "짐마차와 적재 중량", text: "상단에는 적재 중량과 짐마차 내구도, 상태이상이 표시됩니다.\n한도를 넘긴 무게는 이동을 느리게 만듭니다.", selector: ".cargo-topbar" },
+      { title: "짐마차와 적재 중량", text: "상단에는 적재 중량과 짐마차 내구도, 상태이상이 표시됩니다.\n한도를 넘긴 무게는 이동을 느리게 하고 내구도 소모와 차축·수레바퀴 고장 위험을 높입니다.", selector: ".cargo-topbar" },
       { title: "화물 이동과 폐기", text: "화물을 끌어 보호·비밀·일반 화물칸 사이로 옮기거나 폐기할 수 있습니다.\n거래로 들어온 고가 화물은 비밀·보호 화물칸 순으로 자동 적재됩니다. 물건 하나가 남은 특수칸보다 크면 남은 칸은 임시 일반 화물칸으로 전환됩니다.\n보호 화물은 늑대·불한당·용병·울펜의 피해와 요구에서 제외되며, 비밀 화물은 여기에 더해 입장관세 가치에서도 제외됩니다." }
     ]
   },
@@ -642,6 +642,12 @@ const ROAD_SURFACE_SPEED_MULTIPLIERS = new Map([
   ["진흙 길", 0.5],
   ["눈덮힌 길", 0.5]
 ]);
+const WAGON_BASE_EXTRA_WEAR_CHANCE = 0.33;
+const WAGON_ROUGH_EXTRA_WEAR_BONUS = 0.2;
+const WAGON_MOUNTAIN_EXTRA_WEAR_BONUS = 0.33;
+const WAGON_OVERWEIGHT_CHANCE_RATE = 0.05;
+const WAGON_MAX_EXTRA_WEAR_CHANCE = 0.95;
+const WAGON_MAX_OVERWEIGHT_EFFECT_MULTIPLIER = 3;
 const WAGON_EFFECT_DESCRIPTIONS = new Map([
   ["차축 삐걱임", "수레바퀴 손상 확률 증가"],
   ["수레바퀴 손상", "이동속도 -50%"],
@@ -9207,12 +9213,15 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
   account.horse.hunger = Math.max(0, account.horse.hunger - hungerLoss);
   if (!isNodeId(placementId)) {
     applyTravelMoodChange(conditions);
+    const load = window.ProjectWCargo.getLoadSummary();
     const conditionChanceMultiplier = wagonEffectChanceMultiplier(account.wagon);
+    const overloadEffectMultiplier = wagonOverweightEffectMultiplier(load.overweightPercent);
     const axleChance = hasPartnerBlessing("N_Bless_006") ? 0.004 : 0.006;
-    if (Math.random() < axleChance * conditionChanceMultiplier) addWagonEffect("차축 삐걱임");
+    if (Math.random() < axleChance * conditionChanceMultiplier * overloadEffectMultiplier) addWagonEffect("차축 삐걱임");
     const baseWheelChance = hasPartnerBlessing("N_Bless_007") ? 0.0021 : 0.003;
     const wheelDamageChance = (account.wagon.effects.includes("차축 삐걱임") ? baseWheelChance * 10 : baseWheelChance)
-      * conditionChanceMultiplier;
+      * conditionChanceMultiplier
+      * overloadEffectMultiplier;
     if (Math.random() < wheelDamageChance) addWagonEffect("수레바퀴 손상");
     if (Math.random() < (hasPartnerBlessing("N_Bless_024") ? 0.004 : 0.006) * conditionChanceMultiplier) {
       addWagonEffect("화물 고정 불량");
@@ -9220,6 +9229,9 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
     if (Math.random() < (hasPartnerBlessing("N_Bless_025") ? 0.004 : 0.006) * conditionChanceMultiplier) {
       addWagonEffect("물 새는 천막");
     }
+    let wagonDamage = 1 + (Math.random() < wagonExtraWearChance(conditions, load.overweightPercent) ? 1 : 0);
+    if (Math.random() < partnerWagonDamageReductionChance()) wagonDamage = Math.max(0, wagonDamage - 1);
+    account.wagon.condition = Math.max(0, account.wagon.condition - wagonDamage);
   } else {
     account.partnerWeatherStreak = createInitialPartnerWeatherStreak();
     account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
@@ -9227,10 +9239,6 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
     account.partner.statusStreaks.extremeCold = 0;
     account.partner.statusStreaks.summerHumidity = 0;
     account.partner.statusStreaks.roughTravel = 0;
-  }
-  if (Math.random() < 0.33) {
-    const reduced = Math.random() < partnerWagonDamageReductionChance();
-    account.wagon.condition = Math.max(0, account.wagon.condition - (reduced ? 0 : 1));
   }
   const becameHalfBroken = account.wagon.condition <= 0 && !account.wagon.effects.includes("짐마차 반파");
   if (becameHalfBroken) {
@@ -9711,6 +9719,30 @@ function wagonEffectChanceMultiplier(wagonState = account?.wagon) {
   const wagon = normalizeWagonState(wagonState);
   const conditionRatio = clampNumber(wagon.condition / wagon.maxCondition, 0, 1, 1);
   return 2 - conditionRatio;
+}
+
+function wagonTerrainWearBonus(conditions = getCurrentRoadConditions()) {
+  const terrains = Array.isArray(conditions?.terrains) ? conditions.terrains : [];
+  const roadSurfaces = Array.isArray(conditions?.roadSurfaces) ? conditions.roadSurfaces : [];
+  if (terrains.includes("산지")) return WAGON_MOUNTAIN_EXTRA_WEAR_BONUS;
+  if (roadSurfaces.includes("거친 길") || terrains.some(terrain => ["험지", "숲길"].includes(terrain))) {
+    return WAGON_ROUGH_EXTRA_WEAR_BONUS;
+  }
+  return 0;
+}
+
+function wagonOverweightEffectMultiplier(overweightPercent = window.ProjectWCargo?.getLoadSummary?.().overweightPercent) {
+  const overweight = Math.max(0, Number(overweightPercent) || 0);
+  return Math.min(WAGON_MAX_OVERWEIGHT_EFFECT_MULTIPLIER, 1 + (overweight * WAGON_OVERWEIGHT_CHANCE_RATE));
+}
+
+function wagonExtraWearChance(conditions = getCurrentRoadConditions(), overweightPercent = window.ProjectWCargo?.getLoadSummary?.().overweightPercent) {
+  const overweight = Math.max(0, Number(overweightPercent) || 0);
+  const overloadBonus = WAGON_BASE_EXTRA_WEAR_CHANCE * overweight * WAGON_OVERWEIGHT_CHANCE_RATE;
+  return Math.min(
+    WAGON_MAX_EXTRA_WEAR_CHANCE,
+    WAGON_BASE_EXTRA_WEAR_CHANCE + wagonTerrainWearBonus(conditions) + overloadBonus
+  );
 }
 
 function wagonSpeedMultiplier(condition, maxCondition, effects = []) {
@@ -12930,7 +12962,7 @@ function buildRoadStatusTooltip(kind) {
     rows.push(["최종 반영", `기본 속도의 ${Math.round(rate * 100)}%`]);
     const load = window.ProjectWCargo.getLoadSummary();
     if (load.overweightPercent > 0) {
-      rows.push(["과적", `+${formatCompactNumber(load.overweightPercent)}% · 속도 -${formatCompactNumber(load.speedPenaltyPercent)}%`, "is-danger"]);
+      rows.push(["과적", `+${formatCompactNumber(load.overweightPercent)}% · 속도 -${formatCompactNumber(load.speedPenaltyPercent)}% · 차축·바퀴 ×${formatCompactNumber(wagonOverweightEffectMultiplier(load.overweightPercent))}`, "is-danger"]);
     } else rows.push(["과적", "없음", "is-healthy"]);
   } else if (kind === "horse") {
     const horse = normalizeHorseState(account.horse);
@@ -12939,9 +12971,11 @@ function buildRoadStatusTooltip(kind) {
     rows.push(["허기", `${Math.round(horse.hunger)} / ${Math.round(horse.maxHunger)}`, conditionTextClass(horse.hunger)]);
   } else if (kind === "surface") {
     const conditions = getCurrentRoadConditions();
+    const load = window.ProjectWCargo.getLoadSummary();
     title.textContent = "노면 상태";
     rows.push(["지형", describeTerrainConditions(conditions.terrains), "", "condition"]);
     rows.push(["노면", describeRoadSurfaceConditions(conditions.roadSurfaces), "", "condition"]);
+    rows.push(["짐마차 손상", `Dot당 1 · 추가 1 확률 ${formatCompactNumber(wagonExtraWearChance(conditions, load.overweightPercent) * 100)}%`, "is-danger"]);
   } else if (kind === "environment") {
     const conditions = getCurrentRoadConditions();
     title.textContent = "환경";
@@ -12950,8 +12984,11 @@ function buildRoadStatusTooltip(kind) {
     rows.push(["날씨 환경", `${conditions.weather} · ${describeWeatherRisk(conditions.weather)}`, "", "environment"]);
   } else {
     const wagon = normalizeWagonState(account.wagon);
+    const conditions = getCurrentRoadConditions();
+    const load = window.ProjectWCargo.getLoadSummary();
     title.textContent = "짐마차 상태";
     rows.push(["상태", `${Math.round(wagon.condition)} / ${Math.round(wagon.maxCondition)}`, conditionTextClass(wagon.condition)]);
+    rows.push(["다음 Dot 손상", `1 · 추가 1 확률 ${formatCompactNumber(wagonExtraWearChance(conditions, load.overweightPercent) * 100)}%`]);
     rows.push(["상태이상", describeWagonEffects(wagon.effects), "", "wagonEffects"]);
   }
 

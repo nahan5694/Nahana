@@ -783,7 +783,8 @@
     elements.weightPanel?.classList.toggle("is-over-limit", load.overweightPercent > 0);
     if (elements.weightBadge) {
       elements.weightBadge.hidden = load.overweightPercent <= 0;
-      elements.weightBadge.textContent = `과적 · 속도 -${formatNumber(load.speedPenaltyPercent)}%`;
+      const wagonFailureMultiplier = Math.min(3, 1 + (load.overweightPercent * 0.05));
+      elements.weightBadge.textContent = `과적 · 속도 -${formatNumber(load.speedPenaltyPercent)}% · 고장 ×${formatNumber(wagonFailureMultiplier)}`;
     }
     elements.sortButtons.forEach(button => {
       const active = button.dataset.cargoSort === state.sortMode;
@@ -1593,9 +1594,11 @@
       appendDetail(details, "초과 중량", `+${formatNumber(load.weight - load.maxWeight)}`, "is-danger");
       appendDetail(details, "초과 비율", `${formatNumber(load.overweightPercent)}%`, "is-danger");
       appendDetail(details, "이동속도", `-${formatNumber(load.speedPenaltyPercent)}%`, "is-danger");
+      appendDetail(details, "추가 손상 확률", `+${formatNumber(load.overweightPercent * 1.65)}%p`, "is-danger");
+      appendDetail(details, "차축·바퀴", `×${formatNumber(Math.min(3, 1 + (load.overweightPercent * 0.05)))}`, "is-danger");
     } else appendDetail(details, "과적 패널티", "없음", "is-healthy");
     const rule = document.createElement("p");
-    rule.textContent = `최대 중량 초과분 ${formatNumber(load.thresholdPercent)}%마다 이동속도가 ${formatNumber(load.penaltyPerThreshold)}% 감소합니다. 최종 이동속도는 기본 속도의 10% 아래로 내려가지 않습니다.`;
+    rule.textContent = `최대 중량 초과분 ${formatNumber(load.thresholdPercent)}%마다 이동속도가 ${formatNumber(load.penaltyPerThreshold)}% 감소합니다. 과적률 1%마다 짐마차 추가 손상 확률은 1.65%p, 차축·수레바퀴 고장 확률은 5%씩 증가합니다. 고장 배율은 최대 3배이며, 최종 이동속도는 기본 속도의 10% 아래로 내려가지 않습니다.`;
     elements.weightTooltip.replaceChildren(header, details, rule);
     elements.weightTooltip.hidden = false;
     positionWeightTooltip(cursorX, cursorY);
