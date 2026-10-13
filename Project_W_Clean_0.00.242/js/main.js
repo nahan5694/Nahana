@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.329";
+const GAME_VERSION = "0.00.330";
 const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -300,7 +300,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "말 상태와 먹이",
     contexts: ["road"],
     pages: [
-      { title: "말 상태", text: "위쪽 숫자는 말의 체력, 아래쪽 숫자는 허기입니다.\n커서를 올리면 현재 상태를 더 자세히 확인할 수 있습니다.", selector: ".road-condition-horse", shape: "diamond" },
+      { title: "말 상태", text: "위쪽 숫자는 말의 체력, 아래쪽 숫자는 허기입니다.\n허기가 낮을수록 Dot 이동 때 체력 3을 추가 소모할 확률이 높아지며, 허기 0에서는 반드시 추가 소모합니다. 체력 50 미만부터 짐마차의 최대 무게도 감소합니다.", selector: ".road-condition-horse", shape: "diamond" },
       { title: "말 식량 먹이기", text: "먹이 버튼으로 등록된 건초나 말먹이를 사용합니다.\n옆의 수량은 현재 등록된 먹이의 남은 개수입니다.", selector: "#horse-feed-controls" },
       { title: "채찍질", text: "이동 중 말의 엉덩이 부근을 누르면 채찍질합니다.\n말의 체력이 0~2 감소하는 대신 다음 지점까지 남은 시간이 0~1초 줄어듭니다. 체력이 33 이하라면 채찍질할 수 없습니다.", selector: "#horse-whip-hitbox", padding: 14 }
     ]
@@ -648,6 +648,9 @@ const WAGON_MOUNTAIN_EXTRA_WEAR_BONUS = 0.33;
 const WAGON_OVERWEIGHT_CHANCE_RATE = 0.05;
 const WAGON_MAX_EXTRA_WEAR_CHANCE = 0.95;
 const WAGON_MAX_OVERWEIGHT_EFFECT_MULTIPLIER = 3;
+const HORSE_HUNGER_EXTRA_HEALTH_LOSS = 3;
+const HORSE_MAX_WEIGHT_HEALTH_THRESHOLD = 0.5;
+const HORSE_MAX_WEIGHT_REDUCTION_LIMIT = 0.1;
 const WAGON_EFFECT_DESCRIPTIONS = new Map([
   ["차축 삐걱임", "수레바퀴 손상 확률 증가"],
   ["수레바퀴 손상", "이동속도 -50%"],
@@ -6327,6 +6330,33 @@ function partnerBuffEffectDescription(buff) {
   return String(sheetDefinition?.effectDescription || buff?.effectDescription || buff?.description || "").trim();
 }
 
+function horseHungerExtraHealthLossChance(horseState = account?.horse) {
+  const horse = normalizeHorseState(horseState);
+  const maxHunger = Math.max(1, horse.maxHunger);
+  return clampNumber(1 - (horse.hunger / maxHunger), 0, 1, 0);
+}
+
+function rollHorseHungerExtraHealthLoss(horseState = account?.horse, rng = Math.random) {
+  const horse = normalizeHorseState(horseState);
+  if (horse.hunger <= 0) return HORSE_HUNGER_EXTRA_HEALTH_LOSS;
+  return rng() < horseHungerExtraHealthLossChance(horse)
+    ? HORSE_HUNGER_EXTRA_HEALTH_LOSS
+    : 0;
+}
+
+function horseMaxWeightReductionRatio(horseState = account?.horse) {
+  const horse = normalizeHorseState(horseState);
+  const healthRatio = clampNumber(horse.health / Math.max(1, horse.maxHealth), 0, 1, 1);
+  if (healthRatio >= HORSE_MAX_WEIGHT_HEALTH_THRESHOLD) return 0;
+  const exhaustionRatio = (HORSE_MAX_WEIGHT_HEALTH_THRESHOLD - healthRatio) / HORSE_MAX_WEIGHT_HEALTH_THRESHOLD;
+  return clampNumber(
+    exhaustionRatio * HORSE_MAX_WEIGHT_REDUCTION_LIMIT,
+    0,
+    HORSE_MAX_WEIGHT_REDUCTION_LIMIT,
+    0
+  );
+}
+
 function partnerCargoCapacityLimits() {
   const slotTargets = new Map([
     [29, 33], [30, 36], [31, 39], [32, 43], [33, 47],
@@ -6340,12 +6370,16 @@ function partnerCargoCapacityLimits() {
   const weightBlessing = highestPartnerBlessing("N_Bless_", 39, 48);
   const totalNormalSlots = slotTargets.get(slotBlessing) || 30;
   const protectedSlots = hasPartnerBlessing("N_Bless_049") ? 30 : 0;
+  const baseMaxWeight = weightTargets.get(weightBlessing) || 75;
+  const maxWeightReductionRatio = horseMaxWeightReductionRatio();
   return {
     normal: Math.max(0, totalNormalSlots - protectedSlots),
     protected: protectedSlots,
     secret: hasPartnerBlessing("N_Bless_050") ? 3 : 0,
     totalCargoSlots: totalNormalSlots,
-    maxWeight: weightTargets.get(weightBlessing) || 75
+    baseMaxWeight,
+    maxWeightReductionPercent: maxWeightReductionRatio * 100,
+    maxWeight: Math.round(baseMaxWeight * (1 - maxWeightReductionRatio) * 10) / 10
   };
 }
 
@@ -9207,14 +9241,20 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
   account.horse = normalizeHorseState(account.horse);
   account.wagon = normalizeWagonState(account.wagon);
   const conditions = conditionsOverride || getCurrentRoadConditions(placementId);
-  const healthLoss = Math.max(0, Math.round(calculateHorseHealthLoss(placementId, conditions) * partnerHorseHealthConsumptionMultiplier()));
+  const stepLoad = window.ProjectWCargo.getLoadSummary();
+  const hungerHealthLoss = rollHorseHungerExtraHealthLoss(account.horse);
+  const baseHealthLoss = Math.max(0, Math.round(
+    calculateHorseHealthLoss(placementId, conditions, stepLoad)
+      * partnerHorseHealthConsumptionMultiplier()
+  ));
+  const healthLoss = baseHealthLoss + hungerHealthLoss;
   const hungerLoss = Math.max(0, Math.round((Math.floor(Math.random() * 10) + 6) * partnerHorseHungerConsumptionMultiplier()));
 
   account.horse.health = Math.max(0, account.horse.health - healthLoss);
   account.horse.hunger = Math.max(0, account.horse.hunger - hungerLoss);
   if (!isNodeId(placementId)) {
     applyTravelMoodChange(conditions);
-    const load = window.ProjectWCargo.getLoadSummary();
+    const load = stepLoad;
     const conditionChanceMultiplier = wagonEffectChanceMultiplier(account.wagon);
     const overloadEffectMultiplier = wagonOverweightEffectMultiplier(load.overweightPercent);
     const axleChance = hasPartnerBlessing("N_Bless_006") ? 0.004 : 0.006;
@@ -9364,8 +9404,8 @@ function addWagonEffect(effect) {
   return true;
 }
 
-function calculateHorseHealthLoss(placementId = account?.travel?.positionId, conditionsOverride = null) {
-  const load = window.ProjectWCargo.getLoadSummary();
+function calculateHorseHealthLoss(placementId = account?.travel?.positionId, conditionsOverride = null, loadOverride = null) {
+  const load = loadOverride || window.ProjectWCargo.getLoadSummary();
   const loadRatio = load.maxWeight > 0 ? Math.max(0, load.weight / load.maxWeight) : 0;
   const loadHealthLoss = Math.floor(loadRatio / 0.25);
   const conditions = conditionsOverride || getCurrentRoadConditions(placementId);
@@ -12967,9 +13007,25 @@ function buildRoadStatusTooltip(kind) {
     } else rows.push(["과적", "없음", "is-healthy"]);
   } else if (kind === "horse") {
     const horse = normalizeHorseState(account.horse);
+    const hungerHealthLossChance = horseHungerExtraHealthLossChance(horse);
+    const maxWeightReductionPercent = horseMaxWeightReductionRatio(horse) * 100;
     title.textContent = "말 상태";
     rows.push(["체력", `${Math.round(horse.health)} / ${Math.round(horse.maxHealth)}`, conditionTextClass(horse.health)]);
     rows.push(["허기", `${Math.round(horse.hunger)} / ${Math.round(horse.maxHunger)}`, conditionTextClass(horse.hunger)]);
+    rows.push([
+      "허기 추가 소모",
+      horse.hunger <= 0
+        ? `체력 +${HORSE_HUNGER_EXTRA_HEALTH_LOSS} 소모 확정`
+        : `${formatCompactNumber(hungerHealthLossChance * 100)}% 확률로 체력 +${HORSE_HUNGER_EXTRA_HEALTH_LOSS} 소모`,
+      horse.hunger <= 25 ? "is-danger" : ""
+    ]);
+    rows.push([
+      "적재 한도",
+      maxWeightReductionPercent > 0
+        ? `최대 무게 -${formatCompactNumber(maxWeightReductionPercent)}%`
+        : "감소 없음",
+      maxWeightReductionPercent > 0 ? "is-danger" : "is-healthy"
+    ]);
   } else if (kind === "surface") {
     const conditions = getCurrentRoadConditions();
     const load = window.ProjectWCargo.getLoadSummary();
@@ -13960,7 +14016,7 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["축복 선택", "원하는 축복은 이후 강화 포인트를 모아 선택할 수 있습니다.", ".partner-feature-panel", false, { padding: 14 }]
     ],
     [TUTORIAL_IDS.HORSE_FEED]: [
-      ["말의 허기", "말의 허기가 80 이하로 떨어졌습니다. 허기가 낮아지면 여정을 이어가기 어려워집니다.", ".road-condition-marker[data-road-condition='horse']", false, { padding: 14 }],
+      ["말의 허기", "말의 허기가 80 이하로 떨어졌습니다. 허기가 낮을수록 Dot 이동 때 체력 3을 추가 소모할 확률이 높아집니다. 허기 0에서는 추가 소모가 반드시 발생합니다.", ".road-condition-marker[data-road-condition='horse']", false, { padding: 14 }],
       ["건초 먹이기", "건초 먹이기를 눌러 말에게 먹이를 주세요.", "#horse-feed-button", true, { padding: 12 }],
       ["허기 회복", "먹이를 먹은 말의 허기가 회복되었습니다. 정면뷰에서 체력과 허기를 계속 살펴보세요.", ".road-condition-marker[data-road-condition='horse']", false, { padding: 14 }]
     ],

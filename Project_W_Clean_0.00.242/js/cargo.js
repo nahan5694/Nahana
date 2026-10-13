@@ -822,11 +822,15 @@
 
   function normalizedCapacityLimits() {
     const value = getCapacityLimits() || {};
+    const maxWeight = Math.max(1, Number(value.maxWeight) || DEFAULT_MAX_WEIGHT);
+    const baseMaxWeight = Math.max(maxWeight, Number(value.baseMaxWeight) || maxWeight);
     return {
       normal: Math.max(0, Math.trunc(Number(value.normal) || SLOT_COUNT)),
       protected: Math.max(0, Math.trunc(Number(value.protected) || 0)),
       secret: Math.max(0, Math.trunc(Number(value.secret) || 0)),
-      maxWeight: Math.max(1, Number(value.maxWeight) || DEFAULT_MAX_WEIGHT)
+      maxWeight,
+      baseMaxWeight,
+      maxWeightReductionPercent: Math.max(0, Number(value.maxWeightReductionPercent) || 0)
     };
   }
 
@@ -848,7 +852,8 @@
 
   function getLoadSummary() {
     const weight = calculateWeight();
-    const maxWeight = normalizedCapacityLimits().maxWeight;
+    const capacityLimits = normalizedCapacityLimits();
+    const maxWeight = capacityLimits.maxWeight;
     const ratio = maxWeight > 0 ? weight / maxWeight : 0;
     const overweightRatio = Math.max(0, ratio - 1);
     const overweightPercent = overweightRatio * 100;
@@ -861,6 +866,8 @@
     return {
       weight,
       maxWeight,
+      baseMaxWeight: capacityLimits.baseMaxWeight,
+      maxWeightReductionPercent: capacityLimits.maxWeightReductionPercent,
       ratio,
       overweightRatio,
       overweightPercent,
@@ -1590,6 +1597,14 @@
     header.append(title);
     const details = document.createElement("dl");
     appendDetail(details, "현재 중량", `${formatNumber(load.weight)} / ${formatNumber(load.maxWeight)}`);
+    if (load.maxWeightReductionPercent > 0) {
+      appendDetail(
+        details,
+        "말 체력 보정",
+        `기본 ${formatNumber(load.baseMaxWeight)} · 최대 무게 -${formatNumber(load.maxWeightReductionPercent)}%`,
+        "is-danger"
+      );
+    }
     if (load.overweightPercent > 0) {
       appendDetail(details, "초과 중량", `+${formatNumber(load.weight - load.maxWeight)}`, "is-danger");
       appendDetail(details, "초과 비율", `${formatNumber(load.overweightPercent)}%`, "is-danger");
