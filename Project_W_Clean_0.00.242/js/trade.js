@@ -1363,20 +1363,56 @@
     });
     const pendingRestockEffects = (state.restockEffects || []).filter(effect => effect.merchantKey === merchantKey);
     pendingRestockEffects.forEach(effect => {
+      const candidates = (effect.sourceType === "production"
+        ? resolvedProduction
+        : effect.sourceType === "logistics"
+          ? resolvedLogistics
+          : importCandidates)
+        .filter(definition => definition.subcategory === effect.subcategory);
       const matchingLots = stockLots.filter(lot => {
         const definition = definitions.find(entry => entry.id === lot.itemId);
         return lot.sourceType === effect.sourceType && definition?.subcategory === effect.subcategory;
       });
-      if (matchingLots.length) {
+      if (effect.applyToAll) {
+        const minimumQuantity = Math.max(0, Math.trunc(Number(effect.minimumQuantity) || 0));
+        matchingLots.forEach(lot => {
+          lot.quantity = Math.max(minimumQuantity, lot.quantity + effect.amount);
+        });
+        if (effect.includeMissing && candidates.length) {
+          const representedItemIds = new Set(matchingLots.map(lot => lot.itemId));
+          const desiredDistinct = effect.guaranteeAll
+            ? candidates.length
+            : Math.min(candidates.length, Math.max(0, Math.trunc(Number(effect.minimumDistinct) || 0)));
+          const missing = shuffled(
+            candidates.filter(definition => !representedItemIds.has(definition.id)),
+            rng
+          );
+          missing.slice(0, Math.max(0, desiredDistinct - representedItemIds.size)).forEach(definition => {
+            const origin = effect.sourceType === "production"
+              ? settlement
+              : effect.sourceType === "logistics"
+                ? chooseFixedLogisticsOrigin(definition, settlement.id, worldData.nodes, refreshSerial)
+                : chooseOriginNode(definition, settlement.id, worldData.nodes, rng);
+            const baseQuantity = effect.sourceType === "logistics"
+              ? fixedLogisticsStock(definition, settlement.category, facilityType)
+              : effect.sourceType === "import"
+                ? importStock(definition, settlement.category, facilityType)
+                : productionStock(definition, settlement.category, facilityType, {
+                  sourceType: "production",
+                  distinctive: distinctiveLocalProducts.has(definition.name1)
+                });
+            const regularQuantity = variedStock(baseQuantity, settlement.category, rng)
+              + (Number(cityEventStock[definition.subcategory]) || 0);
+            const adjustedQuantity = Math.max(minimumQuantity, regularQuantity + effect.amount);
+            if (adjustedQuantity <= 0) return;
+            appendLot(definition, effect.sourceType, adjustedQuantity, origin, baseQuantity);
+          });
+        }
+      } else if (matchingLots.length) {
         const targetLot = matchingLots.sort((left, right) => right.quantity - left.quantity)[0];
         targetLot.quantity = Math.max(0, targetLot.quantity + effect.amount);
       } else if (effect.amount > 0 || effect.guarantee) {
-        const candidates = effect.sourceType === "production"
-          ? resolvedProduction
-          : effect.sourceType === "logistics"
-            ? resolvedLogistics
-            : importCandidates;
-        const definition = candidates.find(entry => entry.subcategory === effect.subcategory);
+        const definition = candidates[0];
         if (definition) {
           const origin = effect.sourceType === "production"
             ? settlement
@@ -1391,16 +1427,13 @@
                 sourceType: "production",
                 distinctive: distinctiveLocalProducts.has(definition.name1)
               });
-          appendLot(
-            definition,
-            effect.sourceType,
-            Math.max(1, effect.amount),
-            origin,
-            baseQuantity
-          );
+          appendLot(definition, effect.sourceType, Math.max(1, effect.amount), origin, baseQuantity);
         }
       }
     });
+    for (let index = stockLots.length - 1; index >= 0; index -= 1) {
+      if (stockLots[index].quantity <= 0) stockLots.splice(index, 1);
+    }
     if (pendingRestockEffects.length) {
       const consumedIds = new Set(pendingRestockEffects.map(effect => effect.id));
       state.restockEffects = (state.restockEffects || []).filter(effect => !consumedIds.has(effect.id));
@@ -4895,12 +4928,20 @@
           });
         });
         const week = Math.floor((worldTime.day - 1) / RESTOCK_INTERVAL_DAYS);
-        const productionSubcategories = new Set((settlement.productionNames || []).flatMap(name => {
+        const productionDefinitionsBySubcategory = new Map();
+        (settlement.productionNames || []).forEach(name => {
           const definition = definitionsByName.get(name);
-          return definition && !isNonTradeCategory(definition.category) ? [definition.subcategory] : [];
-        }));
+          if (!definition || isNonTradeCategory(definition.category) || !definition.subcategory) return;
+          if (!productionDefinitionsBySubcategory.has(definition.subcategory)) {
+            productionDefinitionsBySubcategory.set(definition.subcategory, new Set());
+          }
+          productionDefinitionsBySubcategory.get(definition.subcategory).add(definition.id);
+        });
+        const productionSubcategories = [...productionDefinitionsBySubcategory.entries()]
+          .filter(([, itemIds]) => itemIds.size >= 2)
+          .map(([subcategory]) => subcategory);
         const productionSelectionRng = seededRandom(`${settlement.id}|production-information|${week}`);
-        shuffled([...productionSubcategories], productionSelectionRng).slice(0, 1).forEach(subcategory => {
+        shuffled(productionSubcategories, productionSelectionRng).slice(0, 1).forEach(subcategory => {
           const rng = seededRandom(`${settlement.id}|${subcategory}|production-information|${week}`);
           production.push({
             settlementId: settlement.id,
@@ -4910,13 +4951,26 @@
           });
         });
         if (["도시", "대도시"].includes(settlement.category)) {
-          const localNames = new Set(settlement.productionNames || []);
-          const importSubcategories = new Set(definitions.flatMap(definition => {
-            if (isNonTradeCategory(definition.category) || localNames.has(definition.name1)) return [];
-            return producingNodes(definition, worldData.nodes).length ? [definition.subcategory] : [];
-          }));
+          const localNames = new Set([
+            ...(settlement.productionNames || []),
+            ...(settlement.logisticsNames || [])
+          ]);
+          const importDefinitionsBySubcategory = new Map();
+          definitions.forEach(definition => {
+            if (isNonTradeCategory(definition.category)
+              || localNames.has(definition.name1)
+              || !definition.subcategory
+              || !producingNodes(definition, worldData.nodes).length) return;
+            if (!importDefinitionsBySubcategory.has(definition.subcategory)) {
+              importDefinitionsBySubcategory.set(definition.subcategory, new Set());
+            }
+            importDefinitionsBySubcategory.get(definition.subcategory).add(definition.id);
+          });
+          const importSubcategories = [...importDefinitionsBySubcategory.entries()]
+            .filter(([, itemIds]) => itemIds.size >= 2)
+            .map(([subcategory]) => subcategory);
           const logisticsSelectionRng = seededRandom(`${settlement.id}|logistics-information|${week}`);
-          shuffled([...importSubcategories], logisticsSelectionRng).slice(0, 2).forEach(subcategory => {
+          shuffled(importSubcategories, logisticsSelectionRng).slice(0, 2).forEach(subcategory => {
             const rng = seededRandom(`${settlement.id}|${subcategory}|logistics-information|${week}`);
             logistics.push({
               settlementId: settlement.id,
@@ -4985,7 +5039,12 @@
       subcategory,
       sourceType,
       amount,
-      guarantee: Boolean(effect.guarantee)
+      guarantee: Boolean(effect.guarantee),
+      applyToAll: Boolean(effect.applyToAll),
+      includeMissing: Boolean(effect.includeMissing),
+      guaranteeAll: Boolean(effect.guaranteeAll),
+      minimumDistinct: Math.max(0, Math.trunc(Number(effect.minimumDistinct) || 0)),
+      minimumQuantity: Math.max(0, Math.trunc(Number(effect.minimumQuantity) || 0))
     });
     persistState();
     return true;
@@ -5019,7 +5078,7 @@
   }
 
   function createDefaultState() {
-    return { schemaVersion: 7, merchants: {}, marketSupply: {}, marketInformation: {}, companyInformationCapacity: {}, restockEffects: [] };
+    return { schemaVersion: 8, merchants: {}, marketSupply: {}, marketInformation: {}, companyInformationCapacity: {}, restockEffects: [] };
   }
 
   function loadState() {
@@ -5027,14 +5086,14 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return createDefaultState();
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, 5, 6, 7].includes(parsed?.schemaVersion) || !parsed.merchants || typeof parsed.merchants !== "object") return createDefaultState();
+      if (![1, 2, 3, 4, 5, 6, 7, 8].includes(parsed?.schemaVersion) || !parsed.merchants || typeof parsed.merchants !== "object") return createDefaultState();
       if (parsed.schemaVersion < 3) {
         Object.values(parsed.merchants).forEach(merchant => {
           if (merchant && typeof merchant === "object") merchant.stockLots = [];
         });
       }
       return {
-        schemaVersion: 7,
+        schemaVersion: 8,
         merchants: parsed.merchants,
         marketSupply: parsed.marketSupply && typeof parsed.marketSupply === "object" ? parsed.marketSupply : {},
         marketInformation: parsed.marketInformation && typeof parsed.marketInformation === "object" ? parsed.marketInformation : {},
@@ -5051,7 +5110,12 @@
             ? String(effect.sourceType)
             : "import",
           amount: Math.trunc(Number(effect?.amount) || 0),
-          guarantee: Boolean(effect?.guarantee)
+          guarantee: Boolean(effect?.guarantee),
+          applyToAll: Boolean(effect?.applyToAll),
+          includeMissing: Boolean(effect?.includeMissing),
+          guaranteeAll: Boolean(effect?.guaranteeAll),
+          minimumDistinct: Math.max(0, Math.trunc(Number(effect?.minimumDistinct) || 0)),
+          minimumQuantity: Math.max(0, Math.trunc(Number(effect?.minimumQuantity) || 0))
         })).filter(effect => effect.id && effect.settlementId && effect.merchantKey && effect.subcategory && effect.amount) : []
       };
     } catch (error) {

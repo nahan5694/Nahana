@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.328";
+const GAME_VERSION = "0.00.329";
 const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -1294,6 +1294,7 @@ window.ProjectWInformation.init({
   getPeddlerInformationBonuses: () => window.ProjectWMerchantPath.getInformationBonuses(),
   applyMarketShock: effect => window.ProjectWTrade.applyMarketInformationShock(effect),
   scheduleRestockEffect: effect => window.ProjectWTrade.scheduleInformationRestockEffect(effect),
+  applyCurrencyTrendPressure: effect => window.ProjectWWallet.applyInformationTrendPressure(effect),
   dampenMarketOnSale: effect => window.ProjectWTrade.dampenMarketInformation(effect),
   setWolfenMarker: (placementId, assetUrl, details) => window.ProjectWMapView.setWolfenMarker(placementId, assetUrl, details),
   getAssetUrl: assetId => assetMap.get(assetId) ?? "",

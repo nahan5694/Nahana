@@ -3,8 +3,11 @@
   const TYPE_ORDER = ["금화", "은화", "동화"];
   const TYPE_MARKS = { 금화: "금", 은화: "은", 동화: "동" };
   const MARKET_REGIONS = ["북부", "중부", "남부"];
-  const MARKET_SCHEMA_VERSION = 2;
+  const MARKET_SCHEMA_VERSION = 3;
   const MARKET_HISTORY_MONTHS = 12;
+  const INFORMATION_PRESSURE_RISE_DAYS = 20;
+  const INFORMATION_PRESSURE_RECOVERY_DAYS = 20;
+  const INFORMATION_PRESSURE_TARGET_PERCENT = .2;
   const CONTRACT_START_DATE = { year: 1433, month: 4, day: 8 };
   const FALLBACK_CURRENCIES = [
     { id: "Cur_001", name: "알비온 금화", type: "금화", baseValue: 1500, region: "중부/남부", reliability: 100, circulation: 95, description: "텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다.텍스트가 들어갑니다." },
@@ -590,6 +593,33 @@
     return beginTrend({ internalValue: initialValue, direction: 0 }, currency, day);
   }
 
+  function normalizeInformationPressure(value) {
+    if (!value || typeof value !== "object") return null;
+    const startDay = Math.max(1, Math.trunc(Number(value.startDay) || 1));
+    const peakDay = Math.max(startDay + 1, Math.trunc(Number(value.peakDay) || (startDay + INFORMATION_PRESSURE_RISE_DAYS)));
+    const endDay = Math.max(peakDay + 1, Math.trunc(Number(value.endDay) || (peakDay + INFORMATION_PRESSURE_RECOVERY_DAYS)));
+    return {
+      startDay,
+      peakDay,
+      endDay,
+      startPercent: clamp(Number(value.startPercent) || 0, -.4, .4),
+      targetPercent: clamp(Number(value.targetPercent) || 0, -.4, .4),
+      cardId: String(value.cardId || "")
+    };
+  }
+
+  function informationPressurePercent(record, day) {
+    const pressure = normalizeInformationPressure(record?.informationPressure);
+    if (!pressure || day >= pressure.endDay) return 0;
+    if (day <= pressure.startDay) return pressure.startPercent;
+    if (day <= pressure.peakDay) {
+      const progress = (day - pressure.startDay) / Math.max(1, pressure.peakDay - pressure.startDay);
+      return pressure.startPercent + ((pressure.targetPercent - pressure.startPercent) * progress);
+    }
+    const recovery = (day - pressure.peakDay) / Math.max(1, pressure.endDay - pressure.peakDay);
+    return pressure.targetPercent * (1 - recovery);
+  }
+
   function normalizeRecord(value, currency, day) {
     const bounds = currencyBounds(currency);
     if (!value || typeof value !== "object" || !Number.isFinite(Number(value.internalValue))) {
@@ -604,7 +634,8 @@
       trendEndDay: Math.max(2, Math.trunc(Number(value.trendEndDay) || (day + 30))),
       microAmplitude: Math.max(0, Number(value.microAmplitude) || 0),
       microCycles: Math.max(0, Number(value.microCycles) || 0),
-      microPhase: Number(value.microPhase) || 0
+      microPhase: Number(value.microPhase) || 0,
+      informationPressure: normalizeInformationPressure(value.informationPressure)
     };
     if (bounds.reliability >= 100
       && Math.abs(record.targetValue - record.startValue) < .0001
@@ -642,7 +673,10 @@
   function liveValueFromState(state, currency, region) {
     const normalizedRegion = normalizeRegion(region);
     const record = state?.regions?.[normalizedRegion]?.[currency.id];
-    return applyCirculation(currency, Number(record?.internalValue) || Number(currency.baseValue) || 0, normalizedRegion);
+    const day = Math.max(1, Math.trunc(Number(state?.lastUpdatedDay) || Number(getWorldDay()) || 1));
+    const internalValue = Number(record?.internalValue) || Number(currency.baseValue) || 0;
+    const pressureMultiplier = 1 + informationPressurePercent(record, day);
+    return applyCirculation(currency, internalValue * pressureMultiplier, normalizedRegion);
   }
 
   function calendarDateForDay(day) {
@@ -743,8 +777,11 @@
 
   function currencyOutlook(state, currency, region) {
     const record = state?.regions?.[normalizeRegion(region)]?.[currency.id];
-    const currentValue = Number(record?.internalValue) || Number(currency.baseValue) || 1;
-    const targetValue = Number(record?.targetValue) || currentValue;
+    const day = Math.max(1, Math.trunc(Number(state?.lastUpdatedDay) || Number(getWorldDay()) || 1));
+    const currentBaseValue = Number(record?.internalValue) || Number(currency.baseValue) || 1;
+    const targetBaseValue = Number(record?.targetValue) || currentBaseValue;
+    const currentValue = currentBaseValue * (1 + informationPressurePercent(record, day));
+    const targetValue = targetBaseValue * (1 + informationPressurePercent(record, day + 30));
     const changePercent = (targetValue - currentValue) / Math.max(1, Number(currency.baseValue) || 1) * 100;
     if (changePercent >= 1) return "상승";
     if (changePercent <= -1) return "하락";
@@ -811,8 +848,8 @@
       quote.day = Math.max(1, Math.trunc(Number(quote.day) || currentDay));
       state.knownQuotes[region] = quote;
     });
-    if ((dataSource !== "local" || loadPromise) && ensureMonthlyHistory(state, currentDay)) changed = true;
     state.lastUpdatedDay = currentDay;
+    if ((dataSource !== "local" || loadPromise) && ensureMonthlyHistory(state, currentDay)) changed = true;
     if (changed || stored !== state) setMarketState(state);
     return state;
   }
@@ -884,6 +921,7 @@
     const state = ensureMarketState();
     const regions = region ? [normalizeRegion(region)] : MARKET_REGIONS;
     return regions.flatMap(regionName => currencies.flatMap(currency => {
+      if (currency.type === "동화") return [];
       const record = state.regions?.[regionName]?.[currency.id];
       if (!record) return [];
       const baseValue = Math.max(1, Number(currency.baseValue) || 1);
@@ -903,6 +941,31 @@
         currentValue: liveValueFromState(state, currency, regionName)
       }];
     }));
+  }
+
+  function applyInformationTrendPressure(effect = {}) {
+    const normalizedRegion = normalizeRegion(effect.region);
+    const currency = currencies.find(entry => entry.id === String(effect.currencyId || ""));
+    if (!currency || currency.type === "동화") return false;
+    const directionText = String(effect.direction || "");
+    const direction = directionText.includes("하락") ? -1 : directionText.includes("상승") ? 1 : Math.sign(Number(effect.direction) || 0);
+    if (!direction) return false;
+    const day = Math.max(1, Math.trunc(Number(getWorldDay()) || 1));
+    const state = ensureMarketState(day);
+    const record = state.regions?.[normalizedRegion]?.[currency.id];
+    if (!record || (effect.cardId && record.informationPressure?.cardId === String(effect.cardId))) return false;
+    const startPercent = informationPressurePercent(record, day);
+    record.informationPressure = {
+      startDay: day,
+      peakDay: day + INFORMATION_PRESSURE_RISE_DAYS,
+      endDay: day + INFORMATION_PRESSURE_RISE_DAYS + INFORMATION_PRESSURE_RECOVERY_DAYS,
+      startPercent,
+      targetPercent: INFORMATION_PRESSURE_TARGET_PERCENT * direction,
+      cardId: String(effect.cardId || "")
+    };
+    setMarketState(state);
+    render();
+    return true;
   }
 
   function formatNumber(value) {
@@ -927,6 +990,7 @@
     getCurrencyAnalysis,
     createCurrencyAnalysis,
     getMarketSnapshot,
-    getTrendSnapshot
+    getTrendSnapshot,
+    applyInformationTrendPressure
   };
 }());

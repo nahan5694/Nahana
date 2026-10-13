@@ -1,5 +1,5 @@
 (function exposeInformationSystem() {
-  const STATE_SCHEMA_VERSION = 5;
+  const STATE_SCHEMA_VERSION = 6;
   const ROMAN_STEPS = ["", "I", "II", "III", "IV", "V", "VI"];
   const WEATHER_LABELS = ["맑음", "흐림", "비", "폭우", "눈", "폭설"];
   const REGIONS = ["북부", "중부", "남부"];
@@ -13,6 +13,16 @@
   const DISTANT_INFORMATION_WEIGHT_MULTIPLIER = .35;
   const LOCAL_FACILITY_WEATHER_WEIGHT_MULTIPLIER = 2;
   const GATE_ECONOMIC_INFORMATION_WEIGHT_MULTIPLIER = 3;
+  const MARKET_INFORMATION_SHOCK_MINIMUM = 25;
+  const MARKET_INFORMATION_SHOCK_MAXIMUM = 40;
+  const MARKET_INFORMATION_SHOCK_CENTER = 32;
+  const PRODUCTION_INFORMATION_STOCK_MINIMUM = 3;
+  const PRODUCTION_INFORMATION_STOCK_MAXIMUM = 5;
+  const LOGISTICS_INFORMATION_STOCK_MINIMUM = 2;
+  const LOGISTICS_INFORMATION_STOCK_MAXIMUM = 4;
+  const ROUTE_SECURITY_INFORMATION_ADJUSTMENTS = Object.freeze({ HIGH: -8, SEVERE: -15 });
+  const WOLFEN_TRACK_MINIMUM_DAYS = 7;
+  const WOLFEN_TRACK_MAXIMUM_DAYS = 12;
   const ECONOMIC_INFORMATION_SPECIALS = new Set([
     "MARKET_SUBCATEGORY",
     "PRODUCTION_FORECAST",
@@ -89,6 +99,7 @@
   let getPeddlerInformationBonuses = () => ({ successChance: 0, misinformationReduction: 0, sourceLevel: 0 });
   let applyMarketShock = () => {};
   let scheduleRestockEffect = () => {};
+  let applyCurrencyTrendPressure = () => false;
   let dampenMarketOnSale = () => {};
   let setWolfenMarker = () => {};
   let getAssetUrl = () => "";
@@ -128,6 +139,9 @@
       : getPeddlerInformationBonuses;
     applyMarketShock = typeof options.applyMarketShock === "function" ? options.applyMarketShock : applyMarketShock;
     scheduleRestockEffect = typeof options.scheduleRestockEffect === "function" ? options.scheduleRestockEffect : scheduleRestockEffect;
+    applyCurrencyTrendPressure = typeof options.applyCurrencyTrendPressure === "function"
+      ? options.applyCurrencyTrendPressure
+      : applyCurrencyTrendPressure;
     dampenMarketOnSale = typeof options.dampenMarketOnSale === "function" ? options.dampenMarketOnSale : dampenMarketOnSale;
     setWolfenMarker = typeof options.setWolfenMarker === "function" ? options.setWolfenMarker : setWolfenMarker;
     getAssetUrl = typeof options.getAssetUrl === "function" ? options.getAssetUrl : getAssetUrl;
@@ -307,7 +321,11 @@
     const source = value && typeof value === "object" ? value : {};
     const today = currentDay();
     const repairLegacyMaximumAge = integer(source.schemaVersion, 0) < STATE_SCHEMA_VERSION;
-    const cards = array(source.cards).map(card => normalizeCard(card, { repairLegacyMaximumAge })).filter(card => {
+    const upgradeWolfenDuration = integer(source.schemaVersion, 0) < STATE_SCHEMA_VERSION;
+    const cards = array(source.cards).map(card => normalizeCard(card, {
+      repairLegacyMaximumAge,
+      upgradeWolfenDuration
+    })).filter(card => {
       if (!card.id || !card.templateId || !card.instanceKey) return false;
       if (card.special === "WOLFEN_TRACK" && card.specialExpiresDay > 0) return today <= card.specialExpiresDay;
       return informationAgeDays(card, today) < card.maximumAgeDays;
@@ -326,7 +344,7 @@
     };
   }
 
-  function normalizeCard(card, { repairLegacyMaximumAge = false } = {}) {
+  function normalizeCard(card, { repairLegacyMaximumAge = false, upgradeWolfenDuration = false } = {}) {
     const special = text(card?.special);
     const soldShopKeys = [...new Set(array(card?.soldShopKeys).map(text).filter(Boolean))];
     const legacyCompanyKeys = soldShopKeys.map(key => key.match(/\|company:(.+)$/)?.[1] || "").filter(Boolean);
@@ -334,6 +352,11 @@
     if (repairLegacyMaximumAge && maximumAgeDays === 1) {
       maximumAgeDays = defaultInformationMaximumAgeDays(special);
     }
+    const acquiredDay = Math.max(1, integer(card?.acquiredDay, 1));
+    const storedSpecialExpiresDay = Math.max(0, integer(card?.specialExpiresDay));
+    const specialExpiresDay = special === "WOLFEN_TRACK" && upgradeWolfenDuration
+      ? Math.max(storedSpecialExpiresDay, acquiredDay + WOLFEN_TRACK_MINIMUM_DAYS - 1)
+      : storedSpecialExpiresDay;
     return {
       id: text(card?.id),
       templateId: text(card?.templateId),
@@ -349,7 +372,7 @@
       trust: clamp(integer(card?.trust, 1), 1, 6),
       typeMultiplier: Math.max(0, number(card?.typeMultiplier, 1)),
       sellable: Boolean(card?.sellable),
-      acquiredDay: Math.max(1, integer(card?.acquiredDay, 1)),
+      acquiredDay,
       initialAgeDays: clamp(integer(card?.initialAgeDays), 0, maximumAgeDays - 1),
       maximumAgeDays,
       trustRoll: clamp(number(card?.trustRoll, card?.truthRoll ?? .5), 0, 1),
@@ -371,7 +394,7 @@
       sourceSettlementCategory: text(card?.sourceSettlementCategory),
       sourceFacility: text(card?.sourceFacility),
       target: card?.target && typeof card.target === "object" ? { ...card.target } : {},
-      specialExpiresDay: Math.max(0, integer(card?.specialExpiresDay))
+      specialExpiresDay
     };
   }
 
@@ -434,7 +457,11 @@
     const target = { ...(selected.target || {}) };
     if (template.special === "MARKET_SUBCATEGORY") {
       const direction = number(target.index) >= 0 ? 1 : -1;
-      target.marketShock = centeredInteger(5, 25, 15) * direction;
+      target.marketShock = centeredInteger(
+        MARKET_INFORMATION_SHOCK_MINIMUM,
+        MARKET_INFORMATION_SHOCK_MAXIMUM,
+        MARKET_INFORMATION_SHOCK_CENTER
+      ) * direction;
       target.marketState = finalMarketState(number(target.index) + target.marketShock);
       template = definitions.find(entry => entry.special === "MARKET_SUBCATEGORY"
         && entry.linkedId === `MARKET_SUBCATEGORY:${target.subcategory}:${target.marketState}`) || template;
@@ -482,7 +509,9 @@
       sourceSettlementCategory: text(placement?.category),
       sourceFacility: text(facility),
       target,
-      specialExpiresDay: template.special === "WOLFEN_TRACK" ? today + randomInteger(3, 7) - 1 : 0
+      specialExpiresDay: template.special === "WOLFEN_TRACK"
+        ? today + randomInteger(WOLFEN_TRACK_MINIMUM_DAYS, WOLFEN_TRACK_MAXIMUM_DAYS) - 1
+        : 0
     });
     if (isWeatherInformationSpecial(card.special)) {
       state.cards = state.cards.filter(existing => !isWeatherInformationSpecial(existing.special)
@@ -688,7 +717,12 @@
         && entry.linkedId.startsWith(`ROUTE_SECURITY_RISK:${band}:`)),
       `SECURITY:${signal.segmentId}:${week}:${band}`, {
           경로명: signal.name
-        }, { ...signal, kind: "security" }, SPECIAL_INFORMATION_WEIGHT_MULTIPLIER);
+        }, {
+          ...signal,
+          kind: "security",
+          band,
+          securityAdjustment: ROUTE_SECURITY_INFORMATION_ADJUSTMENTS[band] || 0
+        }, SPECIAL_INFORMATION_WEIGHT_MULTIPLIER);
     });
     return candidates;
   }
@@ -773,7 +807,11 @@
     const target = card.target || {};
     if (card.special === "MARKET_SUBCATEGORY") {
       const direction = number(target.index) >= 0 ? 1 : -1;
-      const shock = number(target.marketShock) || (centeredInteger(5, 25, 15) * direction);
+      const shock = number(target.marketShock) || (centeredInteger(
+        MARKET_INFORMATION_SHOCK_MINIMUM,
+        MARKET_INFORMATION_SHOCK_MAXIMUM,
+        MARKET_INFORMATION_SHOCK_CENTER
+      ) * direction);
       applyMarketShock({
         settlementId: target.settlementId,
         subcategory: target.subcategory,
@@ -788,31 +826,39 @@
         settlementId: target.settlementId,
         subcategory: target.subcategory,
         sourceType: "production",
-        amount: randomInteger(2, 4) * (target.direction === "DOWN" ? -1 : 1),
-        guarantee: false,
+        amount: randomInteger(PRODUCTION_INFORMATION_STOCK_MINIMUM, PRODUCTION_INFORMATION_STOCK_MAXIMUM)
+          * (target.direction === "DOWN" ? -1 : 1),
+        applyToAll: true,
+        includeMissing: true,
+        guaranteeAll: true,
+        minimumQuantity: 0,
         cardId: card.id
       });
     }
     if (card.special === "IMPORT_LOGISTICS") {
-      const amount = randomInteger(2, 4) * (target.direction === "DELAY" ? -1 : 1);
+      const arriving = target.direction === "ARRIVAL";
+      const amount = randomInteger(LOGISTICS_INFORMATION_STOCK_MINIMUM, LOGISTICS_INFORMATION_STOCK_MAXIMUM)
+        * (arriving ? 1 : -1);
       scheduleRestockEffect({
         settlementId: target.settlementId,
         subcategory: target.subcategory,
         sourceType: "import",
         amount,
-        guarantee: target.direction === "ARRIVAL",
+        applyToAll: true,
+        includeMissing: arriving,
+        minimumDistinct: arriving ? 2 : 0,
+        minimumQuantity: arriving ? 0 : 1,
+        guarantee: arriving,
         cardId: card.id
       });
-      if (target.direction === "ARRIVAL") {
-        scheduleRestockEffect({
-          settlementId: target.settlementId,
-          subcategory: target.subcategory,
-          sourceType: "logistics",
-          amount,
-          guarantee: true,
-          cardId: card.id
-        });
-      }
+    }
+    if (card.special === "CURRENCY_TREND") {
+      applyCurrencyTrendPressure({
+        region: target.region,
+        currencyId: target.currencyId,
+        direction: target.direction,
+        cardId: card.id
+      });
     }
   }
 
@@ -1420,13 +1466,35 @@
     if (surfaces.has("진흙 길")) penalty = 30;
     else if (surfaces.has("눈덮힌 길")) penalty = 25;
     else if (surfaces.has("젖은 길")) penalty = 15;
+    const informationAdjustment = activeRouteSecurityAdjustment(state, segmentId);
     return {
       baseStability: clamp(number(route.baseStability, 50), 0, 100),
       stability: clamp(number(route.baseStability, 50) - penalty, 0, 100),
       baseSecurity: clamp(number(record.baseline, 50), 0, 100),
-      security: clamp(number(record.value, 50), 0, 100),
+      security: clamp(number(record.value, 50) + informationAdjustment, 0, 100),
+      informationSecurityAdjustment: informationAdjustment,
       segmentId
     };
+  }
+
+  function activeRouteSecurityAdjustment(state, segmentId) {
+    const today = currentDay();
+    const adjustments = array(state?.cards)
+      .filter(card => card.special === "ROUTE_SECURITY_RISK"
+        && text(card.target?.segmentId) === text(segmentId)
+        && informationAgeDays(card, today) < card.maximumAgeDays)
+      .map(card => number(
+        card.target?.securityAdjustment,
+        number(card.target?.security) <= 15
+          ? ROUTE_SECURITY_INFORMATION_ADJUSTMENTS.SEVERE
+          : ROUTE_SECURITY_INFORMATION_ADJUSTMENTS.HIGH
+      ));
+    if (!adjustments.length) return 0;
+    const strongestDecrease = Math.min(0, ...adjustments);
+    const strongestIncrease = Math.max(0, ...adjustments);
+    return Math.abs(strongestDecrease) >= Math.abs(strongestIncrease)
+      ? strongestDecrease
+      : strongestIncrease;
   }
 
   function routeSecurityContexts(routes, state) {
@@ -1435,6 +1503,7 @@
       return {
         segmentId: group.segmentId,
         name: group.name,
+        baseline: number(record?.baseline, average(group.routes.map(route => number(route.baseSecurity)))),
         security: number(record?.value, average(group.routes.map(route => number(route.baseSecurity))))
       };
     });
