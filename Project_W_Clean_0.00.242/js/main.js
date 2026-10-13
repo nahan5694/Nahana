@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.325";
+const GAME_VERSION = "0.00.327";
 const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -2362,8 +2362,33 @@ function dialoguePageCharacterAssetId(page) {
   const speaker = String(page?.speaker ?? "").trim();
   const normalizedSpeaker = speaker.toLowerCase();
   if (!speaker || normalizedSpeaker === "none" || isPlayerDialogueSpeaker(speaker)) return "";
-  const imageCategory = String(page?.imageCategory || "").trim();
-  return speaker.includes("나하나") || imageCategory === "컷신" ? "Asset_N_01" : "";
+  return dialoguePageSpeakerIsNahana(page) ? "Asset_N_01" : "";
+}
+
+function dialoguePageSpeakerIsNahana(page) {
+  return String(page?.speaker ?? "").trim().includes("나하나");
+}
+
+function dialoguePageSmallAssetId(page) {
+  const assetId = resolveDialogueAssetId(page);
+  if (assetId) return assetId;
+  const imageCategory = String(page?.imageCategory || "").trim().toLowerCase();
+  return imageCategory === "sd" ? "Asset_SD_01" : "";
+}
+
+function dialoguePageVisualEffect(page) {
+  const marker = String(page?.text || "").normalize("NFKC").replace(/\s+/g, "");
+  if (marker === "{{어두워졌다가밝아지기}}") return "fade-dark-light";
+  return "";
+}
+
+function hideDialogueForVisualEffect() {
+  dialogModal.hidden = true;
+  setDialogCharacter("");
+  activeDialogueAdvance = null;
+  dialogueAdvanceLocked = false;
+  if (dialogLogPanel) dialogLogPanel.hidden = true;
+  dialogCard?.classList.remove("is-log-open");
 }
 
 async function playDialoguePages(pages, onComplete = closeDialog, index = 0, options = {}) {
@@ -2372,7 +2397,8 @@ async function playDialoguePages(pages, onComplete = closeDialog, index = 0, opt
     : { ...options, dialogueLogEntries: [] };
   const page = pages[index];
   const isLast = index === pages.length - 1;
-  if (String(page?.text || "").trim() === "{{어두워졌다가 밝아지기}}") {
+  if (dialoguePageVisualEffect(page) === "fade-dark-light") {
+    hideDialogueForVisualEffect();
     await playSituationTransition("");
     if (isLast) onComplete?.();
     else await playDialoguePages(pages, onComplete, index + 1, pageOptions);
@@ -4768,7 +4794,7 @@ async function presentSystemMiniDialogue(dialogueId, tone, duration, variables, 
     const character = document.createElement("img");
     character.className = "partner-common-sense-character";
     character.alt = "";
-    const assetId = resolveDialogueAssetId(page) || (page.imageCategory === "SD" ? "Asset_SD_01" : "");
+    const assetId = dialoguePageSmallAssetId(page);
     const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
     character.hidden = !source;
     if (source) character.src = source;
@@ -4964,7 +4990,7 @@ function showPartnerCommonSensePopup(page) {
   renderFormattedText(partnerCommonSenseMessage, replaceDialogueVariables(page.text));
 
   const resolvedAssetId = resolveDialogueAssetId(page);
-  const assetId = resolvedAssetId || (page.imageCategory === "SD" ? "Asset_SD_01" : "");
+  const assetId = dialoguePageSmallAssetId(page);
   const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
   if (partnerCommonSenseCharacter) {
     partnerCommonSenseCharacter.hidden = !source;
@@ -5138,7 +5164,7 @@ function showMerchantCommentPopup(page, itemName, itemKey = "") {
     }
 
     const resolvedAssetId = resolveDialogueAssetId(page);
-    const assetId = resolvedAssetId || (page?.imageCategory === "SD" ? "Asset_SD_01" : "");
+    const assetId = dialoguePageSmallAssetId(page);
     const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
     if (merchantCommentCharacter) {
       merchantCommentCharacter.hidden = !source;
@@ -5290,7 +5316,7 @@ function showTavernCommentPopup(page, variables = {}) {
   tavernCommentSpeaker.textContent = replaceDialogueVariables(page?.speaker || "나하나", variables);
   renderFormattedText(tavernCommentMessage, replaceDialogueVariables(page?.text, variables));
   const resolvedAssetId = resolveDialogueAssetId(page);
-  const assetId = resolvedAssetId || (page?.imageCategory === "SD" ? "Asset_SD_01" : "");
+  const assetId = dialoguePageSmallAssetId(page);
   const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
   if (tavernCommentCharacter) {
     tavernCommentCharacter.hidden = !source;
@@ -5371,7 +5397,7 @@ async function presentRoadDialogue(dialogueId, durationMs) {
     roadCommentSpeaker.textContent = replaceDialogueVariables(page.speaker || "나하나");
     renderFormattedText(roadCommentMessage, replaceDialogueVariables(page.text));
     const resolvedAssetId = resolveDialogueAssetId(page);
-    const assetId = resolvedAssetId || (page.imageCategory === "SD" ? "Asset_SD_01" : "");
+    const assetId = dialoguePageSmallAssetId(page);
     const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
     if (roadCommentCharacter) {
       roadCommentCharacter.hidden = !source;

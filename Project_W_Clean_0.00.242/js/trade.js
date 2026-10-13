@@ -1710,11 +1710,29 @@
 
   function clearLists() {
     [elements.merchantItems, elements.playerItems, elements.playerOffer, elements.merchantOffer,
-      elements.playerCurrencies, elements.merchantCurrencies].forEach(element => element?.replaceChildren());
+      elements.playerCurrencies, elements.merchantCurrencies].forEach(element => {
+      if (!element) return;
+      element.replaceChildren();
+      element.scrollTop = 0;
+    });
+  }
+
+  function captureCatalogScrollPositions() {
+    return {
+      player: Math.max(0, Number(elements.playerItems?.scrollTop) || 0),
+      merchant: Math.max(0, Number(elements.merchantItems?.scrollTop) || 0)
+    };
+  }
+
+  function restoreCatalogScrollPositions(positions) {
+    if (!positions) return;
+    if (elements.playerItems) elements.playerItems.scrollTop = positions.player;
+    if (elements.merchantItems) elements.merchantItems.scrollTop = positions.merchant;
   }
 
   function render() {
     if (!current || elements.modal.hidden) return;
+    const catalogScrollPositions = captureCatalogScrollPositions();
     syncNahanaEventGiftLot();
     elements.title.textContent = current.facilityLabel;
     elements.location.textContent = `${current.settlement.name} · ${current.settlement.category}`;
@@ -1770,6 +1788,11 @@
     }
     renderCatalogs();
     renderOffers();
+    restoreCatalogScrollPositions(catalogScrollPositions);
+    window.requestAnimationFrame(() => {
+      if (!current || elements.modal.hidden) return;
+      restoreCatalogScrollPositions(catalogScrollPositions);
+    });
   }
 
   function syncNahanaEventGiftLot() {
