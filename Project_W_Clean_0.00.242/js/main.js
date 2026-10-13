@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.323";
+const GAME_VERSION = "0.00.325";
 const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -416,7 +416,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "상인 레벨",
     contexts: ["merchant-path"],
     pages: [
-      { title: "상인 경험치", text: "교역품을 산 값보다 비싸게 팔아 순이윤을 만들면 그 이윤만큼 상인 경험치를 얻습니다.\n거래 전체의 맞교환 가치가 아니라 개별 화물의 실제 매입과 매각 차이를 봅니다.", selector: ".merchant-path-articles" },
+      { title: "상인 경험치", text: "교역품을 산 값보다 비싸게 팔면 개별 화물의 실제 차익과 수량을 기준으로 상인 경험치를 얻습니다.\n수익률 20%에서 차익의 1배이며, 낮은 수익률은 최소 0.8배, 높은 수익률은 최대 2배까지 반영됩니다. 명산품은 여기에 1.33배가 적용됩니다.", selector: ".merchant-path-articles" },
       { title: "상인 레벨과 행상포인트", text: "상인 경험치가 차면 상인 레벨이 오르고 행상포인트를 얻습니다.\n사용할 행상포인트가 있으면 최상단 행상인의 길에 + 표시가 나타나며, 1조부터 3조의 능력에 사용할 수 있습니다." }
     ]
   },

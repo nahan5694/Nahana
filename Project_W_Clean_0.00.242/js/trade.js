@@ -2536,8 +2536,13 @@
     const saleUnitValue = Math.max(0, Math.floor(
       (Number(saleValue) || 0) * (1 + (Math.max(0, Number(bargainAdjustmentPercent) || 0) / 100))
     ));
-    const baseExperience = Math.max(0, saleUnitValue - purchaseUnitValue) * soldQuantity;
-    return baseExperience * (originProductKindFor(item, item.definition) === "famous" ? 1.33 : 1);
+    const unitProfit = saleUnitValue - purchaseUnitValue;
+    if (unitProfit <= 0) return 0;
+    const absoluteProfit = Math.abs(unitProfit);
+    const profitRate = (absoluteProfit / Math.max(1, purchaseUnitValue)) * 100;
+    const profitRateMultiplier = clamp(1 + ((profitRate - 20) / 100), 0.8, 2);
+    const famousProductMultiplier = originProductKindFor(item, item.definition) === "famous" ? 1.33 : 1;
+    return Math.floor(absoluteProfit * soldQuantity * profitRateMultiplier * famousProductMultiplier);
   }
 
   function tradeReviewFactors(valuation, direction, bargainAdjustmentPercent = 0) {

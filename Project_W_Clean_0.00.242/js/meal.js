@@ -1071,15 +1071,24 @@
   function positionMealTooltip(tooltip, anchor) {
     tooltip.hidden = false;
     const margin = 12;
-    tooltip.style.maxHeight = `${Math.max(160, window.innerHeight - (margin * 2))}px`;
+    const boundaryRect = elements.modal?.getBoundingClientRect?.() || {
+      top: 0,
+      left: 0,
+      width: window.innerWidth,
+      height: window.innerHeight
+    };
+    tooltip.style.maxHeight = `${Math.max(160, boundaryRect.height - (margin * 2))}px`;
     const anchorRect = anchor.getBoundingClientRect();
     const tooltipRect = tooltip.getBoundingClientRect();
-    let left = anchorRect.right + 10;
-    let top = anchorRect.top;
-    if (left + tooltipRect.width > window.innerWidth - margin) left = anchorRect.left - tooltipRect.width - 10;
-    if (top + tooltipRect.height > window.innerHeight - margin) top = window.innerHeight - tooltipRect.height - margin;
-    const maximumLeft = Math.max(margin, window.innerWidth - tooltipRect.width - margin);
-    const maximumTop = Math.max(margin, window.innerHeight - tooltipRect.height - margin);
+    const anchorLeft = anchorRect.left - boundaryRect.left;
+    const anchorRight = anchorRect.right - boundaryRect.left;
+    const anchorTop = anchorRect.top - boundaryRect.top;
+    let left = anchorRight + 10;
+    let top = anchorTop;
+    if (left + tooltipRect.width > boundaryRect.width - margin) left = anchorLeft - tooltipRect.width - 10;
+    if (top + tooltipRect.height > boundaryRect.height - margin) top = anchorTop - tooltipRect.height - 10;
+    const maximumLeft = Math.max(margin, boundaryRect.width - tooltipRect.width - margin);
+    const maximumTop = Math.max(margin, boundaryRect.height - tooltipRect.height - margin);
     tooltip.style.left = `${Math.min(maximumLeft, Math.max(margin, left))}px`;
     tooltip.style.top = `${Math.min(maximumTop, Math.max(margin, top))}px`;
   }

@@ -9961,7 +9961,7 @@ button.map-marker:active { cursor: grabbing; }
 .meal-appetite-peek span { color: #70665b; font-size: .5rem; font-weight: 850; }
 .meal-appetite-tooltip,
 .meal-menu-tooltip {
-  position: fixed;
+  position: absolute;
   z-index: 8;
   width: min(450px, calc(100vw - 24px));
   padding: 13px;
