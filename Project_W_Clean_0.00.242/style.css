@@ -11360,6 +11360,25 @@ button.inn-maintenance-option.is-selected { border-color: #76502c; background: l
 .system-mini-popup.is-bargain-failure { border-color: #8a604b; background: linear-gradient(145deg, #f1e1d5f8, #d4ad92f5); }
 .system-mini-popup .partner-common-sense-copy p,
 .system-mini-popup .partner-common-sense-copy header strong { color: inherit; }
+.system-mini-dismiss-all {
+  position: fixed;
+  z-index: 135;
+  min-width: 72px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid #6d4a28;
+  border-radius: 4px;
+  background: linear-gradient(#f3dfb8, #c99b5b);
+  color: #50321c;
+  font: inherit;
+  font-size: .62rem;
+  font-weight: 950;
+  box-shadow: inset 0 1px #fff4d2a8, 0 6px 14px #26170b52;
+  transition: top .42s ease, left .2s ease, filter .16s ease;
+}
+.system-mini-dismiss-all[hidden] { display: none; }
+.system-mini-dismiss-all:hover,
+.system-mini-dismiss-all:focus-visible { filter: brightness(1.08); }
 
 button.is-limit-exhausted:disabled {
   border-color: #736e67 !important;

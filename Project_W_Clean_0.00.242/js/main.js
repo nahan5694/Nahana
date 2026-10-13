@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.321";
+const GAME_VERSION = "0.00.323";
 const ACCOUNT_SCHEMA_VERSION = 51;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -55,7 +55,7 @@ const INITIAL_CLEAR_WEATHER_NAMES = [
 ];
 const HORSE_FEED_IDS = ["G_0267", "G_0268"];
 const COMMON_SENSE_LIMIT_DIALOGUES = new Set(["DL_S_001", "DL_S_002", "DL_S_003"]);
-const SMALL_DIALOG_DURATION_MS = 10_000;
+const SMALL_DIALOG_DURATION_MS = 4_000;
 const TAVERN_DIALOG_DURATION_MS = 15_000;
 const ROAD_HUNGER_DIALOG_DURATION_MS = 8_000;
 const ROAD_WAGON_DIALOG_DURATION_MS = 12_000;
@@ -1083,7 +1083,9 @@ let roadCommentHideTimer;
 let roadCommentAvailableAt = 0;
 let pendingRoadDialogueCount = 0;
 let pendingSystemMiniDialogueCount = 0;
-let systemMiniDialogueQueue = Promise.resolve();
+let systemMiniAutoDismissTimer = 0;
+let systemMiniDismissAllButton = null;
+const activeSystemMiniPopups = [];
 const tavernVisitCache = new Map();
 let tutorialRuntime = null;
 let tutorialFocusTarget = null;
@@ -4705,12 +4707,10 @@ function showSystemMiniDialogue(dialogueId, tone = "notice", duration = SMALL_DI
   const queuedTone = ["talk-card", "status-buff", "status-debuff"].includes(tone);
   if (!queuedTone) return presentSystemMiniDialogue(dialogueId, tone, duration, variables, false);
   pendingSystemMiniDialogueCount += 1;
-  const queued = systemMiniDialogueQueue
-    .then(() => waitForSystemMiniDialogueSlot())
+  const queued = waitForSystemMiniDialogueSlot()
     .then(available => available
       ? presentSystemMiniDialogue(dialogueId, tone, duration, variables, true)
-      : false);
-  systemMiniDialogueQueue = queued
+      : false)
     .catch(error => {
       console.error(`미니 대화 ${dialogueId} 대기열을 처리하지 못했습니다.`, error);
       return false;
@@ -4796,10 +4796,15 @@ async function presentSystemMiniDialogue(dialogueId, tone, duration, variables, 
     let resolveDismissal = () => {};
     const dismissal = new Promise(resolve => { resolveDismissal = resolve; });
     let removalStarted = false;
-    const remove = () => {
+    let systemRecord = null;
+    const remove = ({ reschedule = true } = {}) => {
       window.clearTimeout(timer);
       if (removalStarted) return;
       removalStarted = true;
+      if (systemRecord) {
+        removeActiveSystemMiniPopup(systemRecord);
+        if (reschedule) scheduleSystemMiniAutoDismiss(1000);
+      }
       if (!popup.isConnected) {
         resolveDismissal(true);
         return;
@@ -4812,17 +4817,94 @@ async function presentSystemMiniDialogue(dialogueId, tone, duration, variables, 
         resolveDismissal(true);
       }, 380);
     };
-    close.addEventListener("click", remove);
+    close.addEventListener("click", () => remove());
     requestAnimationFrame(() => {
       popup.classList.add("is-visible");
       scheduleSmallPopupLayout();
     });
-    timer = window.setTimeout(remove, Math.max(1000, Number(duration) || SMALL_DIALOG_DURATION_MS));
+    if (awaitDismissal) {
+      systemRecord = {
+        popup,
+        remove,
+        readyAt: Date.now() + Math.max(1000, Number(duration) || SMALL_DIALOG_DURATION_MS),
+        removalStarted: false
+      };
+      activeSystemMiniPopups.push(systemRecord);
+      scheduleSystemMiniAutoDismiss();
+      updateSystemMiniDismissAllButton();
+    } else {
+      timer = window.setTimeout(() => remove(), Math.max(1000, Number(duration) || SMALL_DIALOG_DURATION_MS));
+    }
     return awaitDismissal ? dismissal : true;
   } catch (error) {
     console.error(`미니 대화 ${dialogueId}를 표시하지 못했습니다.`, error);
     return false;
   }
+}
+
+function activeSystemMiniPopupRecords() {
+  return activeSystemMiniPopups
+    .filter(record => record?.popup?.isConnected && !record.removalStarted)
+    .sort((left, right) => Number(left.popup.dataset.smallPopupSequence) - Number(right.popup.dataset.smallPopupSequence));
+}
+
+function removeActiveSystemMiniPopup(record) {
+  if (!record || record.removalStarted) return;
+  record.removalStarted = true;
+  const index = activeSystemMiniPopups.indexOf(record);
+  if (index >= 0) activeSystemMiniPopups.splice(index, 1);
+  updateSystemMiniDismissAllButton();
+}
+
+function scheduleSystemMiniAutoDismiss(minimumDelay = 0) {
+  window.clearTimeout(systemMiniAutoDismissTimer);
+  systemMiniAutoDismissTimer = 0;
+  const [top] = activeSystemMiniPopupRecords();
+  if (!top) {
+    updateSystemMiniDismissAllButton();
+    return;
+  }
+  const delay = Math.max(0, Number(minimumDelay) || 0, top.readyAt - Date.now());
+  systemMiniAutoDismissTimer = window.setTimeout(() => {
+    systemMiniAutoDismissTimer = 0;
+    top.remove();
+  }, delay);
+}
+
+function dismissAllSystemMiniPopups() {
+  window.clearTimeout(systemMiniAutoDismissTimer);
+  systemMiniAutoDismissTimer = 0;
+  const records = activeSystemMiniPopupRecords();
+  records.forEach(record => record.remove({ reschedule: false }));
+  updateSystemMiniDismissAllButton();
+}
+
+function ensureSystemMiniDismissAllButton() {
+  if (systemMiniDismissAllButton?.isConnected) return systemMiniDismissAllButton;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "system-mini-dismiss-all";
+  button.textContent = "일괄닫기";
+  button.setAttribute("aria-label", "나하나의 작은 메시지 모두 닫기");
+  button.hidden = true;
+  button.addEventListener("click", dismissAllSystemMiniPopups);
+  document.body.append(button);
+  systemMiniDismissAllButton = button;
+  return button;
+}
+
+function updateSystemMiniDismissAllButton() {
+  const button = ensureSystemMiniDismissAllButton();
+  const [top] = activeSystemMiniPopupRecords();
+  if (!top) {
+    button.hidden = true;
+    return;
+  }
+  button.hidden = false;
+  const popupRect = top.popup.getBoundingClientRect();
+  const buttonWidth = button.offsetWidth;
+  button.style.top = `${Math.max(10, popupRect.top + 4)}px`;
+  button.style.left = `${Math.max(10, popupRect.left - buttonWidth - 12)}px`;
 }
 
 async function showPartnerStatusAcquiredDialogue(effectId) {
@@ -4867,6 +4949,7 @@ function scheduleSmallPopupLayout() {
         offset += popup.offsetHeight + 12;
       });
     });
+    updateSystemMiniDismissAllButton();
   });
 }
 
@@ -5254,7 +5337,6 @@ function showRoadDialogue(dialogueId, durationMs) {
 function roadDialoguePresentationBlocked() {
   if (!account || gameScreen.hidden || gameEntryInProgress) return true;
   return Boolean(activeTalkCardId || tutorialRuntime || advancedTutorialRuntime
-    || pendingSystemMiniDialogueCount > 0
     || travelPauseReasons.has("talk-card") || travelPauseReasons.has("tutorial")
     || travelPauseReasons.has("advanced-tutorial") || travelPauseReasons.has("dialog")
     || travelPauseReasons.has("road-comment") || travelPauseReasons.has("route-event-check")
@@ -5283,7 +5365,6 @@ async function presentRoadDialogue(dialogueId, durationMs) {
     const page = dialogue.pages?.[0];
     if (!page) return false;
     hideRoadCommentPopup(true);
-    pauseTravelClock("road-comment");
     roadCommentPopup.hidden = false;
     roadCommentPopup.classList.remove("is-visible", "is-leaving");
     registerSmallPopup(roadCommentPopup);
@@ -5305,7 +5386,6 @@ async function presentRoadDialogue(dialogueId, durationMs) {
     return true;
   } catch (error) {
     console.error(error);
-    resumeTravelClock("road-comment");
     return false;
   } finally {
     pendingRoadDialogueCount = Math.max(0, pendingRoadDialogueCount - 1);
@@ -5316,15 +5396,11 @@ async function presentRoadDialogue(dialogueId, durationMs) {
 function hideRoadCommentPopup(immediate = false) {
   window.clearTimeout(roadCommentTimer);
   window.clearTimeout(roadCommentHideTimer);
-  if (!roadCommentPopup || roadCommentPopup.hidden) {
-    resumeTravelClock("road-comment");
-    return;
-  }
+  if (!roadCommentPopup || roadCommentPopup.hidden) return;
   const finish = () => {
     roadCommentPopup.hidden = true;
     roadCommentPopup.classList.remove("is-visible", "is-leaving");
     unregisterSmallPopup(roadCommentPopup);
-    resumeTravelClock("road-comment");
     schedulePendingNarrativePresentation();
   };
   if (immediate) return finish();
@@ -8833,7 +8909,6 @@ function hasPendingRoadArrivalPresentation() {
   const nonRoutePause = [...travelPauseReasons]
     .some(reason => reason !== "route-event" && reason !== "route-event-check");
   return pendingRoadDialogueCount > 0
-    || pendingSystemMiniDialogueCount > 0
     || Boolean(pendingNahanaEventOpeningId || nahanaEventOpeningId)
     || Boolean(activeNahanaSituationEventId
       || normalizeNahanaSituationEventState(account.nahanaSituationEvents).pendingIds.length)

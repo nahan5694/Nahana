@@ -4,6 +4,7 @@
   const TASTE_KEYS = ["sweet", "salty", "stimulus", "weight"];
   const SETTLEMENT_RANK = { 마을: 1, 관문: 1, 도시: 2, 대도시: 3 };
   const INN_FOOD_IDS = new Set(["Food_036", "Food_037", "Food_038"]);
+  const INN_ZERO_FULLNESS_FOOD_IDS = new Set(["Food_113"]);
   const INN_SPECIAL_FOOD_IDS_BY_PLACE = new Map([
     ["로벵", new Set(["Food_091"])],
     ["린덴탈", new Set([
@@ -361,8 +362,12 @@
   }
 
   function contextualFood(food, targetSettlement = settlement, targetVendor = vendor) {
-    if (!food || !isInnSpecialFood(food, targetSettlement, targetVendor)) return food;
-    return { ...food, fullness: 0, mood: 0, innSpecial: true };
+    if (!food || targetVendor !== "여관") return food;
+    if (isInnSpecialFood(food, targetSettlement, targetVendor)) {
+      return { ...food, fullness: 0, mood: 0, innSpecial: true };
+    }
+    if (INN_ZERO_FULLNESS_FOOD_IDS.has(food.id)) return { ...food, fullness: 0 };
+    return food;
   }
 
   function availableFoods() {
