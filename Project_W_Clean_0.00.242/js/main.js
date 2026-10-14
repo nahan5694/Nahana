@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.345";
+const GAME_VERSION = "0.00.346";
 const ACCOUNT_SCHEMA_VERSION = 54;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -1116,6 +1116,7 @@ const footprintNoticeQueue = [];
 let evaluatingPartnerFootprints = false;
 let travelStepTimer;
 let travelCountdownTimer;
+let settlementMainViewVerificationTimer = 0;
 let sailingArrivalInProgress = false;
 let sailingArrivalWaitTimer = 0;
 let customCursorMode = "";
@@ -1988,6 +1989,7 @@ window.addEventListener("projectw:facilitychange", event => {
   updatePartnerUi();
   refreshAdvancedTutorialLaunchers();
   scheduleInterfacePersistence();
+  if (!detail.open) scheduleSettlementMainViewInformationVerification();
 });
 window.addEventListener("projectw:mealopen", () => {
   handleTutorialMealOpen();
@@ -10461,6 +10463,7 @@ function applySettlementSceneContext(travel) {
   setSceneBackground(mapBackground, assetId, `${name} 거점의 지도뷰 배경`);
   roadScene.setAttribute("aria-label", `${name} 거점뷰`);
   renderSettlementFacilities(placement, name);
+  scheduleSettlementMainViewInformationVerification();
 }
 
 function renderSettlementFacilities(placement, fallbackName = "거점") {
@@ -10877,6 +10880,24 @@ function currentSettlementPlacement() {
   const travel = ensureTravelState();
   if (!travel || travel.mode !== "settlement") return null;
   return window.ProjectWMapView.getPlacement(travel.settlementId || travel.positionId);
+}
+
+function isSettlementMainViewVisible() {
+  if (gameScreen.hidden || currentScene !== "road" || account?.travel?.mode !== "settlement") return false;
+  if (window.ProjectWInn?.isSceneVisit?.()) return false;
+  return [tradeModal, mealModal, innModal, serviceModal, portModal, entryTaxModal]
+    .every(modal => !modal || modal.hidden);
+}
+
+function scheduleSettlementMainViewInformationVerification() {
+  window.clearTimeout(settlementMainViewVerificationTimer);
+  settlementMainViewVerificationTimer = window.setTimeout(() => {
+    settlementMainViewVerificationTimer = 0;
+    if (!isSettlementMainViewVisible()) return;
+    const placement = currentSettlementPlacement();
+    if (!placement?.id) return;
+    window.ProjectWInformation.verifyAtSettlement?.(placement.id);
+  }, 0);
 }
 
 function currentMerchantPathSettlementName() {
@@ -13152,7 +13173,6 @@ function completeSettlementEntry(placement, context = {}) {
     settlementId: placement.id,
     token: `${placement.id}:${normalizeWorldTime(account.worldTime).day}:${Date.now()}`
   };
-  window.ProjectWInformation.verifyAtSettlement?.(placement.id);
   activeTavernVisit = null;
   recordCompanionSettlementEntry(placement.id);
   const portSettlement = ["도시", "대도시"].includes(String(placement.category || ""))
@@ -15885,6 +15905,7 @@ function showScene(next, direction, animate) {
   }
   handleTutorialSceneChanged(next);
   if (next === "partner") window.setTimeout(maybeStartEarlyPartnerTutorial, 0);
+  if (next === "road") scheduleSettlementMainViewInformationVerification();
   updatePartnerEventUi();
   refreshAdvancedTutorialLaunchers();
   scheduleInterfacePersistence();
