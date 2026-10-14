@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.348";
+const GAME_VERSION = "0.00.350";
 const ACCOUNT_SCHEMA_VERSION = 54;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -424,7 +424,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
       { title: "화물칸", text: "화물뷰에서는 보유한 물건의 칸, 무게, 열화 상태와 구매 기록을 확인합니다.\n정렬 버튼으로 등급, 가치, 카테고리 순서를 바꿀 수 있습니다.", selector: ".cargo-ui" },
       { title: "화물 상세 정보", text: "물건에 커서를 올리면 현재 공개된 상품 정보와 사용 효과를 확인합니다.\n길게 누르면 행상인의 길에 있는 해당 상품 메모로 바로 이동합니다.", selector: "#cargo-grid" },
       { title: "짐마차와 적재 중량", text: "상단에는 적재 중량과 짐마차 내구도, 상태이상이 표시됩니다.\n한도를 넘긴 무게는 이동을 느리게 하고 내구도 소모와 차축·수레바퀴 고장 위험을 높입니다.", selector: ".cargo-topbar" },
-      { title: "화물 이동과 폐기", text: "화물을 끌어 보호·비밀·일반 화물칸 사이로 옮기거나 폐기할 수 있습니다.\n거래로 들어온 고가 화물은 비밀·보호 화물칸 순으로 자동 적재됩니다. 물건 하나가 남은 특수칸보다 크면 남은 칸은 임시 일반 화물칸으로 전환됩니다.\n보호 화물은 늑대·불한당·용병·울펜의 피해와 요구에서 제외되며, 비밀 화물은 여기에 더해 입장관세 가치에서도 제외됩니다." }
+      { title: "화물 이동과 폐기", text: "화물을 끌어 보호·비밀·일반 화물칸 사이로 옮기거나 폐기할 수 있습니다. 여행 물품·야영 물품·여행 식량은 일반 화물칸에만 적재됩니다.\n거래로 들어온 고가 교역품은 비밀·보호 화물칸 순으로 자동 적재됩니다. 물건 하나가 남은 특수칸보다 크면 남은 칸은 임시 일반 화물칸으로 전환됩니다.\n보호 화물은 늑대·불한당·용병·울펜의 피해와 요구에서 제외되며, 비밀 화물은 여기에 더해 입장관세 가치에서도 제외됩니다." }
     ]
   },
   {
@@ -5128,9 +5128,16 @@ function updateSystemMiniDismissAllButton() {
   }
   button.hidden = false;
   const popupRect = top.popup.getBoundingClientRect();
-  const buttonWidth = button.offsetWidth;
-  button.style.top = `${Math.max(10, popupRect.top + 4)}px`;
-  button.style.left = `${Math.max(10, popupRect.left - buttonWidth - 12)}px`;
+  const viewportMargin = 10;
+  const buttonWidth = Math.min(popupRect.width, window.innerWidth - (viewportMargin * 2));
+  button.style.width = `${buttonWidth}px`;
+  const buttonHeight = button.offsetHeight;
+  const left = Math.min(
+    Math.max(viewportMargin, popupRect.left),
+    window.innerWidth - buttonWidth - viewportMargin
+  );
+  button.style.top = `${Math.max(viewportMargin, popupRect.top - buttonHeight - 10)}px`;
+  button.style.left = `${left}px`;
 }
 
 async function showPartnerStatusAcquiredDialogue(effectId) {

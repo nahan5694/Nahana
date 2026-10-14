@@ -42,6 +42,7 @@
     ["여행 물품", 1],
     ["여행 식량", 2]
   ]);
+  const NORMAL_ONLY_CARGO_CATEGORIES = new Set(["야영물품", "여행물품", "여행식량"]);
   const TRADE_CATEGORY_ORDER = new Map([
     "식료품", "조미료", "향신료", "향료", "주류", "의약품", "가축", "부산물",
     "섬유", "직물", "염료", "광석", "공업품", "공예품", "병구류", "잡화", "귀중품"
@@ -474,6 +475,10 @@
     return Math.max(1, Number(definition?.maxStack) || 1) > 1;
   }
 
+  function isNormalOnlyCargoDefinition(definition) {
+    return NORMAL_ONLY_CARGO_CATEGORIES.has(String(definition?.category || "").replace(/\s+/g, ""));
+  }
+
   function weightedStackValue(currentValue, currentQuantity, incomingValue, incomingQuantity) {
     const total = currentQuantity + incomingQuantity;
     if (total <= 0) return Number(currentValue) || Number(incomingValue) || 0;
@@ -611,6 +616,7 @@
       if (Number(definition.durability) >= INDESTRUCTIBLE_DURABILITY) item.durability = definition.durability;
       else if (!Number.isFinite(Number(item.durability))) item.durability = definition.durability;
       normalizeTradeMetadata(item, definition);
+      if (isNormalOnlyCargoDefinition(definition)) item.slotType = "normal";
       if (!(Number(item.purchaseValue) > 0)) item.purchaseValue = definition.baseValue;
       if (Number(definition.durability) > 0
         && Number(definition.durability) < INDESTRUCTIBLE_DURABILITY
@@ -1078,6 +1084,9 @@
       return;
     }
     draggedInstanceId = slot.dataset.itemInstance;
+    const draggedItem = state.items.find(item => item.instanceId === draggedInstanceId);
+    const draggedDefinition = itemDefinitions.get(draggedItem?.itemId) || sampleDefinition;
+    const normalOnly = isNormalOnlyCargoDefinition(draggedDefinition);
     hideTooltip();
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", draggedInstanceId);
@@ -1087,7 +1096,9 @@
     if (elements.discardZone) elements.discardZone.hidden = false;
     elements.compartmentButtons.forEach(button => {
       const type = button.dataset.cargoCompartment;
-      button.classList.toggle("is-drag-target", !button.hidden && type !== activeCompartment);
+      const blocked = normalOnly && type !== "normal";
+      button.disabled = blocked;
+      button.classList.toggle("is-drag-target", !button.hidden && type !== activeCompartment && !blocked);
     });
   }
 
@@ -1151,7 +1162,10 @@
       elements.discardZone.classList.remove("is-drag-over");
       elements.discardZone.hidden = true;
     }
-    elements?.compartmentButtons?.forEach(button => button.classList.remove("is-drag-target", "is-drag-over"));
+    elements?.compartmentButtons?.forEach(button => {
+      button.classList.remove("is-drag-target", "is-drag-over");
+      button.disabled = false;
+    });
   }
 
   function moveItemToCompartment(instanceId, targetType) {
@@ -1159,6 +1173,10 @@
     const destination = String(targetType || "normal");
     if (!item || item.slotType === destination || !isCompartmentAvailable(destination)) return false;
     const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
+    if (destination !== "normal" && isNormalOnlyCargoDefinition(definition)) {
+      notify(`${definition.category}은 일반 화물칸에만 적재할 수 있습니다.`);
+      return false;
+    }
     const draft = state.items.map(entry => ({ ...entry }));
     const draftItem = draft.find(entry => entry.instanceId === instanceId);
     draftItem.slotType = destination;
@@ -2035,7 +2053,11 @@
 
   function reflowItemPlacements() {
     state.items
-      .forEach(item => { item.slotType = item.slotType in SLOT_TYPE_LABELS ? item.slotType : "normal"; });
+      .forEach(item => {
+        const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
+        item.slotType = item.slotType in SLOT_TYPE_LABELS ? item.slotType : "normal";
+        if (isNormalOnlyCargoDefinition(definition)) item.slotType = "normal";
+      });
     Object.keys(SLOT_TYPE_LABELS).forEach(slotType => {
       let nextSlot = 0;
       state.items.filter(item => item.slotType === slotType)
@@ -2054,6 +2076,7 @@
     const limits = normalizedCapacityLimits();
     const candidates = state.items
       .filter(item => (item.slotType || "normal") === "normal")
+      .filter(item => !isNormalOnlyCargoDefinition(itemDefinitions.get(item.itemId) || sampleDefinition))
       .sort((left, right) => cargoStoredValue(right) - cargoStoredValue(left)
         || String(left.instanceId).localeCompare(String(right.instanceId)));
     for (const item of candidates) {
@@ -2096,7 +2119,8 @@
     const maxStack = Math.max(1, definition.maxStack || 1);
     const tradeMetadata = createDefaultTradeMetadata(metadata, definition);
     const incomingJourneyLots = normalizeJourneyLots(metadata.journeyLots, requested);
-    const targetSlotType = isCompartmentAvailable(metadata.slotType) ? metadata.slotType : "normal";
+    const requestedSlotType = isCompartmentAvailable(metadata.slotType) ? metadata.slotType : "normal";
+    const targetSlotType = isNormalOnlyCargoDefinition(definition) ? "normal" : requestedSlotType;
     if (!(tradeMetadata.purchaseValue > 0)) tradeMetadata.purchaseValue = definition.baseValue;
 
     if (isUnifiedStackDefinition(definition)) {
@@ -2179,6 +2203,7 @@
   }
 
   function preferredTradeCompartment(items, addition, definition) {
+    if (isNormalOnlyCargoDefinition(definition)) return "normal";
     const slots = Math.max(1, Number(definition?.slotCount) || 1);
     const unified = isUnifiedStackDefinition(definition);
     for (const type of ["secret", "protected"]) {
