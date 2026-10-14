@@ -8,6 +8,8 @@
   const CONTRACT_START_DATE = { year: 1433, month: 4, day: 8 };
   const MAX_COMPLETED_JOURNEYS = 6;
   const TRADE_REVIEW_HISTORY_DAYS = 10;
+  const TRADE_LOG_EXPORT_LIMITS = new Map([[1, 500], [3, 700], [7, 1000]]);
+  const TRADE_LOG_SPECIAL_WEATHERS = new Set(["비", "폭우", "눈", "폭설"]);
   const REVIEW_EXPENSE_TYPES = new Set(["tax", "food", "ferry"]);
   const OUTLET_STATES = ["observed", "production", "excluded"];
   const LEVEL_THRESHOLDS = [0, 10, 20, 40, 80, 160, 320, 640];
@@ -79,6 +81,9 @@
   let getAssetUrl = () => "";
   let getWorldTime = () => ({ day: 1, phaseIndex: 0 });
   let getGuildContribution = () => ({ xp: 0, levelXp: 0, level: 1, nextThreshold: 500, progress: 0, maxInformationAttempts: 1 });
+  let getCompanionProfile = () => ({ rank: 1, mood: 50, moodLabel: "통상" });
+  let getCurrentSeason = () => "봄";
+  let getCurrentSettlementName = () => "확인되지 않은 거점";
   let notify = () => {};
   let selectedArticle = 5;
   let selectedArticleFourSection = 1;
@@ -87,6 +92,7 @@
   let showingTradeLog = false;
   let selectedTradeLogId = "";
   let selectedTradeLogEntryIndex = 0;
+  let tradeLogExportExpanded = false;
   let definitions = [];
   let peddlerDefinitions = [];
   let peddlerLoadPromise = null;
@@ -96,6 +102,9 @@
     getAssetUrl = typeof options.getAssetUrl === "function" ? options.getAssetUrl : getAssetUrl;
     getWorldTime = typeof options.getWorldTime === "function" ? options.getWorldTime : getWorldTime;
     getGuildContribution = typeof options.getGuildContribution === "function" ? options.getGuildContribution : getGuildContribution;
+    getCompanionProfile = typeof options.getCompanionProfile === "function" ? options.getCompanionProfile : getCompanionProfile;
+    getCurrentSeason = typeof options.getCurrentSeason === "function" ? options.getCurrentSeason : getCurrentSeason;
+    getCurrentSettlementName = typeof options.getCurrentSettlementName === "function" ? options.getCurrentSettlementName : getCurrentSettlementName;
     notify = typeof options.notify === "function" ? options.notify : notify;
     elements = {
       modal: document.querySelector("#merchant-path-modal"),
@@ -153,6 +162,17 @@
       if (logEntryButton) {
         selectedTradeLogEntryIndex = Math.max(0, Math.trunc(Number(logEntryButton.dataset.tradeLogEntryIndex) || 0));
         renderTradeLog();
+        return;
+      }
+      const exportToggle = event.target.closest("[data-trade-log-export-toggle]");
+      if (exportToggle) {
+        tradeLogExportExpanded = !tradeLogExportExpanded;
+        renderTradeLog();
+        return;
+      }
+      const exportButton = event.target.closest("[data-trade-log-export-days]");
+      if (exportButton) {
+        openTradeLogExport(clampInt(exportButton.dataset.tradeLogExportDays, 1, 7));
         return;
       }
       const button = event.target.closest("[data-merchant-path-article-four-section]");
@@ -253,6 +273,7 @@
     showingTradeLog = false;
     selectedTradeLogId = "";
     selectedTradeLogEntryIndex = 0;
+    tradeLogExportExpanded = false;
     close();
   }
 
@@ -271,7 +292,7 @@
     if (showingTradeLog) {
       elements.articleNumber.textContent = "기록";
       elements.articleTitle.textContent = "상행록";
-      elements.articleDescription.textContent = "최근 10일 동안 마친 상행 복기를 날짜별로 다시 확인합니다.";
+      elements.articleDescription.textContent = "최근 10일의 복기를 확인하고 외부 역할극용 상행 핵심 내용을 추출합니다.";
       elements.info.hidden = true;
       elements.categoryTabs.hidden = true;
       hideKnowledgeGuide();
@@ -453,20 +474,25 @@
   }
 
   function renderTradeLog() {
+    recordDailySnapshot({}, false);
     const history = getTradeReviewHistory();
     elements.categoryTabs.hidden = true;
+    const wrapper = document.createElement("div");
+    wrapper.className = "merchant-path-trade-log";
+    wrapper.append(createTradeLogExportControls());
     if (!history.length) {
       selectedTradeLogId = "";
       selectedTradeLogEntryIndex = 0;
-      elements.content.replaceChildren(createEmpty("최근 10일 동안 완료한 상행 복기가 없습니다."));
+      const empty = createEmpty("최근 10일 동안 완료한 상행 복기가 없습니다. 오늘의 여정 기록은 상행록 추출에 포함됩니다.");
+      empty.classList.add("merchant-path-trade-log-empty");
+      wrapper.append(empty);
+      elements.content.replaceChildren(wrapper);
       return;
     }
     if (!history.some(record => record.id === selectedTradeLogId)) selectedTradeLogId = history[0].id;
     const active = history.find(record => record.id === selectedTradeLogId) || history[0];
     selectedTradeLogEntryIndex = Math.min(Math.max(0, selectedTradeLogEntryIndex), Math.max(0, active.entries.length - 1));
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "merchant-path-trade-log";
     const dateRail = document.createElement("nav");
     dateRail.className = "merchant-path-trade-log-dates";
     dateRail.setAttribute("aria-label", "상행 복기 날짜");
@@ -504,6 +530,315 @@
     screen.append(screenHeader, reviewLayout);
     wrapper.append(dateRail, screen);
     elements.content.replaceChildren(wrapper);
+  }
+
+  function createTradeLogExportControls() {
+    const toolbar = document.createElement("section");
+    toolbar.className = "merchant-path-trade-log-export";
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    const description = document.createElement("span");
+    title.textContent = "외부 RP용 상행록";
+    description.textContent = "여정과 교역, 식사, 나하나의 상태를 줄글로 정리합니다.";
+    copy.append(title, description);
+    const actions = document.createElement("div");
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.dataset.tradeLogExportToggle = "true";
+    toggle.className = "merchant-path-trade-log-export-toggle";
+    toggle.setAttribute("aria-expanded", String(tradeLogExportExpanded));
+    toggle.textContent = "상행록 추출";
+    actions.append(toggle);
+    if (tradeLogExportExpanded) {
+      [1, 3, 7].forEach(days => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.tradeLogExportDays = String(days);
+        button.textContent = `${days}일 추출`;
+        actions.append(button);
+      });
+    }
+    toolbar.append(copy, actions);
+    return toolbar;
+  }
+
+  function openTradeLogExport(lookbackDays) {
+    const days = TRADE_LOG_EXPORT_LIMITS.has(lookbackDays) ? lookbackDays : 1;
+    recordDailySnapshot();
+    const maximum = TRADE_LOG_EXPORT_LIMITS.get(days);
+    const summary = composeTradeLogExport(days, maximum);
+    const existing = elements.modal.querySelector(".merchant-path-trade-export-layer");
+    existing?.remove();
+
+    const layer = document.createElement("div");
+    layer.className = "merchant-path-trade-export-layer";
+    const dialog = document.createElement("section");
+    dialog.className = "merchant-path-trade-export-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", `${days}일 상행록 추출`);
+    const header = document.createElement("header");
+    const headingCopy = document.createElement("div");
+    const eyebrow = document.createElement("span");
+    const title = document.createElement("strong");
+    const closeButton = document.createElement("button");
+    eyebrow.textContent = `오늘부터 ${days}일 전까지 · 최대 ${maximum}자`;
+    title.textContent = `${days}일 상행록 추출`;
+    closeButton.type = "button";
+    closeButton.textContent = "닫기";
+    headingCopy.append(eyebrow, title);
+    header.append(headingCopy, closeButton);
+    const help = document.createElement("p");
+    help.textContent = "아래 문장을 복사해 외부 나하나 봇과의 역할극에 사용할 수 있습니다.";
+    const output = document.createElement("textarea");
+    output.readOnly = true;
+    output.value = summary;
+    output.setAttribute("aria-label", "추출된 상행록");
+    const footer = document.createElement("footer");
+    const count = document.createElement("span");
+    const copyButton = document.createElement("button");
+    count.textContent = `${summary.length} / ${maximum}자`;
+    copyButton.type = "button";
+    copyButton.className = "is-copy";
+    copyButton.textContent = "내용 복사";
+    footer.append(count, copyButton);
+    dialog.append(header, help, output, footer);
+    layer.append(dialog);
+    elements.modal.append(layer);
+
+    const closeLayer = () => layer.remove();
+    closeButton.addEventListener("click", closeLayer);
+    layer.addEventListener("pointerdown", event => {
+      if (event.target === layer) closeLayer();
+    });
+    layer.addEventListener("keydown", event => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeLayer();
+    });
+    copyButton.addEventListener("click", async () => {
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(summary);
+        copied = true;
+      } catch {
+        output.focus();
+        output.select();
+        copied = Boolean(document.execCommand?.("copy"));
+        output.setSelectionRange(0, 0);
+      }
+      notify(copied ? "상행록 내용을 복사했습니다." : "복사하지 못했습니다. 내용을 직접 선택해 복사해 주세요.");
+    });
+    output.focus();
+    output.setSelectionRange(0, 0);
+  }
+
+  function composeTradeLogExport(lookbackDays, maximumLength) {
+    const currentDay = Math.max(1, Math.trunc(Number(getWorldTime()?.day) || 1));
+    const minimumDay = Math.max(1, currentDay - lookbackDays);
+    const journal = normalizeJourneyJournal(state.journeyJournal)
+      .filter(record => record.day >= minimumDay && record.day <= currentDay)
+      .sort((left, right) => left.day - right.day);
+    const currentCompanion = companionSnapshot();
+    const rank = Math.max(1, Math.trunc(Number(currentCompanion.rank) || 1));
+    const finalMood = exportMoodLabel(currentCompanion.mood, currentCompanion.moodLabel);
+    const moods = collapseAdjacentText(journal.flatMap(record => record.moodHistory?.length ? record.moodHistory : [record.moodLabel])
+      .map(label => exportMoodLabel(undefined, label)));
+    if (moods.at(-1) !== finalMood) moods.push(finalMood);
+
+    const archived = normalizeTradeReviewHistory(state.reviewHistory);
+    const trades = [...archived.flatMap(record => record.entries
+      .filter(entry => entry.kind !== "expense" && Number(entry.saleDay) >= minimumDay && Number(entry.saleDay) <= currentDay)),
+      ...getPendingTradeReviews().filter(entry => entry.kind !== "expense" && entry.saleDay >= minimumDay && entry.saleDay <= currentDay)]
+      .filter((entry, index, list) => list.findIndex(candidate => String(candidate.id) === String(entry.id)) === index);
+    const expenses = [
+      ...archived.flatMap(record => record.entries
+        .filter(entry => entry.kind === "expense")
+        .flatMap(entry => Array.isArray(entry.details) ? entry.details : [])),
+      ...normalizeReviewExpenses(state.reviewExpenses)
+    ].filter((entry, index, list) => entry.contractDay >= minimumDay && entry.contractDay <= currentDay
+      && list.findIndex(candidate => String(candidate.id) === String(entry.id)) === index);
+
+    const movements = journal.flatMap(record => record.movements.map(movement => ({ ...movement, day: record.day })));
+    expenses.filter(entry => entry.type === "ferry").forEach(entry => {
+      const match = String(entry.description || "").match(/^(.+?)\s*→\s*(.+?)(?:\s*·|$)/);
+      if (!match) return;
+      movements.push({ method: "정기선", fromName: match[1].trim(), toName: match[2].trim(), fromSettlement: true, toSettlement: true, routeName: "" });
+    });
+    const seasons = uniqueText(journal.flatMap(record => record.seasons));
+    const specialWeather = journal.flatMap(record => record.specialWeather)
+      .filter((entry, index, list) => list.findIndex(candidate => candidate.label === entry.label && candidate.routeName === entry.routeName) === index);
+    const cargoCount = lookbackDays <= 1 ? 1 : lookbackDays <= 3 ? 2 : 3;
+    const profits = trades.filter(entry => Number(entry.profit) > 0)
+      .sort((left, right) => Number(right.profit) - Number(left.profit)).slice(0, cargoCount);
+    const losses = trades.filter(entry => Number(entry.profit) < 0)
+      .sort((left, right) => Number(left.profit) - Number(right.profit)).slice(0, cargoCount);
+
+    const sentences = [];
+    sentences.push(`총 ${lookbackDays + 1}일치 상황.`);
+    sentences.push(moods.length > 1
+      ? `동행 ${rank}등급. 최종 기분 : ${finalMood}, 주요 변화는 ${moods.join("→")}.`
+      : `동행 ${rank}등급. 최종 기분 : ${finalMood}, 주요 변화 없음.`);
+    sentences.push(`현재 위치 : ${String(getCurrentSettlementName() || "확인되지 않은 거점")}.`);
+    sentences.push(journeyExportSentence(movements, lookbackDays));
+    sentences.push(environmentExportSentence(seasons, specialWeather));
+    sentences.push(cargoExportSentence(profits, losses));
+    sentences.push(mealExportSentence(expenses.filter(entry => entry.type === "food")));
+    return fitExportSentences(sentences, maximumLength);
+  }
+
+  function journeyExportSentence(movements, lookbackDays) {
+    if (!movements.length) return "이동 기록 없음.";
+    const settlementLimit = lookbackDays <= 1 ? 4 : lookbackDays <= 3 ? 6 : 9;
+    const routeLimit = lookbackDays <= 1 ? 2 : lookbackDays <= 3 ? 4 : 6;
+    const settlements = [];
+    const routes = [];
+    const sailings = [];
+    movements.forEach(movement => {
+      if (movement.method === "정기선") {
+        const sailing = `${movement.fromName || "출발항"}→${movement.toName || "도착항"}`;
+        appendUnique(sailings, sailing);
+      } else {
+        if (movement.fromSettlement && movement.fromName) appendOrdered(settlements, movement.fromName);
+        if (movement.toSettlement && movement.toName) appendOrdered(settlements, movement.toName);
+        if (movement.routeName) appendUnique(routes, movement.routeName);
+      }
+    });
+    const clauses = [];
+    if (settlements.length) clauses.push(`짐마차로 ${shortList(settlements, settlementLimit)} 경유`);
+    if (routes.length) clauses.push(`${shortList(routes, routeLimit)} 이용`);
+    if (sailings.length) clauses.push(`정기선 ${shortList(sailings, 3)} 이동`);
+    return `${clauses.join(", ") || "여정을 이어 갔다"}.`;
+  }
+
+  function environmentExportSentence(seasons, specialWeather) {
+    const seasonCopy = seasons.length ? `${shortList(seasons, 4)}철` : "계절 기록이 없는 때";
+    if (!specialWeather.length) return `${seasonCopy} 특수 기상 조우 없음.`;
+    const encounters = specialWeather.map(entry => entry.routeName ? `${entry.routeName}에서 ${entry.label}` : entry.label);
+    return `${seasonCopy}에 ${shortList(encounters, 5)}에 조우.`;
+  }
+
+  function cargoExportSentence(profits, losses) {
+    const profitCopy = profits.length
+      ? profits.map(entry => `${entry.itemName}(+${formatNumber(entry.profit)})`).join("·")
+      : "없음";
+    const lossCopy = losses.length
+      ? losses.map(entry => `${entry.itemName}(${formatNumber(entry.profit)})`).join("·")
+      : "없음";
+    return `큰 이익 화물: ${profitCopy}; 큰 손실 화물: ${lossCopy}.`;
+  }
+
+  function mealExportSentence(foodExpenses) {
+    const meals = foodExpenses.flatMap(expense => mealItemsFromExpense(expense).map(item => ({ ...item, sourceLabel: expense.sourceLabel })));
+    const tavern = aggregateMealItems(meals.filter(item => item.sourceLabel === "주점 식사"));
+    const inn = aggregateMealItems(meals.filter(item => item.sourceLabel === "여관 음식"));
+    const clauses = [];
+    if (tavern.length) {
+      const dishes = tavern.filter(item => item.type !== "음료");
+      const drinks = tavern.filter(item => item.type === "음료");
+      const core = dishes[0];
+      const others = dishes.slice(1, 3);
+      let copy = `주점 핵심 ${core?.name || tavern[0].name}`;
+      if (drinks.length) copy += `, 음료 ${drinks[0].name}`;
+      if (others.length) copy += `, 다른 메뉴 ${others.map(item => item.name).join("·")}`;
+      clauses.push(copy);
+    }
+    if (inn.length) clauses.push(`여관 식사 ${shortList(inn.map(item => item.name), 4)}`);
+    if (!clauses.length) return "기록된 주점·여관 식사는 없다.";
+    return `${clauses.join(". ")}.`;
+  }
+
+  function mealItemsFromExpense(expense) {
+    if (Array.isArray(expense.mealItems) && expense.mealItems.length) return expense.mealItems;
+    return String(expense.description || "").split(",").map(value => {
+      const match = value.trim().match(/^(.*?)\s*×\s*(\d+)/);
+      return { name: (match?.[1] || value).trim(), quantity: Math.max(1, Number(match?.[2]) || 1), type: "", value: 0 };
+    }).filter(item => item.name);
+  }
+
+  function aggregateMealItems(items) {
+    const grouped = new Map();
+    items.forEach(item => {
+      const key = String(item.name || "").trim();
+      if (!key) return;
+      const current = grouped.get(key) || { name: key, type: String(item.type || ""), quantity: 0, score: 0 };
+      const quantity = Math.max(1, Number(item.quantity) || 1);
+      current.quantity += quantity;
+      current.score += Math.max(0, Number(item.value) || 0) * quantity;
+      if (!current.type && item.type) current.type = String(item.type);
+      grouped.set(key, current);
+    });
+    return [...grouped.values()].sort((left, right) => right.score - left.score || right.quantity - left.quantity || left.name.localeCompare(right.name, "ko"));
+  }
+
+  function fitExportSentences(sentences, maximumLength) {
+    const normalized = sentences.map(sentence => String(sentence || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+    let result = normalized.join(" ");
+    if (result.length <= maximumLength) return result;
+    const budgets = maximumLength <= 500
+      ? [38, 75, 38, 85, 55, 82, 90]
+      : maximumLength <= 700
+        ? [45, 110, 45, 135, 80, 130, 125]
+        : [55, 150, 55, 210, 105, 190, 190];
+    result = normalized.map((sentence, index) => clipExportSentence(sentence, budgets[index] || 80)).join(" ");
+    if (result.length <= maximumLength) return result;
+    result = result.slice(0, Math.max(1, maximumLength - 1)).trimEnd();
+    const lastStop = Math.max(result.lastIndexOf("."), result.lastIndexOf("다."));
+    if (lastStop >= Math.floor(maximumLength * .72)) result = result.slice(0, lastStop + 1);
+    else result = `${result.replace(/[,.·\s]+$/g, "")}…`;
+    return result.slice(0, maximumLength);
+  }
+
+  function clipExportSentence(sentence, maximumLength) {
+    const copy = String(sentence || "").trim();
+    if (copy.length <= maximumLength) return copy;
+    return `${copy.slice(0, Math.max(1, maximumLength - 1)).replace(/[,.·;:\s]+$/g, "")}…`;
+  }
+
+  function shortList(values, maximum) {
+    const list = uniqueText(values);
+    if (list.length <= maximum) return list.join("·");
+    return `${list.slice(0, maximum).join("·")} 외 ${formatNumber(list.length - maximum)}곳`;
+  }
+
+  function uniqueText(values) {
+    return [...new Set((Array.isArray(values) ? values : []).map(value => String(value || "").trim()).filter(Boolean))];
+  }
+
+  function collapseAdjacentText(values) {
+    const result = [];
+    (Array.isArray(values) ? values : []).forEach(value => {
+      const normalized = String(value || "").trim();
+      if (normalized && result.at(-1) !== normalized) result.push(normalized);
+    });
+    return result;
+  }
+
+  function exportMoodLabel(value, label = "") {
+    const mood = Number(value);
+    if (Number.isFinite(mood)) {
+      if (mood <= 24) return "화남";
+      if (mood <= 49) return "짜증";
+      if (mood <= 74) return "보통";
+      return "좋음";
+    }
+    const normalized = String(label || "").replaceAll(" ", "");
+    if (["화남", "화난상태"].includes(normalized)) return "화남";
+    if (["불만", "짜증", "짜증상태"].includes(normalized)) return "짜증";
+    if (["통상", "보통", "기본", "기본상태"].includes(normalized)) return "보통";
+    if (["좋음", "좋은상태", "기분좋음", "기분좋은상태"].includes(normalized)) return "좋음";
+    return "보통";
+  }
+
+  function appendUnique(list, value) {
+    const normalized = String(value || "").trim();
+    if (normalized && list.at(-1) !== normalized && !list.includes(normalized)) list.push(normalized);
+  }
+
+  function appendOrdered(list, value) {
+    const normalized = String(value || "").trim();
+    if (normalized && list.at(-1) !== normalized) list.push(normalized);
   }
 
   function createTradeLogDateButton(record, active) {
@@ -1485,6 +1820,109 @@
     return [...expenseEntries, ...tradeEntries];
   }
 
+  function companionSnapshot() {
+    const profile = getCompanionProfile() || {};
+    const mood = Math.min(100, Math.max(0, Number(profile.mood) || 0));
+    const moodLabel = String(profile.moodLabel || (mood <= 24 ? "화남" : mood <= 49 ? "불만" : mood <= 74 ? "통상" : "좋은 상태"));
+    return {
+      rank: Math.max(1, Math.trunc(Number(profile.rank) || 1)),
+      mood,
+      moodLabel
+    };
+  }
+
+  function recordDailySnapshot(details = {}, shouldPersist = true) {
+    const worldTime = getWorldTime() || {};
+    const day = Math.max(1, Math.trunc(Number(details.contractDay ?? worldTime.day) || 1));
+    const companion = companionSnapshot();
+    const season = String(details.season || getCurrentSeason() || "").trim();
+    state.journeyJournal = normalizeJourneyJournal(state.journeyJournal);
+    let record = state.journeyJournal.find(entry => entry.day === day);
+    if (!record) {
+      const moodLabel = exportMoodLabel(companion.mood, companion.moodLabel);
+      record = { day, companionRank: companion.rank, mood: companion.mood, moodLabel, moodHistory: [moodLabel], seasons: [], specialWeather: [], movements: [] };
+      state.journeyJournal.push(record);
+    }
+    record.companionRank = Math.max(1, Math.trunc(Number(details.companionRank ?? companion.rank) || 1));
+    record.mood = Math.min(100, Math.max(0, Number(details.mood ?? companion.mood) || 0));
+    record.moodLabel = exportMoodLabel(record.mood, details.moodLabel || companion.moodLabel);
+    record.moodHistory = collapseAdjacentText(record.moodHistory.map(label => exportMoodLabel(undefined, label)));
+    if (record.moodHistory.at(-1) !== record.moodLabel) record.moodHistory.push(record.moodLabel);
+    if (season && !record.seasons.includes(season)) record.seasons.push(season);
+    const currentDay = Math.max(day, Math.trunc(Number(worldTime.day) || day));
+    state.journeyJournal = state.journeyJournal
+      .filter(entry => entry.day >= Math.max(1, currentDay - (TRADE_REVIEW_HISTORY_DAYS - 1)) && entry.day <= currentDay)
+      .sort((left, right) => right.day - left.day);
+    if (shouldPersist) persistState();
+    return state.journeyJournal.find(entry => entry.day === day) || record;
+  }
+
+  function recordJourneyMoment(details = {}) {
+    const record = recordDailySnapshot(details, false);
+    const method = String(details.method || "짐마차").trim() === "정기선" ? "정기선" : "짐마차";
+    const movement = normalizeJourneyMovement({
+      method,
+      fromId: details.fromId,
+      fromName: details.fromName,
+      fromSettlement: details.fromSettlement,
+      toId: details.toId,
+      toName: details.toName,
+      toSettlement: details.toSettlement,
+      routeName: details.routeName
+    });
+    if (movement) {
+      const last = record.movements.at(-1);
+      if (!last || JSON.stringify(last) !== JSON.stringify(movement)) record.movements.push(movement);
+    }
+    const weather = String(details.weather || "").trim();
+    if (TRADE_LOG_SPECIAL_WEATHERS.has(weather)) {
+      const encounter = { label: weather, routeName: String(details.routeName || "").trim() };
+      if (!record.specialWeather.some(entry => entry.label === encounter.label && entry.routeName === encounter.routeName)) {
+        record.specialWeather.push(encounter);
+      }
+    }
+    persistState();
+    return true;
+  }
+
+  function normalizeJourneyMovement(source) {
+    if (!source || typeof source !== "object") return null;
+    const fromName = String(source.fromName || "").trim();
+    const toName = String(source.toName || "").trim();
+    const routeName = String(source.routeName || "").trim();
+    if (!fromName && !toName && !routeName) return null;
+    return {
+      method: String(source.method || "짐마차") === "정기선" ? "정기선" : "짐마차",
+      fromId: String(source.fromId || ""),
+      fromName,
+      fromSettlement: Boolean(source.fromSettlement),
+      toId: String(source.toId || ""),
+      toName,
+      toSettlement: Boolean(source.toSettlement),
+      routeName
+    };
+  }
+
+  function normalizeJourneyJournal(source) {
+    return (Array.isArray(source) ? source : []).map(entry => {
+      if (!entry || typeof entry !== "object") return null;
+      return {
+        day: Math.max(1, Math.trunc(Number(entry.day) || 1)),
+        companionRank: Math.max(1, Math.trunc(Number(entry.companionRank) || 1)),
+        mood: Math.min(100, Math.max(0, Number(entry.mood) || 0)),
+        moodLabel: exportMoodLabel(entry.mood, entry.moodLabel),
+        moodHistory: collapseAdjacentText((Array.isArray(entry.moodHistory) && entry.moodHistory.length ? entry.moodHistory : [entry.moodLabel || "통상"])
+          .map(label => exportMoodLabel(undefined, label))),
+        seasons: uniqueText(entry.seasons),
+        specialWeather: (Array.isArray(entry.specialWeather) ? entry.specialWeather : []).map(weather => ({
+          label: String(weather?.label || "").trim(),
+          routeName: String(weather?.routeName || "").trim()
+        })).filter(weather => TRADE_LOG_SPECIAL_WEATHERS.has(weather.label)),
+        movements: (Array.isArray(entry.movements) ? entry.movements : []).map(normalizeJourneyMovement).filter(Boolean)
+      };
+    }).filter(Boolean);
+  }
+
   function recordReviewExpense(type, details = {}) {
     const normalizedType = String(type || "").trim();
     const amount = Math.max(0, Number(details.amount) || 0);
@@ -1498,11 +1936,13 @@
       settlementName: details.settlementName,
       sourceLabel: details.sourceLabel,
       description: details.description,
+      mealItems: details.mealItems,
       contractDay: details.contractDay ?? worldTime.day,
       phaseIndex: details.phaseIndex ?? worldTime.phaseIndex,
       completedAt: details.completedAt || new Date().toISOString()
     });
     if (!record) return false;
+    recordDailySnapshot({ contractDay: record.contractDay }, false);
     state.reviewExpenses = normalizeReviewExpenses(state.reviewExpenses);
     state.reviewExpenses.push(record);
     persistState();
@@ -1548,6 +1988,12 @@
       settlementName: String(source.settlementName || "이름 없는 거점"),
       sourceLabel: String(source.sourceLabel || reviewExpensePresentation(type).sourceLabel),
       description: String(source.description || ""),
+      mealItems: (Array.isArray(source.mealItems) ? source.mealItems : []).map(item => ({
+        name: String(item?.name || "").trim(),
+        type: String(item?.type || "").trim(),
+        quantity: Math.max(1, Math.trunc(Number(item?.quantity) || 1)),
+        value: Math.max(0, Number(item?.value) || 0)
+      })).filter(item => item.name),
       contractDay: Math.max(1, Math.trunc(Number(source.contractDay) || 1)),
       phaseIndex: Math.max(0, Math.trunc(Number(source.phaseIndex) || 0)),
       completedAt: String(source.completedAt || "")
@@ -2136,7 +2582,7 @@
   }
 
   function createDefaultState() {
-    return { schemaVersion: 6, knowledge: {}, companyUsage: {}, notebooks: {}, reviewExpenses: [], reviewHistory: [], peddler: { level: 1, xp: 0, points: 0, skills: [] } };
+    return { schemaVersion: 8, knowledge: {}, companyUsage: {}, notebooks: {}, reviewExpenses: [], reviewHistory: [], journeyJournal: [], peddler: { level: 1, xp: 0, points: 0, skills: [] } };
   }
 
   function loadState() {
@@ -2144,14 +2590,15 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return createDefaultState();
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, 5, 6].includes(parsed?.schemaVersion) || typeof parsed.knowledge !== "object" || typeof parsed.companyUsage !== "object") return createDefaultState();
+      if (![1, 2, 3, 4, 5, 6, 7, 8].includes(parsed?.schemaVersion) || typeof parsed.knowledge !== "object" || typeof parsed.companyUsage !== "object") return createDefaultState();
       return {
-        schemaVersion: 6,
+        schemaVersion: 8,
         knowledge: parsed.knowledge,
         companyUsage: parsed.companyUsage,
         notebooks: typeof parsed.notebooks === "object" && parsed.notebooks ? parsed.notebooks : {},
         reviewExpenses: normalizeReviewExpenses(parsed.reviewExpenses),
         reviewHistory: normalizeTradeReviewHistory(parsed.reviewHistory),
+        journeyJournal: normalizeJourneyJournal(parsed.journeyJournal),
         peddler: {
           level: Math.max(1, Math.trunc(Number(parsed.peddler?.level) || 1)),
           xp: Math.max(0, Math.trunc(Number(parsed.peddler?.xp) || 0)),
@@ -2208,6 +2655,8 @@
     getItemOutletState,
     getSettlementOutletGoods,
     recordReviewExpense,
+    recordDailySnapshot,
+    recordJourneyMoment,
     getPendingTradeReviews,
     getTradeReviewHistory,
     completeTradeReviews,

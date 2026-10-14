@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.341";
+const GAME_VERSION = "0.00.345";
 const ACCOUNT_SCHEMA_VERSION = 54;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -66,8 +66,10 @@ const TAVERN_DIALOG_DURATION_MS = 15_000;
 const ROAD_HUNGER_DIALOG_DURATION_MS = 8_000;
 const ROAD_WAGON_DIALOG_DURATION_MS = 12_000;
 const PARTNER_TOUCH_DIALOG_DURATION_MS = 5_000;
-const PARTNER_TOUCH_CHAIN_WINDOW_MS = 2_000;
-const PARTNER_TOUCH_CHAIN_MINIMUM = 3;
+const PARTNER_TOUCH_REACTION_COOLDOWN_MS = 300;
+const PARTNER_TOUCH_CHAIN_WINDOW_MS = 3_000;
+const PARTNER_TOUCH_END_DELAY_MS = 2_000;
+const PARTNER_TOUCH_CHAIN_MINIMUM = 8;
 const PARTNER_SICK_STATUS_NAMES = Object.freeze([
   "숙취", "피로", "식은 몸", "더위 먹음", "멀미", "과식",
   "고혈당", "아린 혀", "속쓰림", "느글거림", "감기 기운", "배멀미"
@@ -504,7 +506,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "상행록",
     contexts: ["merchant-path"],
     pages: [
-      { title: "지난 상행 다시 보기", text: "5조 아래의 상행록에는 숙박 때 마친 상행 복기가 날짜별로 보관됩니다.\n오늘을 포함한 최근 10일의 기록을 다시 확인할 수 있습니다.", selector: "#merchant-path-trade-log" },
+      { title: "지난 상행 다시 보기", text: "5조 아래의 상행록에는 숙박 때 마친 상행 복기가 날짜별로 보관됩니다.\n최근 기록을 확인하거나 상행록 추출로 외부 역할극에 옮길 문장을 만들 수 있습니다.", selector: "#merchant-path-trade-log" },
       { title: "날짜와 항목을 차례로", text: "먼저 날짜를 고른 뒤 관세, 식비와 교역품 항목을 선택하세요.\n당시 복기에서 확인한 지출 내역과 거래 결과, 주요 가격 요인이 그대로 표시됩니다." }
     ]
   },
@@ -631,6 +633,7 @@ const ADVANCED_TUTORIAL_MENU_LABELS = Object.freeze({
   "inn-lodging": "숙박"
 });
 const CAMP_PRIORITY_ITEM_IDS = ["G_0273", "G_0272"];
+const CAMP_CONSUMABLE_ITEM_IDS = new Set(["G_0283"]);
 const CAMP_ITEM_CATEGORY_ORDER = new Map([
   ["야영물품", 0],
   ["여행물품", 1],
@@ -1195,6 +1198,8 @@ let roadTalkCardPeekRemoveTimer = 0;
 let roadTalkCardPeekSequence = 0;
 let pendingNarrativePresentationTimer = 0;
 let pendingGateBulletinId = "";
+let gateBulletinOpenSequence = 0;
+const gateBulletinGenerationPromises = new Map();
 let smallPopupSequence = 0;
 let smallPopupLayoutFrame = 0;
 let partnerTouchDialogueLoadPromise;
@@ -1203,6 +1208,7 @@ let partnerTouchPopupHideTimer;
 let partnerTouchEndTimer;
 let partnerTouchTimestamps = [];
 let partnerTouchSequenceActive = false;
+let lastPartnerTouchReactionAt = 0;
 let lastPartnerTouchDialogueId = "";
 let partnerTouchDataWarningShown = false;
 let partnerTouchCharacterAssetId = "";
@@ -1235,6 +1241,16 @@ window.ProjectWMerchantPath.init({
   getAssetUrl: assetId => assetMap.get(assetId) ?? "",
   getWorldTime: () => account?.worldTime ?? { day: 1, phaseIndex: 0 },
   getGuildContribution: () => guildContributionProfile(),
+  getCompanionProfile: () => {
+    const partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment);
+    return {
+      rank: partner.companionRank,
+      mood: partner.mood,
+      moodLabel: partnerMoodPresentation(partner.mood).label
+    };
+  },
+  getCurrentSeason: () => currentSeason(),
+  getCurrentSettlementName: () => currentMerchantPathSettlementName(),
   notify: showGameNotice
 });
 window.ProjectWMemorial.init({
@@ -3772,7 +3788,7 @@ function schedulePartnerTouchEndDialogue() {
     if (currentScene === "partner" && !unableToReact && !unhappyReaction && (moodState === "통상" || moodState === "좋은 상태")) {
       void showPartnerTouchDialogue("end");
     }
-  }, PARTNER_TOUCH_CHAIN_WINDOW_MS);
+  }, PARTNER_TOUCH_END_DELAY_MS);
 }
 
 async function loadPartnerCharacterHitMap(image) {
@@ -3842,6 +3858,10 @@ async function handlePartnerCharacterTouch(event) {
   if (event.type === "click" && !await isPartnerCharacterPaintedAt(partnerCharacter, event.clientX, event.clientY)) return;
   if (currentScene !== "partner") return;
 
+  const now = Date.now();
+  if (now - lastPartnerTouchReactionAt < PARTNER_TOUCH_REACTION_COOLDOWN_MS) return;
+  lastPartnerTouchReactionAt = now;
+
   const partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const moodState = partnerMoodPresentation(partner.mood).label;
   if (partnerHasStatus(partner, "추가 수면")) {
@@ -3861,11 +3881,14 @@ async function handlePartnerCharacterTouch(event) {
   }
   if (moodState !== "통상" && moodState !== "좋은 상태") return;
 
-  const now = Date.now();
   partnerTouchTimestamps = partnerTouchTimestamps
     .filter(timestamp => now - timestamp <= PARTNER_TOUCH_CHAIN_WINDOW_MS);
   partnerTouchTimestamps.push(now);
-  if (partnerTouchSequenceActive || partnerTouchTimestamps.length >= PARTNER_TOUCH_CHAIN_MINIMUM) {
+  if (partnerTouchSequenceActive) {
+    schedulePartnerTouchEndDialogue();
+    return;
+  }
+  if (partnerTouchTimestamps.length >= PARTNER_TOUCH_CHAIN_MINIMUM) {
     partnerTouchSequenceActive = true;
     await showPartnerTouchDialogue("continuous");
     schedulePartnerTouchEndDialogue();
@@ -4733,7 +4756,7 @@ function renderPartnerSnackList(items = partnerSnackItems(), used = Boolean(acco
     partnerSnackStatus.textContent = "Goods 시트에서 간식으로 지정된 보유 물건이 없습니다.";
     return;
   }
-  partnerSnackStatus.textContent = "간식은 하루에 한 번 줄 수 있으며 나하나의 기분이 3 증가합니다.";
+  partnerSnackStatus.textContent = "간식은 하루에 한 번 줄 수 있으며 물품에 적힌 만큼 나하나의 기분을 회복합니다.";
   const fragment = document.createDocumentFragment();
   items.forEach(item => {
     const button = document.createElement("button");
@@ -4743,13 +4766,19 @@ function renderPartnerSnackList(items = partnerSnackItems(), used = Boolean(acco
     const name = document.createElement("strong");
     name.textContent = item.definition.displayName || item.definition.name3 || item.itemId;
     const detail = document.createElement("span");
+    const moodGain = partnerSnackMoodGain(item.definition);
     detail.textContent = item.definition.category === "여행 식량"
-      ? `여행 식량 · 보유 ${formatCompactNumber(item.quantity)} · 1개 소모`
-      : `${item.definition.category || "교역품"} · 열화내구도 10% 감소`;
+      ? `여행 식량 · 보유 ${formatCompactNumber(item.quantity)} · 1개 소모 · 기분 +${moodGain}`
+      : `${item.definition.category || "교역품"} · 열화내구도 10% 감소 · 기분 +${moodGain}`;
     button.append(name, detail);
     fragment.append(button);
   });
   partnerSnackList.append(fragment);
+}
+
+function partnerSnackMoodGain(definition) {
+  const match = String(definition?.useEffect || "").match(/기분\s*\+\s*(\d+(?:\.\d+)?)/);
+  return Math.max(0, Number(match?.[1]) || 3);
 }
 
 async function openPartnerSnackPanel() {
@@ -4799,7 +4828,7 @@ function givePartnerSnack(instanceId) {
     return;
   }
   account.foodUsage.snackUsed = true;
-  const moodGain = changePartnerMood(3);
+  const moodGain = changePartnerMood(partnerSnackMoodGain(item.definition));
   account.partner.statusStreaks.idleDots = 0;
   removePartnerStatus("N_S_005");
   if (Math.random() < 0.33) addCompanionExperience(1, "간식 경험");
@@ -8569,6 +8598,12 @@ function changePartnerMood(amount) {
   account.partner.mood = clampNumber(before + (Number(amount) || 0), partnerMoodFloor(account.partner), 100, before);
   account.partnerMoodAdjustment = account.partner.mood - 50;
   syncMoodDrivenPartnerStatuses();
+  window.ProjectWMerchantPath?.recordDailySnapshot?.({
+    contractDay: normalizeWorldTime(account.worldTime).day,
+    companionRank: account.partner.companionRank,
+    mood: account.partner.mood,
+    moodLabel: partnerMoodPresentation(account.partner.mood).label
+  });
   updatePartnerUi();
   return account.partner.mood - before;
 }
@@ -9215,6 +9250,18 @@ async function finishSailingVoyage(travel = account?.travel) {
       if (!destination) return;
       account.worldTime = normalizeWorldTime(account.worldTime);
       account.worldTime.phaseIndex = arrivalPhaseIndex;
+      window.ProjectWMerchantPath?.recordJourneyMoment?.({
+        contractDay: account.worldTime.day,
+        method: "정기선",
+        fromId: origin?.id || originId,
+        fromName: origin?.name || "출발 항구",
+        fromSettlement: true,
+        toId: destination.id,
+        toName: destination.name || "도착 항구",
+        toSettlement: true,
+        routeName: "",
+        season: currentSeason()
+      });
       if (sailingFare > 0) {
         window.ProjectWMerchantPath?.recordReviewExpense?.("ferry", {
           amount: sailingFare,
@@ -9274,6 +9321,22 @@ function completeTravelStep(travel) {
   // 이후 시간과 날씨가 바뀌어도 이미 완료한 구간의 결과는 달라지지 않는다.
   advanceRoadSurfaceState();
   const completedSegmentConditions = getCurrentRoadConditions(travel.positionId);
+  const completedFromId = travel.routePath[Math.max(0, travel.routeIndex - 1)] || travel.departureNodeId;
+  const completedFrom = window.ProjectWMapView.getPlacement(completedFromId);
+  const completedTo = window.ProjectWMapView.getPlacement(travel.positionId);
+  window.ProjectWMerchantPath?.recordJourneyMoment?.({
+    contractDay: normalizeWorldTime(account.worldTime).day,
+    method: "짐마차",
+    fromId: completedFromId,
+    fromName: completedFrom?.name || "출발지",
+    fromSettlement: isNodeId(completedFromId),
+    toId: travel.positionId,
+    toName: completedTo?.name || "이동 구간",
+    toSettlement: isNodeId(travel.positionId),
+    routeName: getCurrentRouteName(travel),
+    weather: completedSegmentConditions.weather,
+    season: completedSegmentConditions.season
+  });
   advanceGameTime({ roadSurfaceAlreadyAdvanced: true });
   window.ProjectWMerchantPath?.advanceTradeJourneyDistance?.(1);
   applyTravelStepConsequences(travel.positionId, completedSegmentConditions);
@@ -9462,6 +9525,9 @@ function advanceGameTime(options = {}) {
     time.phaseIndex = 0;
     time.day += 1;
   }
+  if (time.day > previousDay) {
+    window.ProjectWMerchantPath?.recordDailySnapshot?.({ contractDay: previousDay, season: currentSeason() });
+  }
   account.worldTime = time;
   account.gatePass = normalizeGatePass(account.gatePass, time.day);
   if (time.day > previousDay) window.ProjectWWallet.advanceMarketToDay(time.day);
@@ -9481,6 +9547,7 @@ function advanceGameTime(options = {}) {
   window.ProjectWInformation.refresh();
   evaluateSeasonFootprints();
   if (time.day > previousDay) void window.ProjectWCityEvents.ensureCurrentDay();
+  if (time.day > previousDay) window.ProjectWMerchantPath?.recordDailySnapshot?.({ contractDay: time.day, season: currentSeason() });
 }
 
 function handleCityEventChange(change) {
@@ -10812,20 +10879,43 @@ function currentSettlementPlacement() {
   return window.ProjectWMapView.getPlacement(travel.settlementId || travel.positionId);
 }
 
+function currentMerchantPathSettlementName() {
+  const travel = account?.travel;
+  if (!travel) return "확인되지 않은 거점";
+  const visitedRouteNode = Array.isArray(travel.routePath)
+    ? travel.routePath.slice(0, Math.max(0, Number(travel.routeIndex) || 0) + 1).reverse().find(isNodeId)
+    : "";
+  const settlementId = travel.mode === "settlement"
+    ? travel.settlementId || travel.positionId
+    : travel.mode === "sailing"
+      ? travel.sailingOriginId || travel.departureNodeId
+      : travel.departureNodeId || visitedRouteNode || (isNodeId(travel.positionId) ? travel.positionId : "");
+  return window.ProjectWMapView.getPlacement(settlementId)?.name
+    || travel.settlementName
+    || "확인되지 않은 거점";
+}
+
 async function ensureGateBulletin(placement) {
   if (!account || String(placement?.category || "") !== "관문") return null;
   const today = normalizeWorldTime(account.worldTime).day;
   account.gateBulletins = normalizeGateBulletins(account.gateBulletins);
   let record = account.gateBulletins[placement.id];
   if (!record || today >= record.refreshDay) {
-    const entries = await window.ProjectWInformation.createGateBulletin(placement);
-    record = {
-      generatedDay: today,
-      refreshDay: today + 7,
-      entries: entries.map(normalizeGateBulletinEntry)
-    };
-    account.gateBulletins[placement.id] = record;
-    persistAccount();
+    const generationKey = `${placement.id}:${today}`;
+    if (!gateBulletinGenerationPromises.has(generationKey)) {
+      gateBulletinGenerationPromises.set(generationKey, (async () => {
+        const entries = await window.ProjectWInformation.createGateBulletin(placement);
+        const generated = {
+          generatedDay: today,
+          refreshDay: today + 7,
+          entries: entries.map(normalizeGateBulletinEntry)
+        };
+        account.gateBulletins[placement.id] = generated;
+        persistAccount();
+        return generated;
+      })().finally(() => gateBulletinGenerationPromises.delete(generationKey)));
+    }
+    record = await gateBulletinGenerationPromises.get(generationKey);
   }
   return record;
 }
@@ -10838,8 +10928,19 @@ async function openGateBulletin(placement = currentSettlementPlacement()) {
   const current = currentSettlementPlacement();
   if (!current || current.id !== placement.id) return false;
   if (pendingGateBulletinId === placement.id) pendingGateBulletinId = "";
+  const openSequence = ++gateBulletinOpenSequence;
+  if (gateBulletinLocation) gateBulletinLocation.textContent = `${placement.name || "관문"} · 통관 게시판`;
+  if (gateBulletinStatus) gateBulletinStatus.textContent = "이번 주기의 경제 소식을 정리하는 중입니다.";
+  const loading = document.createElement("p");
+  loading.className = "gate-bulletin-empty";
+  loading.textContent = "게시판을 확인하고 있습니다…";
+  gateBulletinList.replaceChildren(loading);
+  gateBulletinModal.hidden = false;
+  await new Promise(resolve => requestAnimationFrame(() => resolve()));
   const record = await ensureGateBulletin(placement);
   if (!record) return false;
+  const latestPlacement = currentSettlementPlacement();
+  if (openSequence !== gateBulletinOpenSequence || !latestPlacement || latestPlacement.id !== placement.id) return false;
   const today = normalizeWorldTime(account.worldTime).day;
   if (gateBulletinLocation) gateBulletinLocation.textContent = `${placement.name || "관문"} · 통관 게시판`;
   if (gateBulletinStatus) {
@@ -10880,6 +10981,7 @@ async function openGateBulletin(placement = currentSettlementPlacement()) {
 
 function closeGateBulletin(scheduleNext = true) {
   if (!gateBulletinModal) return;
+  gateBulletinOpenSequence += 1;
   gateBulletinModal.hidden = true;
   if (scheduleNext) schedulePendingNarrativePresentation();
 }
@@ -12579,7 +12681,7 @@ function createCampItemOption(item, kind, options = {}) {
   const effect = document.createElement("span");
   effect.textContent = normalizeEffectText(item.definition.campEffect) || "야영 안락도 변화 없음";
   const notice = document.createElement("small");
-  if (kind === "meal") notice.textContent = "선택 시 야영 진행에서 1개 소모";
+  if (kind === "meal" || CAMP_CONSUMABLE_ITEM_IDS.has(item.itemId)) notice.textContent = "선택 시 야영 진행에서 1개 소모";
   else if (item.itemId === "G_0267" || /소모\s*없음/.test(item.definition.campEffect)) notice.textContent = "소모 없음";
   else {
     const explicitDamage = explicitCampDurabilityDamage(item);
@@ -12628,6 +12730,7 @@ function campItemAvailability(item, conditions = getCurrentRoadConditions()) {
   }
   if (item.definition.category !== "여행 식량"
     && !CAMP_PRIORITY_ITEM_IDS.includes(item.itemId)
+    && !CAMP_CONSUMABLE_ITEM_IDS.has(item.itemId)
     && !(Number(item.durability) > 0)
     && !/소모\s*없음/.test(item.definition.campEffect)) {
     return { usable: false, reason: "열화 내구도가 소진되어 사용할 수 없습니다." };
@@ -12690,6 +12793,20 @@ function campDurabilityDamage(item) {
   return Math.max(0, Number(item?.definition?.durability) || 0) * 0.1;
 }
 
+function campHorseRecovery(item) {
+  const effect = String(item?.definition?.campEffect || "");
+  const read = statName => {
+    const match = new RegExp(`말\\s*${statName}\\s*\\+\\s*(\\d+(?:\\.\\d+)?)`).exec(effect);
+    return Math.max(0, Number(match?.[1]) || 0);
+  };
+  return { hunger: read("허기"), health: read("체력") };
+}
+
+function isCampMealItem(item) {
+  return item?.definition?.category === "여행 식량"
+    && !/식사로\s*치지\s*않음/.test(String(item.definition.campEffect || ""));
+}
+
 function campComfortDetails() {
   const items = window.ProjectWCargo.getInventoryItems();
   const byInstanceId = new Map(items.map(item => [item.instanceId, item]));
@@ -12713,7 +12830,7 @@ function campComfortDetails() {
       item,
       value: item.itemId === "G_0280" ? 10 : parseCampComfort(item.definition.campEffect)
     }));
-  const hasMeal = itemEntries.some(entry => entry.item.definition.category === "여행 식량");
+  const hasMeal = itemEntries.some(entry => isCampMealItem(entry.item));
   const noMealComfort = hasMeal ? 0 : CAMP_NO_MEAL_COMFORT;
   const environmentComfort = environmentEntries.reduce((sum, entry) => sum + entry.value, 0);
   const weatherComfort = weatherEntries.reduce((sum, entry) => sum + entry.value, 0);
@@ -12774,6 +12891,7 @@ function updateCampComfortDisplay() {
   const meals = [...campMealInstanceIds]
     .map(instanceId => details.byInstanceId.get(instanceId))
     .filter(item => item?.definition.category === "여행 식량" && item.quantity > 0);
+  const actualMeals = meals.filter(item => isCampMealItem(item));
   const tutorialRequiredMealsReady = tutorialCampMealsReady(meals);
   if (isTutorialActive(2)
     && normalizeTutorialProgress(account.tutorialProgress).step === 3
@@ -12785,8 +12903,8 @@ function updateCampComfortDisplay() {
   campProceed.disabled = campInProgress;
   campSetupStatus.textContent = !tutorialRequiredMealsReady
     ? "여행 육포와 건조 흑빵을 각각 직접 체크해야 첫 야영을 진행할 수 있습니다."
-    : meals.length
-      ? `선택한 식사 ${meals.length}종과 물품의 효과를 적용하고 다음 날 아침을 맞이합니다.`
+    : actualMeals.length
+      ? `선택한 식사 ${actualMeals.length}종과 물품의 효과를 적용하고 다음 날 아침을 맞이합니다.`
       : "식사 없이 진행할 수 있습니다. 이번 야영의 안락도가 30 감소합니다.";
   if (account?.travel?.mode === "camp") setRoadAction("야영 진행", "Space", campProceed.disabled);
 }
@@ -12798,6 +12916,7 @@ async function performCamp(forceConfirmation = false) {
   const meals = [...campMealInstanceIds]
     .map(instanceId => details.byInstanceId.get(instanceId))
     .filter(item => item?.definition.category === "여행 식량" && item.quantity > 0);
+  const actualMeals = meals.filter(item => isCampMealItem(item));
   if (meals.length !== campMealInstanceIds.size) {
     showGameNotice("선택한 식사를 사용할 수 없습니다.");
     updateCampComfortDisplay();
@@ -12808,7 +12927,7 @@ async function performCamp(forceConfirmation = false) {
     updateCampComfortDisplay();
     return;
   }
-  if (!forceConfirmation && showCampPreparationConfirmation(details, meals)) return;
+  if (!forceConfirmation && showCampPreparationConfirmation(details, actualMeals)) return;
 
   if (campRiskConfirm) campRiskConfirm.hidden = true;
   campInProgress = true;
@@ -12829,6 +12948,8 @@ async function performCamp(forceConfirmation = false) {
   }, 0);
   const campHangover = rollHangover(campAlcoholCount);
   const comfort = details.total;
+  let campHorseHungerRecovery = 0;
+  let campHorseHealthRecovery = 0;
   for (const meal of meals) {
     if (!window.ProjectWCargo.consumeInstance(meal.instanceId, 1)) {
       campInProgress = false;
@@ -12837,10 +12958,28 @@ async function performCamp(forceConfirmation = false) {
       return;
     }
   }
-  utilityItems.forEach(item => {
-    if (item.itemId === "G_0267" || /소모\s*없음/.test(item.definition.campEffect)) return;
+  for (const item of utilityItems) {
+    if (CAMP_CONSUMABLE_ITEM_IDS.has(item.itemId)) {
+      if (!window.ProjectWCargo.consumeInstance(item.instanceId, 1)) {
+        campInProgress = false;
+        renderCampSetup();
+        showGameNotice("선택한 야영 물품을 사용할 수 없습니다.");
+        return;
+      }
+      const recovery = campHorseRecovery(item);
+      const horse = normalizeHorseState(account.horse);
+      const nextHunger = Math.min(horse.maxHunger, horse.hunger + recovery.hunger);
+      const nextHealth = Math.min(horse.maxHealth, horse.health + recovery.health);
+      campHorseHungerRecovery += nextHunger - horse.hunger;
+      campHorseHealthRecovery += nextHealth - horse.health;
+      horse.hunger = nextHunger;
+      horse.health = nextHealth;
+      account.horse = horse;
+      continue;
+    }
+    if (item.itemId === "G_0267" || /소모\s*없음/.test(item.definition.campEffect)) continue;
     window.ProjectWCargo.damageItem(item.instanceId, campDurabilityDamage(item));
-  });
+  }
   window.ProjectWRouteEvents.consumeCampComfortBonus();
 
   const uncomfortableChance = comfort < 0 ? Math.min(100, Math.abs(comfort)) : 0;
@@ -12862,6 +13001,8 @@ async function performCamp(forceConfirmation = false) {
     uncomfortableStatusId: fatigue ? "N_S_012" : "",
     uncomfortableStatusAdded,
     partnerMoodChange: appliedPartnerMoodChange,
+    horseHungerRecovery: campHorseHungerRecovery,
+    horseHealthRecovery: campHorseHealthRecovery,
     completedAt: new Date().toISOString()
   };
 
@@ -12921,6 +13062,8 @@ async function performCamp(forceConfirmation = false) {
     }
   }
   if (campHangover) result += " · 숙취 획득";
+  if (campHorseHungerRecovery > 0) result += ` · 말 허기 +${formatCompactNumber(campHorseHungerRecovery)}`;
+  if (campHorseHealthRecovery > 0) result += ` · 말 체력 +${formatCompactNumber(campHorseHealthRecovery)}`;
   showGameNotice(result);
   schedulePendingNarrativePresentation();
 }
@@ -15011,7 +15154,7 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["취급처", "직접 구입한 거점은 취급처 뱃지로 남습니다. 뱃지를 눌러 생산지로 추정하거나 생산지가 아닌 곳으로 제외 표시할 수 있습니다. 지도의 취급처 표시를 켜면 제외하지 않은 상품을 현재 지식 단계의 이름으로 확인할 수 있습니다.", ".merchant-path-outlet-history", false, { padding: 10 }],
       ["메모", "상품마다 짧은 메모를 세 개까지 남길 수 있습니다. 직접 알아낸 특징과 다음 거래 계획을 기록해 두세요.", ".merchant-path-note-fields", false, { padding: 10 }],
       ["거래 기록", "구입과 판매를 모두 마친 교역만 기록됩니다. 한 번에 사고판 수량은 한 묶음으로 표시되며, 운송 거리와 손익, 상행 복기 결과를 함께 확인할 수 있습니다.", ".merchant-path-trade-history", false, { padding: 10 }],
-      ["상행록", "5조 아래의 상행록에서는 최근 10일 동안 완료한 복기를 날짜별로 다시 볼 수 있습니다. 날짜를 고른 뒤 관세, 식비와 교역 결과를 차례로 확인합니다.", "#merchant-path-trade-log", false, { padding: 10 }],
+      ["상행록", "5조 아래의 상행록에서는 최근 10일 동안 완료한 복기를 날짜별로 다시 볼 수 있습니다. 상행록 추출은 최근 여정과 교역, 식사, 나하나 상태를 외부 역할극용 줄글로 정리합니다.", "#merchant-path-trade-log", false, { padding: 10 }],
       ["화물뷰에서 빠르게 확인", "메모와 거래 기록은 화물의 툴팁에도 표시됩니다. 화물을 길게 누르면 행상인의 길의 해당 상품 기록으로 바로 이동합니다.", "#cargo-grid", false, { padding: 12 }]
     ],
     [TUTORIAL_IDS.MEMORIAL]: [

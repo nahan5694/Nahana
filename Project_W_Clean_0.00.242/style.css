@@ -7237,9 +7237,39 @@ button.map-marker:active { cursor: grabbing; }
 .merchant-path-trade-log {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   min-height: 100%;
 }
+.merchant-path-trade-log-export {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 7px 9px 7px 12px;
+  border: 1px solid #77543470;
+  background: linear-gradient(90deg, #ead0a2d9, #f5e4c4d9);
+}
+.merchant-path-trade-log-export > div:first-child { display: grid; gap: 2px; min-width: 0; }
+.merchant-path-trade-log-export strong { color: #51351f; font-size: .69rem; }
+.merchant-path-trade-log-export span { color: #806244; font-size: .54rem; font-weight: 800; }
+.merchant-path-trade-log-export > div:last-child { display: flex; justify-content: flex-end; gap: 5px; }
+.merchant-path-trade-log-export button {
+  min-height: 31px;
+  padding: 5px 9px;
+  border: 1px solid #76512f;
+  border-radius: 3px;
+  background: #ead2a7;
+  color: #583a22;
+  font-size: .56rem;
+  font-weight: 900;
+}
+.merchant-path-trade-log-export button:hover,
+.merchant-path-trade-log-export button:focus-visible { filter: brightness(1.05); outline: 2px solid #b6804d78; outline-offset: 1px; }
+.merchant-path-trade-log-export .merchant-path-trade-log-export-toggle { background: linear-gradient(#845a31, #68421f); color: #fff0ce; }
+.merchant-path-trade-log-empty { grid-column: 1 / -1; align-self: stretch; }
 .merchant-path-trade-log-dates,
 .merchant-path-trade-log-screen,
 .merchant-path-trade-log-entries,
@@ -7336,6 +7366,50 @@ button.map-marker:active { cursor: grabbing; }
 .merchant-path-trade-log .is-profit { color: #287041; }
 .merchant-path-trade-log .is-loss { color: #a03d38; }
 .merchant-path-trade-log .is-neutral { color: #776955; }
+.merchant-path-trade-export-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #2b190fa3;
+  backdrop-filter: blur(2px);
+}
+.merchant-path-trade-export-dialog {
+  display: grid;
+  gap: 11px;
+  width: min(700px, 92vw);
+  padding: 16px;
+  border: 1px solid #65441f;
+  border-radius: 4px;
+  background: linear-gradient(145deg, #f5e4c0, #d8b980);
+  color: #4b301b;
+  box-shadow: inset 0 0 0 2px #fff1cf7d, 0 18px 48px #25140ba6;
+}
+.merchant-path-trade-export-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding-bottom: 9px; border-bottom: 1px solid #76533261; }
+.merchant-path-trade-export-dialog > header > div { display: grid; gap: 3px; }
+.merchant-path-trade-export-dialog header span { color: #7a5a3a; font-size: .57rem; font-weight: 850; }
+.merchant-path-trade-export-dialog header strong { font-size: .9rem; }
+.merchant-path-trade-export-dialog p { margin: 0; color: #725234; font-size: .62rem; font-weight: 800; }
+.merchant-path-trade-export-dialog textarea {
+  width: 100%;
+  min-height: 165px;
+  resize: vertical;
+  padding: 13px;
+  border: 1px solid #7957357d;
+  border-radius: 3px;
+  background: #fff0cfde;
+  color: #452c1a;
+  font-family: inherit;
+  font-size: .68rem;
+  font-weight: 800;
+  line-height: 1.75;
+}
+.merchant-path-trade-export-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.merchant-path-trade-export-dialog footer span { color: #765537; font-size: .58rem; font-weight: 850; }
+.merchant-path-trade-export-dialog button { min-width: 75px; min-height: 34px; border: 1px solid #76512f; border-radius: 3px; background: #ead2a7; color: #583a22; font-size: .6rem; font-weight: 900; }
+.merchant-path-trade-export-dialog button.is-copy { min-width: 102px; background: linear-gradient(#845a31, #68421f); color: #fff0ce; }
 .merchant-path-peddler { display: grid; gap: 14px; }
 .merchant-path-peddler-overview {
   display: grid;

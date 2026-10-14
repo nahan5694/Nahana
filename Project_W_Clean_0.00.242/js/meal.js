@@ -1484,6 +1484,12 @@
         settlementName: settlement?.name || "이름 없는 거점",
         sourceLabel: expenseSourceLabel,
         description: record.foods.map(food => `${food.name} ×${food.quantity}`).join(", "),
+        mealItems: entries.map(({ food, quantity }) => ({
+          name: food.name,
+          type: food.type,
+          quantity,
+          value: food.value
+        })),
         contractDay: day,
         phaseIndex: record.phaseIndex,
         completedAt: record.completedAt

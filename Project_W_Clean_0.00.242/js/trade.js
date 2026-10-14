@@ -61,10 +61,18 @@
   const INDESTRUCTIBLE_DURABILITY = 9999;
   const INDESTRUCTIBLE_DISTANCE_VALUE_FACTOR = .5;
   const CAMP_SUPPLY_RARITY_LIMIT = new Map([["마을", 1], ["도시", 3], ["대도시", Number.POSITIVE_INFINITY]]);
-  const REGIONAL_CAMP_SUPPLY_REGIONS = new Map([["G_0278", "북부"], ["G_0279", "남부"]]);
+  const REGIONAL_CAMP_SUPPLY_REGIONS = new Map([
+    ["G_0278", "북부"],
+    ["G_0279", "남부"],
+    ["G_0281", "남부"],
+    ["G_0282", "북부"],
+    ["G_0283", "중부"]
+  ]);
+  const REGIONAL_FACILITY_RESTRICTED_SUPPLY_IDS = new Set(["G_0281", "G_0282", "G_0283"]);
+  const METROPOLIS_MARKET_SUPPLY_IDS = new Set(["G_0284"]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
   const MERCHANT_WALLET_SCHEMA_VERSION = 2;
-  const MERCHANT_STOCK_SCHEMA_VERSION = 12;
+  const MERCHANT_STOCK_SCHEMA_VERSION = 13;
   const PRODUCTION_CLEARANCE_CHANCE = .1;
   const PRODUCTION_DURABILITY_DAMAGE_MAX = new Map([["상회", 10], ["교역소", 15], ["시장", 20]]);
   const PRODUCTION_CLEARANCE_CONDITION_MIN = .4;
@@ -119,7 +127,7 @@
   };
   const IDENTICAL_STOCK_THRESHOLD = new Map([["대도시", 12], ["도시", 8], ["마을", 4], ["관문", 8]]);
   const MERCHANT_COMMENT_FACILITIES = new Set(["시장", "좌판", "교역소", "상회"]);
-  const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", "G_0280", NAHANA_EVENT_GIFT_ITEM_ID]);
+  const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", "G_0280", "G_0281", "G_0282", "G_0283", "G_0284", NAHANA_EVENT_GIFT_ITEM_ID]);
   const MERCHANT_COMMENT_MISREAD_DIALOGUES = ["DL_G_001", "DL_G_002", "DL_G_003", "DL_G_004", "DL_G_005", "DL_G_006"];
   const MERCHANT_COMMENT_ACCURACY_BY_TIER = new Map([[1, .95], [2, .9], [3, .85], [4, .8]]);
   const MERCHANT_COMMENT_BAD_DURABILITY_RATIO = .4;
@@ -178,6 +186,10 @@
   let playerCatalogMode = "goods";
   let merchantCommentSequence = 0;
   let currencyAnalysisReport = null;
+  let currencyHoldState = null;
+  let suppressedCurrencyClick = null;
+  let informationSignalsRevision = 0;
+  let informationSignalsCache = null;
   let currencyAnalysisView = "table";
   let suspendedForMap = false;
   let activeTradeScrollTarget = null;
@@ -294,8 +306,15 @@
     });
     elements.modal.addEventListener("wheel", handleTradeModalWheel, { passive: false });
     elements.modal.addEventListener("click", handleClick);
+    elements.modal.addEventListener("pointerdown", beginCurrencyHold);
     elements.modal.addEventListener("pointerdown", event => {
       if (event.target === elements.modal) close();
+    });
+    window.addEventListener("pointerup", stopCurrencyHold);
+    window.addEventListener("pointercancel", stopCurrencyHold);
+    window.addEventListener("blur", stopCurrencyHold);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) stopCurrencyHold();
     });
     window.addEventListener("keydown", event => {
       if (event.key !== "Escape" || elements.modal.hidden) return;
@@ -368,6 +387,53 @@
       activeTradeScrollTarget = list;
       event.preventDefault();
     }
+  }
+
+  function beginCurrencyHold(event) {
+    if (!current?.currencyOnly || event.button !== 0 || event.isPrimary === false) return;
+    const button = event.target instanceof Element
+      ? event.target.closest(".trade-currency-card[data-trade-action='adjust'][data-trade-kind='currencies'][data-trade-delta='1']")
+      : null;
+    if (!button || button.disabled || !elements.modal.contains(button)) return;
+    stopCurrencyHold();
+    currencyHoldState = {
+      owner: String(button.dataset.tradeOwner || ""),
+      key: String(button.dataset.tradeKey || ""),
+      startedAt: performance.now(),
+      repeated: false,
+      timer: window.setTimeout(repeatCurrencyHold, 360)
+    };
+  }
+
+  function repeatCurrencyHold() {
+    const hold = currencyHoldState;
+    if (!hold || !current?.currencyOnly || elements.modal.hidden) {
+      stopCurrencyHold();
+      return;
+    }
+    const changed = adjustSelection(hold.owner, "currencies", hold.key, 1, { silent: true });
+    if (!changed) {
+      stopCurrencyHold();
+      return;
+    }
+    if (!hold.repeated) window.ProjectWAudio?.playEffect("coin");
+    hold.repeated = true;
+    const elapsed = Math.max(0, performance.now() - hold.startedAt);
+    const nextDelay = Math.max(100, 280 - Math.floor(Math.max(0, elapsed - 360) / 12));
+    hold.timer = window.setTimeout(repeatCurrencyHold, nextDelay);
+  }
+
+  function stopCurrencyHold() {
+    if (!currencyHoldState) return;
+    window.clearTimeout(currencyHoldState.timer);
+    if (currencyHoldState.repeated) {
+      suppressedCurrencyClick = {
+        owner: currencyHoldState.owner,
+        key: currencyHoldState.key,
+        until: performance.now() + 500
+      };
+    }
+    currencyHoldState = null;
   }
 
   async function open(options = {}) {
@@ -1106,7 +1172,7 @@
       walletSchemaVersion: MERCHANT_WALLET_SCHEMA_VERSION,
       stockSchemaVersion: MERCHANT_STOCK_SCHEMA_VERSION,
       regionalCampSupplyIds: generated.stockLots
-        .filter(lot => lot.sourceType === "supply" && guaranteedCampSupplyIds(settlement, definitions).includes(lot.itemId))
+        .filter(lot => lot.sourceType === "supply" && guaranteedCampSupplyIds(settlement, definitions, facilityType).includes(lot.itemId))
         .map(lot => lot.itemId),
       catalogSource: catalogSource || "fallback",
       refreshSerial,
@@ -1287,7 +1353,7 @@
     if (!["시장", "교역소", "상회"].includes(facilityType)) return false;
     let changed = false;
     const cityEventStock = getCityEventModifiers(settlement).stockBySubcategory || {};
-    guaranteedCampSupplyIds(settlement, definitions).forEach(itemId => {
+    guaranteedCampSupplyIds(settlement, definitions, facilityType).forEach(itemId => {
       if (merchant.regionalCampSupplyIds.includes(itemId)) return;
       const definition = definitions.find(item => item.id === itemId);
       if (!definition) return;
@@ -1315,17 +1381,23 @@
     return changed;
   }
 
-  function guaranteedCampSupplyIds(settlement, definitions) {
+  function guaranteedCampSupplyIds(settlement, definitions, facilityType = "") {
     const rarityLimit = CAMP_SUPPLY_RARITY_LIMIT.get(String(settlement?.category || ""));
     if (!rarityLimit) return [];
-    return definitions
+    const regionalSupplies = definitions
       .filter(definition => definition.category === "야영 물품")
       .filter(definition => Math.max(1, Number(definition.rarity) || 1) <= rarityLimit)
       .filter(definition => {
         const requiredRegion = REGIONAL_CAMP_SUPPLY_REGIONS.get(definition.id);
         return !requiredRegion || requiredRegion === settlement.region;
       })
+      .filter(definition => !REGIONAL_FACILITY_RESTRICTED_SUPPLY_IDS.has(definition.id)
+        || ["상회", "교역소"].includes(facilityType))
       .map(definition => definition.id);
+    const metropolisMarketSupplies = String(settlement?.category || "") === "대도시" && facilityType === "시장"
+      ? definitions.filter(definition => METROPOLIS_MARKET_SUPPLY_IDS.has(definition.id)).map(definition => definition.id)
+      : [];
+    return [...new Set([...regionalSupplies, ...metropolisMarketSupplies])];
   }
 
   function generateMerchantStock({ merchantKey, settlement, facilityType, definitions, worldData, refreshSerial, rng }) {
@@ -1443,7 +1515,7 @@
     });
     const supplyItemIds = isGateStall || isCurrencyExchange ? [] : [
       ...(ADDITIONAL_ITEMS[settlement.category] || []),
-      ...guaranteedCampSupplyIds(settlement, definitions)
+      ...guaranteedCampSupplyIds(settlement, definitions, facilityType)
     ];
     supplyItemIds.forEach(itemId => {
       if (stockLots.some(lot => lot.itemId === itemId)) return;
@@ -3919,6 +3991,15 @@
     if (!target || !elements.modal.contains(target)) return;
     const action = target.dataset.tradeAction;
     if (action === "adjust") {
+      const suppressed = suppressedCurrencyClick;
+      if (suppressed
+        && performance.now() <= suppressed.until
+        && target.dataset.tradeKind === "currencies"
+        && target.dataset.tradeOwner === suppressed.owner
+        && target.dataset.tradeKey === suppressed.key) {
+        suppressedCurrencyClick = null;
+        return;
+      }
       adjustSelection(
         target.dataset.tradeOwner,
         target.dataset.tradeKind,
@@ -4152,17 +4233,17 @@
     renderOffers();
   }
 
-  function adjustSelection(owner, kind, key, delta) {
-    if (!current || !["player", "merchant"].includes(owner) || !["goods", "currencies", "information", "notes"].includes(kind)) return;
-    if (current.currencyOnly && kind !== "currencies") return;
-    if (kind === "information" && (owner !== "player" || !["상회", "좌판"].includes(current.facilityType))) return;
-    if (kind === "notes" && (owner !== "player" || !billNotesEligible())) return;
-    if (kind === "currencies" && owner === "merchant" && proposal.player.notes.size > 0) return;
+  function adjustSelection(owner, kind, key, delta, options = {}) {
+    if (!current || !["player", "merchant"].includes(owner) || !["goods", "currencies", "information", "notes"].includes(kind)) return false;
+    if (current.currencyOnly && kind !== "currencies") return false;
+    if (kind === "information" && (owner !== "player" || !["상회", "좌판"].includes(current.facilityType))) return false;
+    if (kind === "notes" && (owner !== "player" || !billNotesEligible())) return false;
+    if (kind === "currencies" && owner === "merchant" && proposal.player.notes.size > 0) return false;
     if (kind === "goods" && owner === "player") {
       const item = window.ProjectWCargo.getInventoryItems().find(entry => entry.instanceId === playerInstanceId(key));
       if (isMarketPurchaseBlocked(owner, item?.definition)) {
         notify("이 시장에서는 전문적인 취급이 필요한 상품을 매입하지 않습니다.");
-        return;
+        return false;
       }
     }
     window.ProjectWCargo.hideTooltip();
@@ -4172,10 +4253,11 @@
     if (next > 0) collection.set(key, next);
     else collection.delete(key);
     if (kind === "notes" && next > previous) proposal.merchant.currencies.clear();
-    if (kind === "currencies" && next !== previous) window.ProjectWAudio?.playEffect("coin");
-    if (kind === "goods" && next !== previous) window.ProjectWAudio?.playEffect("goods");
-    if (kind === "notes" && next !== previous) window.ProjectWAudio?.playEffect("paper");
+    if (!options.silent && kind === "currencies" && next !== previous) window.ProjectWAudio?.playEffect("coin");
+    if (!options.silent && kind === "goods" && next !== previous) window.ProjectWAudio?.playEffect("goods");
+    if (!options.silent && kind === "notes" && next !== previous) window.ProjectWAudio?.playEffect("paper");
     if (next !== previous) renderProposalChange(kind);
+    return next !== previous;
   }
 
   function renderProposalChange(kind) {
@@ -4807,6 +4889,7 @@
 
   function close() {
     if (!elements.modal || (elements.modal.hidden && !suspendedForMap)) return;
+    stopCurrencyHold();
     suspendedForMap = false;
     if (elements.currencyAnalysisLayer) elements.currencyAnalysisLayer.hidden = true;
     dismissMerchantCommentary();
@@ -5043,6 +5126,8 @@
   }
 
   async function getInformationSignals() {
+    const cacheKey = `${worldTimeTick(getWorldTime())}|${informationSignalsRevision}`;
+    if (informationSignalsCache?.key === cacheKey) return informationSignalsCache.value;
     const previousCurrent = current;
     const previousProposal = proposal;
     const [goodsResult, currencyResult, mapLoaded] = await Promise.all([
@@ -5062,6 +5147,7 @@
     const production = [];
     const logistics = [];
     const specialExports = [];
+    let processedSettlements = 0;
     try {
       for (const settlement of worldData.nodes || []) {
         ensureSettlementMerchants({ settlement, definitions, currencies, catalogSource: goodsResult?.source, worldData, worldTime });
@@ -5169,13 +5255,24 @@
             });
           });
         }
+        processedSettlements += 1;
+        if (processedSettlements % 6 === 0) {
+          current = previousCurrent;
+          proposal = previousProposal;
+          await new Promise(resolve => window.setTimeout(resolve, 0));
+        }
       }
     } finally {
       current = previousCurrent;
       proposal = previousProposal;
     }
     persistState();
-    return { market, production, logistics, specialExports };
+    const result = { market, production, logistics, specialExports };
+    informationSignalsCache = {
+      key: `${worldTimeTick(getWorldTime())}|${informationSignalsRevision}`,
+      value: result
+    };
+    return result;
   }
 
   function getSpecialExportSchedule(settlement) {
@@ -5326,6 +5423,8 @@
   function persistState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      informationSignalsRevision += 1;
+      informationSignalsCache = null;
     } catch (error) {
       console.error(error);
       notify("상인의 재고 상태를 저장하지 못했습니다.");
