@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.347";
+const GAME_VERSION = "0.00.348";
 const ACCOUNT_SCHEMA_VERSION = 54;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -9533,7 +9533,7 @@ function advanceGameTime(options = {}) {
   account.worldTime = time;
   account.gatePass = normalizeGatePass(account.gatePass, time.day);
   if (time.day > previousDay) window.ProjectWWallet.advanceMarketToDay(time.day);
-  if (time.day > previousDay) window.ProjectWInformation.advanceToDay(time.day);
+  if (time.day > previousDay) window.ProjectWInformation.advanceToDay(time.day, false);
   if (time.day > previousDay) addCompanionExperience(1, "함께한 하루");
   if (time.day > previousDay) recoverSpiritAfterSleep();
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
@@ -12046,8 +12046,11 @@ async function collectFacilityInformation(type, requestedPlacement = null, optio
     }
     account.informationUsage = normalizeInformationUsage(account.informationUsage, account.worldTime);
     persistAccount();
-    window.ProjectWInformation.refresh();
-    window.ProjectWTrade.refresh();
+    if (!consumesTime) window.ProjectWInformation.refresh();
+    window.ProjectWTrade.refreshInformationState?.({
+      marketChanged: acquiredResults.some(result => result.card?.special === "MARKET_SUBCATEGORY"
+        && result.card?.target?.settlementId === placement.id)
+    });
     if (consumesTime && currentTimePhase() === "밤" && type !== "여관") {
       window.ProjectWMeal.close();
       closeServiceModal();
@@ -12056,8 +12059,8 @@ async function collectFacilityInformation(type, requestedPlacement = null, optio
     updateInformationButton(mealInfoCollect, "주점", placement);
     if (activeServiceContext) updateInformationButton(serviceInfoCollect, activeServiceContext.type, activeServiceContext.placement);
     if (activeServiceContext?.type === "상업조합") renderServiceGuildProfile();
-    if (activePortContext) renderPortModal();
-    window.ProjectWInn.refresh();
+    if (type === "항구" && activePortContext) renderPortModal();
+    if (type === "여관") window.ProjectWInn.refresh();
     const failedCount = Math.max(0, attemptsToUse - acquiredResults.length);
     const resultSummary = acquiredResults.length
       ? `정보 수집 ${attemptsToUse}회 · 정보 ${acquiredResults.length}건 획득${failedCount ? ` · ${failedCount}회 실패` : ""}`

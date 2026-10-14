@@ -1014,7 +1014,7 @@
     return [...companies, ...(NON_COMPANY_TRADE_FACILITIES[category] || [])];
   }
 
-  function ensureMerchant({ merchantKey, settlement, facilityType, definitions, currencies, catalogSource, worldData, worldTime }) {
+  function ensureMerchant({ merchantKey, settlement, facilityType, definitions, currencies, catalogSource, worldData, worldTime, persist = true }) {
     const currentTick = worldTimeTick(worldTime);
     const prepared = prepareMerchant({
       merchantKey,
@@ -1030,8 +1030,8 @@
     let changed = catchUpMerchantRefreshes([prepared], currentTick) || prepared.changed;
     changed = applyMerchantStockDeterioration(prepared, worldTime.day) || changed;
     changed = applySpecialExportStockLock(prepared, worldTime) || changed;
-    if (changed) persistState();
-    return { merchant: prepared.merchant, unresolvedProducts: prepared.merchant.unresolvedProducts };
+    if (changed && persist) persistState();
+    return { merchant: prepared.merchant, unresolvedProducts: prepared.merchant.unresolvedProducts, changed };
   }
 
   function prepareMerchant({ merchantKey, settlement, facilityType, definitions, currencies, catalogSource, worldData, worldTime, currentTick }) {
@@ -5329,14 +5329,16 @@
     const worldTime = normalizeWorldTime(getWorldTime());
     const definitionsById = new Map(definitions.map(definition => [definition.id, definition]));
     const definitionsByName = new Map(definitions.map(definition => [definition.name1, definition]));
+    const currenciesById = new Map(currencies.map(currency => [currency.id, currency]));
+    const producedNames = new Set((worldData.nodes || []).flatMap(node => node.productionNames || []));
     const market = [];
     const production = [];
     const logistics = [];
     const specialExports = [];
     let processedSettlements = 0;
+    let stateChanged = false;
     try {
       for (const settlement of worldData.nodes || []) {
-        ensureSettlementMerchants({ settlement, definitions, currencies, catalogSource: goodsResult?.source, worldData, worldTime });
         specialExports.push(...specialExportSchedulesFor(settlement, definitions, worldTime));
         const facility = tradeFacilitiesForSettlement(settlement).find(entry => entry.type !== "환전상")
           || { id: "market", type: "시장" };
@@ -5349,8 +5351,10 @@
           currencies,
           catalogSource: goodsResult?.source,
           worldData,
-          worldTime
+          worldTime,
+          persist: false
         });
+        stateChanged = ensured.changed || stateChanged;
         current = {
           settlement,
           facilityType: facility.type,
@@ -5362,7 +5366,7 @@
           definitions,
           definitionsById,
           currencies,
-          currenciesById: new Map(currencies.map(currency => [currency.id, currency])),
+          currenciesById,
           goodsSource: goodsResult?.source || "fallback",
           currencySource: currencyResult?.source || window.ProjectWWallet.getDataSource(),
           mapSource: mapLoaded && worldData.loaded ? "csv" : "unavailable"
@@ -5421,7 +5425,7 @@
             if (isNonTradeCategory(definition.category)
               || localNames.has(definition.name1)
               || !definition.subcategory
-              || !producingNodes(definition, worldData.nodes).length) return;
+              || !producedNames.has(definition.name1)) return;
             if (!importDefinitionsBySubcategory.has(definition.subcategory)) {
               importDefinitionsBySubcategory.set(definition.subcategory, new Set());
             }
@@ -5452,7 +5456,7 @@
       current = previousCurrent;
       proposal = previousProposal;
     }
-    persistState();
+    if (stateChanged) persistState();
     const result = { market, production, logistics, specialExports };
     informationSignalsCache = {
       key: `${worldTimeTick(getWorldTime())}|${informationSignalsRevision}`,
@@ -5534,6 +5538,20 @@
 
   function refresh() {
     if (current && elements.modal && !elements.modal.hidden) render();
+  }
+
+  function refreshInformationState(options = {}) {
+    if (!current || !elements.modal || elements.modal.hidden) return;
+    if (options.marketChanged) {
+      resetTradeComputationCache();
+      render();
+      return;
+    }
+    if (playerCatalogMode === "information") renderCatalogs();
+    if (proposal.player.information.size || offerFilters.player === "information") renderOffers();
+    if (elements.companyInformationButton && current.facilityType === "상회") {
+      updateCompanyInformationButton(elements.companyInformationButton, current.companyName, current.settlement);
+    }
   }
 
   function focusMerchantItem(itemKey) {
@@ -5679,6 +5697,7 @@
     getResumeState,
     restoreResumeState,
     refresh,
+    refreshInformationState,
     focusMerchantItem,
     dismissMerchantCommentary,
     reset,

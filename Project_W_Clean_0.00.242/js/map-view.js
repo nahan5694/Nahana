@@ -41,6 +41,8 @@
   let tooltipSections = { information: true, events: true, notes: true, dealers: true };
   let mapData = createEmptyData();
   const distanceCache = new Map();
+  const originDistanceCache = new Map();
+  let placementAdjacency = null;
   const elements = {};
 
   function createEmptyData() {
@@ -144,6 +146,8 @@
           placementsById
         };
         distanceCache.clear();
+        originDistanceCache.clear();
+        placementAdjacency = null;
         loaded = true;
         setDataStatus("", true);
         renderSettlementSearchList();
@@ -154,6 +158,9 @@
         console.error(error);
         loaded = false;
         mapData = createEmptyData();
+        distanceCache.clear();
+        originDistanceCache.clear();
+        placementAdjacency = null;
         renderMapContents();
         const directFile = window.location.protocol === "file:";
         const status = directFile
@@ -1357,11 +1364,7 @@
     const origin = mapData.placementsById.get(originNodeId);
     if (!loaded || origin?.kind !== "node") return [];
 
-    const adjacency = new Map();
-    mapData.connections.forEach(connection => {
-      appendNeighbor(adjacency, connection.fromId, connection.toId);
-      appendNeighbor(adjacency, connection.toId, connection.fromId);
-    });
+    const adjacency = getPlacementAdjacency();
 
     const routes = new Map();
     const queue = [{ id: originNodeId, path: [originNodeId] }];
@@ -1393,28 +1396,38 @@
     if (fromId === toId) return 0;
     const cacheKey = [fromId, toId].sort((left, right) => left.localeCompare(right)).join("|");
     if (distanceCache.has(cacheKey)) return distanceCache.get(cacheKey);
-    const adjacency = new Map();
+    const distances = distancesFromPlacement(fromId);
+    const distance = distances.get(toId) ?? Number.POSITIVE_INFINITY;
+    distanceCache.set(cacheKey, distance);
+    return distance;
+  }
+
+  function getPlacementAdjacency() {
+    if (placementAdjacency) return placementAdjacency;
+    placementAdjacency = new Map();
     mapData.connections.forEach(connection => {
-      appendNeighbor(adjacency, connection.fromId, connection.toId);
-      appendNeighbor(adjacency, connection.toId, connection.fromId);
+      appendNeighbor(placementAdjacency, connection.fromId, connection.toId);
+      appendNeighbor(placementAdjacency, connection.toId, connection.fromId);
     });
-    const queue = [{ id: fromId, distance: 0 }];
-    const visited = new Set([fromId]);
-    while (queue.length) {
-      const current = queue.shift();
-      for (const neighborId of adjacency.get(current.id) ?? []) {
-        if (visited.has(neighborId)) continue;
-        const distance = current.distance + 1;
-        if (neighborId === toId) {
-          distanceCache.set(cacheKey, distance);
-          return distance;
-        }
-        visited.add(neighborId);
-        queue.push({ id: neighborId, distance });
+    return placementAdjacency;
+  }
+
+  function distancesFromPlacement(originId) {
+    if (originDistanceCache.has(originId)) return originDistanceCache.get(originId);
+    const adjacency = getPlacementAdjacency();
+    const distances = new Map([[originId, 0]]);
+    const queue = [originId];
+    for (let index = 0; index < queue.length; index += 1) {
+      const currentId = queue[index];
+      const distance = distances.get(currentId) || 0;
+      for (const neighborId of adjacency.get(currentId) ?? []) {
+        if (distances.has(neighborId)) continue;
+        distances.set(neighborId, distance + 1);
+        queue.push(neighborId);
       }
     }
-    distanceCache.set(cacheKey, Number.POSITIVE_INFINITY);
-    return Number.POSITIVE_INFINITY;
+    originDistanceCache.set(originId, distances);
+    return distances;
   }
 
   function getTradeWorldData() {

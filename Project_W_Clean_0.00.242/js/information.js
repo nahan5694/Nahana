@@ -112,10 +112,14 @@
   let collectionPending = false;
   let loadError = "";
   let definitions = [];
+  let definitionsBySpecial = new Map();
+  let definitionsBySpecialAndLinkedId = new Map();
   let rules = [];
   let ruleBook = createDefaultRuleBook();
   let elements = {};
   let acquiredInformationVisible = false;
+  let normalizedStateReference = null;
+  let normalizedStateDay = 0;
   const acquiredInformationQueue = [];
   const collectionTooltipButtons = new WeakSet();
 
@@ -201,6 +205,7 @@
           window.ProjectWData.loadCsv(ruleUrl)
         ]);
         definitions = definitionRows.map(parseDefinition).filter(definition => definition.id && definition.special);
+        rebuildDefinitionIndexes();
         rules = ruleRows.map(parseRule).filter(rule => rule.id);
         if (!definitions.length || !rules.length) throw new Error("Information / Information_Rule 시트의 행과 칼럼을 확인해 주세요.");
         ruleBook = buildRuleBook(rules);
@@ -244,6 +249,24 @@
       maximumAgeDays: informationMaximumAgeDays(row["유효기간"], special),
       developer: text(row["개발자설명"])
     };
+  }
+
+  function rebuildDefinitionIndexes() {
+    definitionsBySpecial = new Map();
+    definitionsBySpecialAndLinkedId = new Map();
+    definitions.forEach(definition => {
+      if (!definitionsBySpecial.has(definition.special)) definitionsBySpecial.set(definition.special, []);
+      definitionsBySpecial.get(definition.special).push(definition);
+      definitionsBySpecialAndLinkedId.set(`${definition.special}|${definition.linkedId}`, definition);
+    });
+  }
+
+  function definitionsForSpecial(special) {
+    return definitionsBySpecial.get(text(special)) || [];
+  }
+
+  function definitionForSpecialAndLinkedId(special, linkedId) {
+    return definitionsBySpecialAndLinkedId.get(`${text(special)}|${text(linkedId)}`) || null;
   }
 
   function parseRule(row) {
@@ -402,14 +425,20 @@
 
   function currentState() {
     const before = getState();
+    const today = currentDay();
+    if (before && before === normalizedStateReference && today === normalizedStateDay) return before;
     const normalized = normalizeState(before);
-    if (JSON.stringify(before || null) !== JSON.stringify(normalized)) setState(normalized);
+    setState(normalized);
+    normalizedStateReference = normalized;
+    normalizedStateDay = today;
     return normalized;
   }
 
   function storeState(state, shouldPersist = true, shouldRefresh = true) {
     const normalized = normalizeState(state);
     setState(normalized);
+    normalizedStateReference = normalized;
+    normalizedStateDay = currentDay();
     if (shouldPersist) persist();
     if (shouldRefresh) refresh();
     return normalized;
@@ -438,13 +467,19 @@
     collectionPending = true;
     const requestedAttempts = Math.max(1, integer(attempts, 1));
     const candidateCache = {};
+    const batchContext = {
+      state: currentState(),
+      discoveredKeys: null,
+      changed: false
+    };
     const results = [];
     try {
       for (let attempt = 0; attempt < requestedAttempts; attempt += 1) {
         const result = await collectInformation({
           ...options,
           candidateCache,
-          deferStore: true
+          deferStore: true,
+          batchContext
         });
         results.push(result);
         if (!result?.attempted) break;
@@ -455,6 +490,7 @@
       results.push({ acquired: false, attempted: false, message: "정보를 준비하지 못했습니다. 횟수와 시간은 소모되지 않았습니다. 다시 시도해 주세요." });
       return results;
     } finally {
+      if (batchContext.changed) storeState(batchContext.state, true, false);
       collectionPending = false;
     }
   }
@@ -468,17 +504,20 @@
     preferredSettlementIds = [],
     preferredSettlementMultiplier = PORT_DESTINATION_INFORMATION_WEIGHT_MULTIPLIER,
     candidateCache = null,
-    deferStore = false
+    deferStore = false,
+    batchContext = null
   } = {}) {
     if (!await load()) return { acquired: false, attempted: false, message: loadError };
-    const state = currentState();
+    const state = batchContext?.state || currentState();
     // Developer replacement stays local until a new card has been generated successfully.
     if (force && replaceWolfenTrack) {
       state.cards = state.cards.filter(card => card.special !== "WOLFEN_TRACK");
       state.discoveredKeys = state.discoveredKeys.filter(key => !text(key).startsWith("WOLFEN:"));
     }
     const requestedSpecial = text(special);
-    const discoveredKeys = new Set(state.discoveredKeys);
+    const discoveredKeys = batchContext
+      ? (batchContext.discoveredKeys ||= new Set(state.discoveredKeys))
+      : new Set(state.discoveredKeys);
     let availableCandidates = Array.isArray(candidateCache?.candidates)
       ? candidateCache.candidates
       : null;
@@ -514,8 +553,10 @@
         MARKET_INFORMATION_SHOCK_CENTER
       ) * direction;
       target.marketState = finalMarketState(number(target.index) + target.marketShock);
-      template = definitions.find(entry => entry.special === "MARKET_SUBCATEGORY"
-        && entry.linkedId === `MARKET_SUBCATEGORY:${target.subcategory}:${target.marketState}`) || template;
+      template = definitionForSpecialAndLinkedId(
+        "MARKET_SUBCATEGORY",
+        `MARKET_SUBCATEGORY:${target.subcategory}:${target.marketState}`
+      ) || template;
     }
     const grade = template.special === "WOLFEN_TRACK"
       ? 0
@@ -575,16 +616,12 @@
     }
     state.cards.push(card);
     state.discoveredKeys.push(selected.instanceKey);
-    state.discoveredKeys = [...new Set(state.discoveredKeys)];
-    const normalizedState = normalizeState(state);
-    const storedCard = normalizedState.cards.find(entry => entry.id === card.id);
-    if (!storedCard) {
-      console.error("새로 획득한 정보가 저장 정리 과정에서 제거되었습니다.", card);
-      return { acquired: false, attempted: true, message: "정보를 기록하지 못했습니다. 다시 시도해 주세요." };
-    }
-    applyAcquisitionEffect(storedCard);
-    storeState(normalizedState, !deferStore, !deferStore);
-    const presentedCard = presentCard(storedCard);
+    discoveredKeys.add(selected.instanceKey);
+    if (batchContext) batchContext.changed = true;
+    else state.discoveredKeys = [...discoveredKeys];
+    applyAcquisitionEffect(card);
+    if (!batchContext) storeState(state, !deferStore, !deferStore);
+    const presentedCard = presentCard(card);
     showAcquiredInformation(presentedCard);
     return {
       acquired: true,
@@ -708,22 +745,24 @@
       });
     };
 
-    definitions.filter(template => template.special === "CITY_EVENT").forEach(template => {
-      settlements.forEach(settlement => {
-        array(getCityEvents(settlement)).filter(event => event.id === template.linkedId).forEach(event => {
-          const startDay = today - Math.max(0, number(event.duration, 1) - number(event.remainingDays, 1));
-          push(template, `CITY:${settlement.id}:${event.id}:${startDay}`, { 거점명: settlement.name }, {
-            settlementId: settlement.id,
-            eventId: event.id
-          });
+    settlements.forEach(settlement => {
+      array(getCityEvents(settlement)).forEach(event => {
+        const template = definitionForSpecialAndLinkedId("CITY_EVENT", event.id);
+        if (!template) return;
+        const startDay = today - Math.max(0, number(event.duration, 1) - number(event.remainingDays, 1));
+        push(template, `CITY:${settlement.id}:${event.id}:${startDay}`, { 거점명: settlement.name }, {
+          settlementId: settlement.id,
+          eventId: event.id
         });
       });
     });
 
     array(signals?.market).forEach(signal => {
       if (signal.state === "STEADY") return;
-      const template = definitions.find(entry => entry.special === "MARKET_SUBCATEGORY"
-        && entry.linkedId === `MARKET_SUBCATEGORY:${signal.subcategory}:${signal.state}`);
+      const template = definitionForSpecialAndLinkedId(
+        "MARKET_SUBCATEGORY",
+        `MARKET_SUBCATEGORY:${signal.subcategory}:${signal.state}`
+      );
       push(template, `MARKET:${signal.settlementId}:${signal.subcategory}:${week}:${signal.state}`, {
         거점명: signal.settlementName
       }, { ...signal, kind: "market" });
@@ -735,7 +774,7 @@
     if (!hasValidWolfenTrack(state) && wolfenState.positionId) {
       const route = routes.find(entry => entry.id === wolfenState.positionId) || {};
       const nearest = nearestSettlement(route, settlements);
-      pushVariants(definitions.filter(template => template.special === "WOLFEN_TRACK"),
+      pushVariants(definitionsForSpecial("WOLFEN_TRACK"),
         `WOLFEN:${wolfenState.positionId}:${integer(wolfenState.relocationSerial)}:${today}`, {
           울펜_경로명: route.name || "이름 없는 길",
           울펜_인근거점명: nearest?.name || "인근 거점",
@@ -744,22 +783,25 @@
     }
 
     array(signals?.production).forEach(signal => {
-      const template = definitions.find(entry => entry.special === "PRODUCTION_FORECAST"
-        && entry.linkedId === `PRODUCTION_FORECAST:${signal.subcategory}:${signal.direction}`);
+      const template = definitionForSpecialAndLinkedId(
+        "PRODUCTION_FORECAST",
+        `PRODUCTION_FORECAST:${signal.subcategory}:${signal.direction}`
+      );
       push(template, `PRODUCTION:${signal.settlementId}:${signal.subcategory}:${week}:${signal.direction}`, {
         거점명: signal.settlementName
       }, { ...signal, kind: "production" });
     });
     array(signals?.logistics).forEach(signal => {
-      const template = definitions.find(entry => entry.special === "IMPORT_LOGISTICS"
-        && entry.linkedId === `IMPORT_LOGISTICS:${signal.subcategory}:${signal.direction}`);
+      const template = definitionForSpecialAndLinkedId(
+        "IMPORT_LOGISTICS",
+        `IMPORT_LOGISTICS:${signal.subcategory}:${signal.direction}`
+      );
       push(template, `LOGISTICS:${signal.settlementId}:${signal.subcategory}:${week}:${signal.direction}`, {
         거점명: signal.settlementName
       }, { ...signal, kind: "logistics" });
     });
     array(signals?.specialExports).forEach(signal => {
-      const template = definitions.find(entry => entry.special === "SPECIAL_EXPORT_SCHEDULE"
-        && entry.linkedId === "SPECIAL_EXPORT_SCHEDULE");
+      const template = definitionForSpecialAndLinkedId("SPECIAL_EXPORT_SCHEDULE", "SPECIAL_EXPORT_SCHEDULE");
       push(template, `SPECIAL_EXPORT:${signal.settlementId}:${signal.week}:${signal.subcategory}`, {
         거점명: signal.settlementName,
         세부분류: signal.subcategory,
@@ -769,8 +811,8 @@
     });
 
     array(getCurrencyTrends()).forEach(signal => {
-      const variants = definitions.filter(entry => entry.special === "CURRENCY_TREND"
-        && entry.linkedId.startsWith(`CURRENCY_TREND:${signal.direction}:`));
+      const variants = definitionsForSpecial("CURRENCY_TREND")
+        .filter(entry => entry.linkedId.startsWith(`CURRENCY_TREND:${signal.direction}:`));
       pushVariants(variants, `CURRENCY:${signal.region}:${signal.currencyId}:${signal.trendStartDay}`, {
         화폐명: signal.currencyName,
         지역명: signal.region
@@ -780,8 +822,8 @@
     routeSecurityContexts(routes, state).forEach(signal => {
       if (signal.security > 30) return;
       const band = signal.security <= 15 ? "SEVERE" : "HIGH";
-      pushVariants(definitions.filter(entry => entry.special === "ROUTE_SECURITY_RISK"
-        && entry.linkedId.startsWith(`ROUTE_SECURITY_RISK:${band}:`)),
+      pushVariants(definitionsForSpecial("ROUTE_SECURITY_RISK")
+        .filter(entry => entry.linkedId.startsWith(`ROUTE_SECURITY_RISK:${band}:`)),
       `SECURITY:${signal.segmentId}:${week}:${band}`, {
           경로명: signal.name
         }, {
@@ -845,8 +887,8 @@
   function buildWeatherCandidates({ settlements, routes, cycle, pushVariants }) {
     settlements.forEach(settlement => {
       const weather = weatherLabel(settlement.id);
-      pushVariants(definitions.filter(template => template.special === "WEATHER_SNAPSHOT"
-        && template.linkedId.startsWith(`WEATHER:SETTLEMENT:${weather}:`)),
+      pushVariants(definitionsForSpecial("WEATHER_SNAPSHOT")
+        .filter(template => template.linkedId.startsWith(`WEATHER:SETTLEMENT:${weather}:`)),
       `WEATHER:SETTLEMENT:${settlement.id}:${weather}:${cycle}`, { 거점명: settlement.name }, {
           kind: "weather", targetKind: "settlement", targetId: settlement.id, weather
         });
@@ -856,8 +898,8 @@
       const nodes = settlements.filter(settlement => settlement.region === region);
       const weather = dominantWeather(nodes.map(node => weatherLabel(node.id)));
       if (!weather) return;
-      pushVariants(definitions.filter(template => template.special === "WEATHER_SNAPSHOT"
-        && template.linkedId.startsWith(`WEATHER:REGION:${weather}:`)),
+      pushVariants(definitionsForSpecial("WEATHER_SNAPSHOT")
+        .filter(template => template.linkedId.startsWith(`WEATHER:REGION:${weather}:`)),
       `WEATHER:REGION:${region}:${weather}:${cycle}`, { 지역명: region }, {
           kind: "weather", targetKind: "region", targetId: region, weather
         });
@@ -870,8 +912,8 @@
       const ratio = labels.filter(label => label === weather).length / labels.length;
       const longestRun = longestWeatherRun(labels, weather);
       if (ratio < .75 || longestRun < 3) return;
-      pushVariants(definitions.filter(template => template.special === "ROUTE_WEATHER_SHARED"
-        && template.linkedId.startsWith(`WEATHER:ROUTE:${weather}:`)),
+      pushVariants(definitionsForSpecial("ROUTE_WEATHER_SHARED")
+        .filter(template => template.linkedId.startsWith(`WEATHER:ROUTE:${weather}:`)),
       `WEATHER:ROUTE:${group.segmentId}:${weather}:${cycle}`, { 경로명: group.name }, {
           kind: "weather", targetKind: "route", targetId: group.segmentId, weather
         }, ["폭우", "폭설"].includes(weather) ? 1.25 : 1);
@@ -1495,10 +1537,10 @@
     return empty;
   }
 
-  function advanceToDay(day = currentDay()) {
+  function advanceToDay(day = currentDay(), shouldRefresh = true) {
     const state = currentState();
     ensureRouteSecurity(state, getRoutes(), day);
-    storeState(state);
+    storeState(state, true, shouldRefresh);
     return state;
   }
 
