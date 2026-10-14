@@ -2,6 +2,11 @@
   const STATE_SCHEMA_VERSION = 4;
   const BASE_EVENT_CHANCE = 0.25;
   const WOLF_EVENT_IDS = ["R_E_002", "R_E_003", "R_E_004"];
+  const ENCOUNTER_COOLDOWN_OVERRIDES = new Map([
+    ["R_E_005", 45],
+    ["R_E_006", 60],
+    ["R_E_007", 180]
+  ]);
 
   let dataUrl = "";
   let getState = () => null;
@@ -117,8 +122,9 @@
   }
 
   function parseDefinition(row) {
+    const id = text(row.ID);
     return {
-      id: text(row.ID),
+      id,
       name: text(row["이름"]) || "이름 없는 경로 사건",
       category: text(row["분류"]) || "일반",
       assetId: text(row["에셋"]),
@@ -137,9 +143,9 @@
         weather: weightPair(row["기후 플러스"], row["기후 마이너스"]),
         season: weightPair(row["계절 플러스"], row["계절 마이너스"]),
         stability: number(row["안정도 보정"]),
-        security: number(row["치안 보정"]) || (text(row.ID) === "R_E_001" ? 2 : 0)
+        security: number(row["치안 보정"]) || (id === "R_E_001" ? 2 : 0)
       },
-      cooldown: Math.max(0, integer(row["재발대기"], 0)),
+      cooldown: ENCOUNTER_COOLDOWN_OVERRIDES.get(id) ?? Math.max(0, integer(row["재발대기"], 0)),
       description: text(row["효과 설명"]),
       developer: text(row["개발자용 설명"])
     };

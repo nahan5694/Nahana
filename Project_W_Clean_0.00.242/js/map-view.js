@@ -15,6 +15,7 @@
   let getAssetUrl = () => "";
   let getInformationCards = () => [];
   let getCityEvents = () => [];
+  let getSpecialExportSchedules = () => [];
   let getSettlementNotes = () => [];
   let getSettlementOutletGoods = () => [];
   let getEntryTariffPreview = () => null;
@@ -51,6 +52,9 @@
     getAssetUrl = typeof options.getAssetUrl === "function" ? options.getAssetUrl : getAssetUrl;
     getInformationCards = typeof options.getInformationCards === "function" ? options.getInformationCards : getInformationCards;
     getCityEvents = typeof options.getCityEvents === "function" ? options.getCityEvents : getCityEvents;
+    getSpecialExportSchedules = typeof options.getSpecialExportSchedules === "function"
+      ? options.getSpecialExportSchedules
+      : getSpecialExportSchedules;
     getSettlementNotes = typeof options.getSettlementNotes === "function" ? options.getSettlementNotes : getSettlementNotes;
     getSettlementOutletGoods = typeof options.getSettlementOutletGoods === "function" ? options.getSettlementOutletGoods : getSettlementOutletGoods;
     getEntryTariffPreview = typeof options.getEntryTariffPreview === "function" ? options.getEntryTariffPreview : getEntryTariffPreview;
@@ -187,7 +191,15 @@
         environments: splitValues(cell(row, "환경 분류")),
         description: cell(row, "설명"),
         entryTariffRate: parsePercent(cell(row, "입장관세") || cell(row, "입장 관세")),
-        companyNames: [cell(row, "상회_1"), cell(row, "상회_2")].filter(Boolean),
+        companyNames: Object.entries(row)
+          .filter(([header, value]) => /^상회(?:_\d+)?$/.test(String(header).trim()) && String(value).trim())
+          .sort(([left], [right]) => String(left).localeCompare(String(right), "ko", { numeric: true }))
+          .map(([, value]) => String(value).trim()),
+        sailingRoutes: Object.entries(row)
+          .filter(([header, value]) => /^항해(?:_\d+)?$/.test(String(header).trim()) && String(value).trim())
+          .sort(([left], [right]) => String(left).localeCompare(String(right), "ko", { numeric: true }))
+          .map(([, value]) => parseSailingRoute(value))
+          .filter(Boolean),
         specialtyNames: Object.entries(row)
           .filter(([header, value]) => /^특산물(?:_\d+)?$/.test(String(header).trim()) && String(value).trim())
           .map(([, value]) => String(value).trim()),
@@ -367,7 +379,8 @@
     const meta = document.createElement("span");
     meta.className = "map-search-item-meta";
     const information = document.createElement("em");
-    const informationCount = informationCardsForPlacement(settlement).length;
+    const informationCount = informationCardsForPlacement(settlement).length
+      + specialExportSchedulesForPlacement(settlement).length;
     information.textContent = String(informationCount);
     information.setAttribute("aria-label", `보유 정보 ${informationCount}개`);
     information.title = `보유 정보 ${informationCount}개`;
@@ -615,12 +628,33 @@
       const route = destinationSelection.routesByNodeId.get(placement.id);
       const weatherInfo = destinationSelection.weatherInfoByPlacementId.get(placement.id);
       const selectable = placement.kind === "node" && Boolean(route);
+      const sailingOrigin = placement.kind === "node"
+        && destinationSelection.mode === "sailing"
+        && placement.id === destinationSelection.originPlacementId;
       marker.classList.toggle("is-destination-choice", selectable);
+      marker.classList.toggle("is-sailing-destination", selectable && destinationSelection.mode === "sailing");
+      marker.classList.toggle("is-sailing-origin", sailingOrigin);
       marker.classList.toggle("is-destination-route-point", placement.kind === "dot" && destinationSelection.activePlacementIds.has(placement.id));
       marker.classList.toggle("is-destination-disabled", !selectable && !marker.classList.contains("is-destination-route-point"));
       marker.setAttribute("aria-disabled", String(!selectable));
+      if (sailingOrigin) {
+        const sailingOriginMeta = document.createElement("span");
+        sailingOriginMeta.className = "map-sailing-origin-meta";
+        sailingOriginMeta.textContent = "정기선 출항";
+        marker.append(sailingOriginMeta);
+        marker.setAttribute("aria-label", `${placement.name || "현재 항구"}, 정기선 출항지`);
+      }
       if (selectable) {
-        marker.setAttribute("aria-label", `${placement.name || "이름 없는 거점"} 방면 선택`);
+        if (destinationSelection.mode === "sailing") {
+          const sailingMeta = document.createElement("span");
+          sailingMeta.className = "map-destination-sailing-meta";
+          sailingMeta.textContent = `${Math.max(1, Math.trunc(Number(route.sailingDays) || 1))}일 / ${Math.max(0, Math.round(Number(route.sailingFare) || 0)).toLocaleString("ko-KR")}`;
+          marker.append(sailingMeta);
+        }
+        const sailingAria = destinationSelection.mode === "sailing"
+          ? `, ${route.sailingDays}일, 운임 ${Math.max(0, Math.round(Number(route.sailingFare) || 0)).toLocaleString("ko-KR")} 가치`
+          : "";
+        marker.setAttribute("aria-label", `${placement.name || "이름 없는 거점"} 방면 선택${sailingAria}`);
         marker.addEventListener("click", () => selectDestination(route));
       }
       if (weatherInfo) {
@@ -755,6 +789,26 @@
         }
         return [outline, line];
       });
+    if (destinationSelection?.directRoutes?.length) {
+      destinationSelection.directRoutes
+        .filter(route => {
+          const from = mapData.placementsById.get(route.path[0]);
+          const to = mapData.placementsById.get(route.path.at(-1));
+          if (!from || !to) return false;
+          const crop = currentCrop();
+          const cropEnd = crop.startY + crop.height;
+          return Math.max(from.y, to.y) >= crop.startY && Math.min(from.y, to.y) <= cropEnd;
+        })
+        .forEach(route => {
+          const from = globalToLocalPoint(mapData.placementsById.get(route.path[0]));
+          const to = globalToLocalPoint(mapData.placementsById.get(route.path.at(-1)));
+          const outline = createSvgLine(route, from, to, "map-route-outline");
+          const line = createSvgLine(route, from, to, "map-route-line");
+          outline.classList.add("is-destination-route", "is-sailing-route");
+          line.classList.add("is-destination-route", "is-sailing-route");
+          fragments.push(outline, line);
+        });
+    }
     elements.routes.replaceChildren(...fragments);
   }
 
@@ -784,7 +838,10 @@
   function showInformationTooltip(placement, options = {}) {
     const cityEvents = options.wolfenOnly ? [] : tooltipSections.events ? cityEventsForPlacement(placement) : [];
     const cards = options.wolfenOnly || tooltipSections.information ? informationCardsForPlacement(placement, options) : [];
-    if (!cityEvents.length && !cards.length) {
+    const specialExports = options.wolfenOnly || !tooltipSections.information
+      ? []
+      : specialExportSchedulesForPlacement(placement);
+    if (!cityEvents.length && !cards.length && !specialExports.length) {
       elements.informationTooltip.classList.remove("has-city-events");
       elements.informationTooltip.hidden = true;
       elements.informationTooltip.replaceChildren();
@@ -796,9 +853,9 @@
     const fragment = document.createDocumentFragment();
     const header = document.createElement("header");
     const title = document.createElement("strong");
-    title.textContent = cityEvents.length ? "확인한 거점 소식" : "보유 정보";
+    title.textContent = cityEvents.length ? "확인한 거점 소식" : specialExports.length ? "직접 확인한 항구 정보" : "보유 정보";
     const count = document.createElement("span");
-    count.textContent = [cityEvents.length ? `사건 ${cityEvents.length}` : "", cards.length ? `정보 ${cards.length}` : ""]
+    count.textContent = [cityEvents.length ? `사건 ${cityEvents.length}` : "", cards.length ? `정보 ${cards.length}` : "", specialExports.length ? `수출 ${specialExports.length}` : ""]
       .filter(Boolean).join(" · ");
     header.append(title, count);
     fragment.append(header);
@@ -807,6 +864,7 @@
     list.className = "map-information-list";
     cityEvents.forEach(event => list.append(buildCityEventCard(event)));
     cards.forEach(card => list.append(buildInformationCard(card)));
+    specialExports.forEach(schedule => list.append(buildSpecialExportCard(schedule)));
     fragment.append(list);
     elements.informationTooltip.replaceChildren(fragment);
     elements.informationTooltip.hidden = false;
@@ -855,6 +913,31 @@
       .sort((left, right) => Number(left.remainingDays) - Number(right.remainingDays)
         || Number(right.grade) - Number(left.grade)
         || String(left.title).localeCompare(String(right.title), "ko"));
+  }
+
+  function specialExportSchedulesForPlacement(placement) {
+    if (!placement || placement.kind !== "node") return [];
+    return [...getSpecialExportSchedules(placement)]
+      .filter(schedule => schedule?.subcategory && Number(schedule?.remainingDays) > 0)
+      .sort((left, right) => Number(left.remainingDays) - Number(right.remainingDays)
+        || String(left.subcategory).localeCompare(String(right.subcategory), "ko"));
+  }
+
+  function buildSpecialExportCard(schedule) {
+    const section = document.createElement("section");
+    section.className = "map-information-card map-special-export-card";
+    const title = document.createElement("strong");
+    title.className = "map-information-card-title";
+    title.textContent = `${schedule.subcategory} 특별수출일정`;
+    const meta = document.createElement("dl");
+    appendTooltipRow(meta, "매입 보정", `+${Math.round(Number(schedule.bonusPercent) || 0)}%`);
+    appendTooltipRow(meta, "잔여일수", `${Math.max(1, Math.trunc(Number(schedule.remainingDays) || 1))}일`);
+    const contentLabel = document.createElement("small");
+    contentLabel.textContent = "항구에서 직접 확인";
+    const content = document.createElement("p");
+    content.textContent = "외국행 선단이 이 상품군을 모으고 있습니다. 상인의 해당 상품 재고는 매진 처리됩니다.";
+    section.append(title, meta, contentLabel, content);
+    return section;
   }
 
   function buildInformationCard(card) {
@@ -1342,6 +1425,7 @@
         terrains: [...node.terrains],
         environments: [...node.environments],
         companyNames: [...(node.companyNames || [])],
+        sailingRoutes: (node.sailingRoutes || []).map(route => ({ ...route })),
         productionNames: [...(node.productionNames || [])],
         logisticsNames: [...(node.logisticsNames || [])],
         specialtyNames: [...(node.specialtyNames || [])],
@@ -1383,12 +1467,15 @@
     });
 
     destinationSelection = {
+      mode: String(options.mode || "").trim(),
+      originPlacementId: String(options.originPlacementId || "").trim(),
       routesByNodeId,
       activePlacementIds,
       routeKeys,
       weatherInfoByPlacementId: options.weatherInfoByPlacementId instanceof Map
         ? new Map(options.weatherInfoByPlacementId)
         : new Map(),
+      directRoutes: options.directRoutes === true ? validRoutes : [],
       onSelect: typeof options.onSelect === "function" ? options.onSelect : null,
       onCancel: typeof options.onCancel === "function" ? options.onCancel : null
     };
@@ -1396,8 +1483,13 @@
     elements.root.classList.add("is-destination-selection");
     elements.destinationPicker.hidden = false;
     const originName = String(options.originName ?? "현재 거점").trim() || "현재 거점";
-    elements.destinationMessage.textContent = `${originName}에서 이어진 ${validRoutes.length}개 거점 중 하나를 선택하세요.`;
-    focusPlayerPosition();
+    elements.destinationMessage.textContent = String(options.message || "").trim()
+      || `${originName}에서 이어진 ${validRoutes.length}개 거점 중 하나를 선택하세요.`;
+    elements.destinationCancel.textContent = String(options.cancelLabel || "취소").trim() || "취소";
+    const focusPlacement = mapData.placementsById.get(String(options.focusPlacementId || ""));
+    const focusMapId = focusPlacement ? mapIdForRegion(focusPlacement.region) || mapIdForY(focusPlacement.y) : "";
+    if (focusMapId) setCurrentMap(focusMapId);
+    else focusPlayerPosition();
   }
 
   function endDestinationSelection() {
@@ -1406,6 +1498,7 @@
     hideTooltip();
     elements.root.classList.remove("is-destination-selection");
     elements.destinationPicker.hidden = true;
+    elements.destinationCancel.textContent = "취소";
     renderMapContents();
   }
 
@@ -1482,6 +1575,14 @@
       .split(",")
       .map(item => item.trim())
       .filter(Boolean);
+  }
+
+  function parseSailingRoute(value) {
+    const parts = String(value ?? "").split(",").map(item => item.trim()).filter(Boolean);
+    if (parts.length < 2) return null;
+    const days = Math.max(1, Math.trunc(Number(parts.at(-1)) || 0));
+    const destinationName = parts.slice(0, -1).join(",").trim();
+    return destinationName && days ? { destinationName, days } : null;
   }
 
   function mapName(mapId) {

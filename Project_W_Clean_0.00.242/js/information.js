@@ -8,6 +8,7 @@
   const LOCAL_INFORMATION_FACILITIES = new Set(["주점", "여관"]);
   const NEARBY_INFORMATION_DISTANCE = 14;
   const LOCAL_INFORMATION_WEIGHT_MULTIPLIER = 8;
+  const PORT_DESTINATION_INFORMATION_WEIGHT_MULTIPLIER = 8;
   const MIDRANGE_INFORMATION_DISTANCE = 25;
   const MIDRANGE_INFORMATION_WEIGHT_MULTIPLIER = 3;
   const DISTANT_INFORMATION_WEIGHT_MULTIPLIER = .35;
@@ -27,6 +28,7 @@
     "MARKET_SUBCATEGORY",
     "PRODUCTION_FORECAST",
     "IMPORT_LOGISTICS",
+    "SPECIAL_EXPORT_SCHEDULE",
     "CURRENCY_TREND"
   ]);
   const GRADE_VI_EFFECTIVE_WEIGHT = 11;
@@ -95,7 +97,7 @@
   let getWeather = () => ({ label: "맑음" });
   let getWolfenState = () => ({});
   let getCurrencyTrends = () => [];
-  let getInformationSignals = async () => ({ market: [], production: [], logistics: [] });
+  let getInformationSignals = async () => ({ market: [], production: [], logistics: [], specialExports: [] });
   let getPeddlerInformationBonuses = () => ({ successChance: 0, misinformationReduction: 0, sourceLevel: 0 });
   let applyMarketShock = () => {};
   let scheduleRestockEffect = () => {};
@@ -327,7 +329,7 @@
       upgradeWolfenDuration
     })).filter(card => {
       if (!card.id || !card.templateId || !card.instanceKey) return false;
-      if (card.special === "WOLFEN_TRACK" && card.specialExpiresDay > 0) return today <= card.specialExpiresDay;
+      if (card.specialExpiresDay > 0) return today <= card.specialExpiresDay;
       return informationAgeDays(card, today) < card.maximumAgeDays;
     });
     return {
@@ -431,7 +433,15 @@
     }
   }
 
-  async function collectInformation({ facility = "", placement = null, force = false, special = "", replaceWolfenTrack = false } = {}) {
+  async function collectInformation({
+    facility = "",
+    placement = null,
+    force = false,
+    special = "",
+    replaceWolfenTrack = false,
+    preferredSettlementIds = [],
+    preferredSettlementMultiplier = PORT_DESTINATION_INFORMATION_WEIGHT_MULTIPLIER
+  } = {}) {
     if (!await load()) return { acquired: false, attempted: false, message: loadError };
     const state = currentState();
     // Developer replacement stays local until a new card has been generated successfully.
@@ -440,7 +450,10 @@
       state.discoveredKeys = state.discoveredKeys.filter(key => !text(key).startsWith("WOLFEN:"));
     }
     const requestedSpecial = text(special);
-    const candidates = (await buildCandidates(state, placement, facility)).filter(candidate => !requestedSpecial
+    const candidates = (await buildCandidates(state, placement, facility, {
+      preferredSettlementIds,
+      preferredSettlementMultiplier
+    })).filter(candidate => !requestedSpecial
       || candidate.template?.special === requestedSpecial
       || array(candidate.variants).some(variant => variant?.special === requestedSpecial));
     if (!candidates.length) return { acquired: false, attempted: false, message: "지금 얻을 수 있는 새로운 정보가 없습니다." };
@@ -489,7 +502,9 @@
       sellable: template.sellable,
       maximumAgeDays: template.maximumAgeDays,
       acquiredDay: today,
-      initialAgeDays: template.special === "WOLFEN_TRACK" || isWeatherInformationSpecial(template.special)
+      initialAgeDays: template.special === "WOLFEN_TRACK"
+        || template.special === "SPECIAL_EXPORT_SCHEDULE"
+        || isWeatherInformationSpecial(template.special)
         ? 0
         : rollInitialInformationAge(peddlerBonuses.sourceLevel, template.maximumAgeDays),
       trustRoll: Math.random(),
@@ -511,7 +526,9 @@
       target,
       specialExpiresDay: template.special === "WOLFEN_TRACK"
         ? today + randomInteger(WOLFEN_TRACK_MINIMUM_DAYS, WOLFEN_TRACK_MAXIMUM_DAYS) - 1
-        : 0
+        : template.special === "SPECIAL_EXPORT_SCHEDULE"
+          ? Math.max(today, integer(target.endDay, today))
+          : 0
     });
     if (isWeatherInformationSpecial(card.special)) {
       state.cards = state.cards.filter(existing => !isWeatherInformationSpecial(existing.special)
@@ -617,7 +634,7 @@
     return entries;
   }
 
-  async function buildCandidates(state, placement, facility = "") {
+  async function buildCandidates(state, placement, facility = "", preference = {}) {
     // Trade signals load the map and current city events before these snapshots are read.
     const signals = await getInformationSignals();
     const discovered = new Set(state.discoveredKeys);
@@ -632,7 +649,8 @@
       if (!template || discovered.has(instanceKey)) return;
       const locality = informationLocalityMultiplier({ facility, placement, target, settlements, routes });
       const facilityMultiplier = informationFacilitySpecialMultiplier(facility, template.special, placement);
-      candidates.push({ template, instanceKey, variables, target, weight: Math.max(.01, template.weight * multiplier * locality * facilityMultiplier) });
+      const preferredMultiplier = informationPreferredTargetMultiplier(target, settlements, routes, preference);
+      candidates.push({ template, instanceKey, variables, target, weight: Math.max(.01, template.weight * multiplier * locality * facilityMultiplier * preferredMultiplier) });
     };
     const pushVariants = (variants, instanceKey, variables = {}, target = {}, multiplier = 1) => {
       const available = array(variants).filter(Boolean);
@@ -647,7 +665,8 @@
         target,
         weight: Math.max(.01, averageWeight * multiplier
           * informationLocalityMultiplier({ facility, placement, target, settlements, routes })
-          * facilityMultiplier)
+          * facilityMultiplier
+          * informationPreferredTargetMultiplier(target, settlements, routes, preference))
       });
     };
 
@@ -699,6 +718,16 @@
       push(template, `LOGISTICS:${signal.settlementId}:${signal.subcategory}:${week}:${signal.direction}`, {
         거점명: signal.settlementName
       }, { ...signal, kind: "logistics" });
+    });
+    array(signals?.specialExports).forEach(signal => {
+      const template = definitions.find(entry => entry.special === "SPECIAL_EXPORT_SCHEDULE"
+        && entry.linkedId === "SPECIAL_EXPORT_SCHEDULE");
+      push(template, `SPECIAL_EXPORT:${signal.settlementId}:${signal.week}:${signal.subcategory}`, {
+        거점명: signal.settlementName,
+        세부분류: signal.subcategory,
+        추가가치: signal.bonusPercent,
+        남은일수: signal.remainingDays
+      }, { ...signal, kind: "special-export" }, SPECIAL_INFORMATION_WEIGHT_MULTIPLIER);
     });
 
     array(getCurrencyTrends()).forEach(signal => {
@@ -752,6 +781,14 @@
       multiplier *= GATE_ECONOMIC_INFORMATION_WEIGHT_MULTIPLIER;
     }
     return multiplier;
+  }
+
+  function informationPreferredTargetMultiplier(target = {}, settlements = [], routes = [], preference = {}) {
+    const preferredIds = new Set(array(preference.preferredSettlementIds).map(text).filter(Boolean));
+    if (!preferredIds.size) return 1;
+    const targetIds = informationTargetPlacementIds(target, settlements, routes);
+    if (!targetIds.some(targetId => preferredIds.has(text(targetId)))) return 1;
+    return Math.max(1, number(preference.preferredSettlementMultiplier, PORT_DESTINATION_INFORMATION_WEIGHT_MULTIPLIER));
   }
 
   function informationTargetPlacementIds(target = {}, settlements = [], routes = []) {
@@ -939,7 +976,7 @@
       content: normalizeInformationGrammar(content),
       accurate,
       ageDays: informationAgeDays(card),
-      remainingDays: card.special === "WOLFEN_TRACK" && card.specialExpiresDay > 0
+      remainingDays: card.specialExpiresDay > 0
         ? Math.max(0, card.specialExpiresDay - currentDay() + 1)
         : Math.max(0, card.maximumAgeDays - informationAgeDays(card)),
       ageLabel: age.label,
@@ -1168,7 +1205,7 @@
     const fields = [
       ["정보 획득 확률", `${Math.round(acquisitionChance() * 100)}%`],
       ["이번 수집", `${Math.max(0, Math.trunc(Number(button.dataset.informationAttemptCount) || 0))}회 일괄 시도`],
-      ["정보 범위", LOCAL_INFORMATION_FACILITIES.has(facility) ? "인근 정보" : "광역 정보", "range"],
+      ["정보 범위", facility === "항구" ? "연결 항구 정보" : LOCAL_INFORMATION_FACILITIES.has(facility) ? "인근 정보" : "광역 정보", "range"],
       ["소모 시간", noTime ? "없음" : "1타임", "cost"],
       ["시간 변화", button.dataset.informationTimeTransition || (noTime ? "변화 없음" : "다음 시간대"), "time"]
     ];

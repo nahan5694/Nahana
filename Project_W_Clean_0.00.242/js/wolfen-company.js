@@ -2,7 +2,7 @@
   const STATE_SCHEMA_VERSION = 2;
   const MOVE_INTERVAL_TIMES = 2;
   const RELOCATION_INTERVAL_TIMES = 25;
-  const ENCOUNTER_COOLDOWN_TIMES = 60;
+  const ENCOUNTER_COOLDOWN_TIMES = 180;
   const REGIONS = ["북부", "중부", "남부"];
 
   let getState = () => null;

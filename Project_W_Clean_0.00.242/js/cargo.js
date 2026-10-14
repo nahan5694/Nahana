@@ -376,6 +376,7 @@
     return {
       quality: nonTradeItem ? "" : (QUALITY_NAMES.has(overrides.quality) ? overrides.quality : "통상품질"),
       qualityRoll: nonTradeItem ? .5 : clampTradeRoll(overrides.qualityRoll),
+      qualityValueDirection: overrides.qualityValueDirection === "merchantSell" ? "merchantSell" : "playerSell",
       originId: nonTradeItem ? "" : (String(overrides.originId || DEFAULT_ORIGIN_ID).trim() || DEFAULT_ORIGIN_ID),
       originName: nonTradeItem ? "" : (String(overrides.originName || DEFAULT_ORIGIN_NAME).trim() || DEFAULT_ORIGIN_NAME),
       originDistance: nonTradeItem || !Number.isFinite(Number(overrides.originDistance))
@@ -391,6 +392,7 @@
     const metadata = createDefaultTradeMetadata(item, definition);
     item.quality = metadata.quality;
     item.qualityRoll = metadata.qualityRoll;
+    item.qualityValueDirection = metadata.qualityValueDirection;
     item.originId = metadata.originId;
     item.originName = metadata.originName;
     item.originDistance = metadata.originDistance;
@@ -1212,7 +1214,7 @@
     const definition = itemDefinitions.get(itemId);
     if (!definition || !elements?.tooltip) return;
     const valueFactorKey = JSON.stringify(Array.isArray(metadata.tradeValueFactors) ? metadata.tradeValueFactors : []);
-    const virtualKey = `definition:${itemId}:${quantity}:${metadata.quality || ""}:${metadata.originId || ""}:${metadata.originDistance ?? ""}:${metadata.originProductKind || ""}:${metadata.originPurchaseBonus ? "origin-buy" : "other-buy"}:${metadata.tradeValue ?? ""}:${metadata.hasTradeValue ? "trade" : "purchase"}:${metadata.purchaseValue || ""}:${metadata.durability || ""}:${metadata.hideOrigin ? "hidden" : "shown"}:${valueFactorKey}`;
+    const virtualKey = `definition:${itemId}:${quantity}:${metadata.quality || ""}:${metadata.qualityRoll ?? ""}:${metadata.qualityValueDirection || ""}:${metadata.originId || ""}:${metadata.originDistance ?? ""}:${metadata.originProductKind || ""}:${metadata.originPurchaseBonus ? "origin-buy" : "other-buy"}:${metadata.tradeValue ?? ""}:${metadata.hasTradeValue ? "trade" : "purchase"}:${metadata.purchaseValue || ""}:${metadata.durability || ""}:${metadata.hideOrigin ? "hidden" : "shown"}:${valueFactorKey}`;
     if (hoveredInstanceId !== virtualKey) {
       clearItemHighlights();
       hoveredInstanceId = virtualKey;

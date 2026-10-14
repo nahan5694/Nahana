@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.330";
-const ACCOUNT_SCHEMA_VERSION = 51;
+const GAME_VERSION = "0.00.340";
+const ACCOUNT_SCHEMA_VERSION = 54;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -18,6 +18,7 @@ const PARTNER_APPETITE_STATUS_IDS = new Set([
   "N_S_025", "N_S_026", "N_S_027", "N_S_028", "N_S_029", "N_S_030", "N_S_031", "N_S_032", "N_S_034"
 ]);
 const TRAVEL_STEP_MS = 30_000;
+const SAILING_STEP_MS = 18_000;
 const TURN_BACK_DURATION_MS = 10_000;
 const MAX_TRAVEL_SEGMENT_MS = 180_000;
 const MAX_TRAVEL_RATE = 4;
@@ -28,7 +29,12 @@ const START_ROUTE = [START_POSITION_ID, START_DESTINATION_ID];
 const TIME_PHASES = ["아침", "낮", "오후", "저녁", "밤"];
 const BUSINESS_OPEN_PHASES = new Set(["아침", "낮", "오후", "저녁"]);
 const DEPARTURE_PHASES = new Set(["아침", "낮", "오후"]);
-const INFORMATION_LIMITS = new Map([["주점", 3], ["여관", 1], ["상업조합", 1]]);
+const INFORMATION_LIMITS = new Map([["주점", 3], ["여관", 1], ["상업조합", 1], ["항구", 5]]);
+const INLAND_PORT_NAMES = new Set(["노르베겐", "에르스비", "알벤히겐"]);
+const PORT_FARE_BASE_BY_DAYS = new Map([[1, 50], [2, 75], [3, 100]]);
+const PORT_BLOCKED_WEATHER = new Set(["폭우", "폭설"]);
+const PORT_DESTINATION_INFORMATION_WEIGHT = 8;
+const STRUMA_PORT_NAME = "스트루마";
 const GUILD_CONTRIBUTION_LEVEL_COSTS = [500, 2500, 12500, 62500];
 const LODGING_MOOD_RECOVERY = 5;
 const LODGING_WITHOUT_MEAL_MOOD_PENALTY = -20;
@@ -64,7 +70,7 @@ const PARTNER_TOUCH_CHAIN_WINDOW_MS = 2_000;
 const PARTNER_TOUCH_CHAIN_MINIMUM = 3;
 const PARTNER_SICK_STATUS_NAMES = Object.freeze([
   "숙취", "피로", "식은 몸", "더위 먹음", "멀미", "과식",
-  "고혈당", "아린 혀", "속쓰림", "느글거림", "감기 기운"
+  "고혈당", "아린 혀", "속쓰림", "느글거림", "감기 기운", "배멀미"
 ]);
 const TALK_CARD_HAND_SIZE = 3;
 const TALK_CARD_LOVE_CHANCE = 0.06;
@@ -78,7 +84,7 @@ const TALK_CARD_BUFF_CHANCE_BONUSES = Object.freeze({
 const MAX_COMPANION_RANK = 50;
 const COMPANION_EVENT_RANKS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 const NAHANA_SITUATION_EVENT_IDS = Object.freeze(
-  Array.from({ length: 15 }, (_, index) => `E_${String(index + 1).padStart(3, "0")}`)
+  Array.from({ length: 18 }, (_, index) => `E_${String(index + 1).padStart(3, "0")}`)
 );
 const TUTORIAL_IDS = Object.freeze({
   HORSE_FEED: 11,
@@ -98,7 +104,8 @@ const TUTORIAL_IDS = Object.freeze({
   TRADE_REVIEW: 25,
   PARTNER_SOOTHE: 26,
   GATE_OVERVIEW: 27,
-  GATE_PASS: 28
+  GATE_PASS: 28,
+  PORT_OVERVIEW: 29
 });
 const TUTORIAL_MAX_ID = Math.max(...Object.values(TUTORIAL_IDS));
 const ADVANCED_TRADE_CONTEXTS = ["trade:상회", "trade:교역소", "trade:좌판", "trade:시장"];
@@ -209,6 +216,34 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     ]
   },
   {
+    id: "port-ferry",
+    label: "정기선",
+    contexts: ["port"],
+    pages: [
+      { title: "목적지 선택", text: "정기선은 목록에서 고르거나 지도를 펼쳐 목적지를 선택할 수 있습니다.\n운임은 항해 기간과 출항일의 사정에 따라 달라집니다.", selector: "#port-home-route", padding: 10 },
+      { title: "승선 조건과 결항", text: "일반·보호·비밀 화물칸을 모두 비워야 승선할 수 있습니다.\n목적지에 폭우나 폭설이 오면 결항하며, 스트루마 항로는 유빙 때문에 추가로 운항이 중단될 수 있습니다.", selector: "#port-home-route", padding: 10 },
+      { title: "도착과 통행증", text: "항해로 대도시에 도착하면 5일, 도시에 도착하면 3일짜리 통행증을 받습니다.\n마을 항구는 도착만 가능하며 통행증을 발급하지 않습니다." }
+    ]
+  },
+  {
+    id: "port-information",
+    label: "정보 수집",
+    contexts: ["port"],
+    pages: [
+      { title: "연결 항구의 소식", text: "항구 정보망에서는 이곳과 정기선으로 연결된 항구의 소식을 접하기 쉽습니다.\n목적지의 거래 계획을 세울 때 활용하세요.", selector: "#port-home-information", padding: 10 },
+      { title: "남은 기회 모두 사용", text: "정보 수집은 1타임을 사용하고 남아 있는 수집 기회를 한 번에 모두 시도합니다.\n민물항구는 기본 3회, 그 밖의 항구는 기본 5회입니다.", selector: "#port-home-information", padding: 10 }
+    ]
+  },
+  {
+    id: "port-special-export",
+    label: "특별수출일정",
+    contexts: ["port"],
+    pages: [
+      { title: "항구의 수출 수요", text: "특별수출일정에 지정된 상품은 항구도시에서 높은 값에 팔 수 있습니다.\n상인의 해당 상품 재고는 일정 동안 매진 상태가 됩니다.", selector: "#port-home-export", padding: 10 },
+      { title: "일정 확인과 지도 기록", text: "도시 항구는 1개, 대도시 항구는 2개의 일정을 운용합니다.\n직접 확인한 일정은 유효기간 동안 지도에서도 다시 볼 수 있습니다.", selector: "#port-home-export", padding: 10 }
+    ]
+  },
+  {
     id: "meal-appetite",
     label: "식욕과 상태이상",
     contexts: ["meal"],
@@ -300,7 +335,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "말 상태와 먹이",
     contexts: ["road"],
     pages: [
-      { title: "말 상태", text: "위쪽 숫자는 말의 체력, 아래쪽 숫자는 허기입니다.\n허기가 낮을수록 Dot 이동 때 체력 3을 추가 소모할 확률이 높아지며, 허기 0에서는 반드시 추가 소모합니다. 체력 50 미만부터 짐마차의 최대 무게도 감소합니다.", selector: ".road-condition-horse", shape: "diamond" },
+      { title: "말 상태", text: "위쪽 숫자는 말의 체력, 아래쪽 숫자는 허기입니다.\n허기가 낮을수록 구간 이동 때 확정 체력 소모와 추가 1 소모 확률이 단계적으로 증가합니다. 허기 0에서는 체력을 3 추가 소모합니다. 체력 50 미만부터 짐마차의 최대 무게도 감소합니다.", selector: ".road-condition-horse", shape: "diamond" },
       { title: "말 식량 먹이기", text: "먹이 버튼으로 등록된 건초나 말먹이를 사용합니다.\n옆의 수량은 현재 등록된 먹이의 남은 개수입니다.", selector: "#horse-feed-controls" },
       { title: "채찍질", text: "이동 중 말의 엉덩이 부근을 누르면 채찍질합니다.\n말의 체력이 0~2 감소하는 대신 다음 지점까지 남은 시간이 0~1초 줄어듭니다. 체력이 33 이하라면 채찍질할 수 없습니다.", selector: "#horse-whip-hitbox", padding: 14 }
     ]
@@ -310,7 +345,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "수레 상태와 수레바퀴",
     contexts: ["road"],
     pages: [
-      { title: "짐마차 상태", text: "길 위의 Dot을 지날 때마다 내구도가 1 감소하며, 지형·노면·과적에 따라 1이 추가로 감소할 수 있습니다.\n과적은 차축과 수레바퀴 고장 확률도 높입니다. 커서를 올려 현재 위험을 확인하세요.", selector: ".road-condition-wagon", shape: "diamond" },
+      { title: "짐마차 상태", text: "길 위의 구간을 지날 때마다 내구도가 1 감소하며, 지형·노면·과적에 따라 1이 추가로 감소할 수 있습니다.\n과적은 차축과 수레바퀴 고장 확률도 높입니다. 노면 상태에 커서를 올려 현재 위험을 확인하세요.", selector: ".road-condition-wagon", shape: "diamond" },
       { title: "수레바퀴 교체", text: "수레바퀴가 손상되고 화물에 예비 수레바퀴가 있다면 짐마차 상태 옆에 교체 버튼이 나타납니다.\n교체하면 예비 바퀴 하나를 사용해 손상을 제거합니다." }
     ]
   },
@@ -521,7 +556,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     label: "상행 복기",
     contexts: ["inn"],
     pages: [
-      { title: "숙박 전에 돌아보는 상행", text: "숙박비를 지불하면 거래 유무와 관계없이 상행 복기를 진행합니다.\n1번 관세와 2번 식비를 먼저 확인한 뒤, 아직 복기하지 않은 완료 교역을 살펴봅니다.", selector: "#inn-lodging" },
+      { title: "숙박 전에 돌아보는 상행", text: "숙박비를 지불하면 거래 유무와 관계없이 상행 복기를 진행합니다.\n1번 관세, 2번 식비, 3번 정기선을 먼저 확인한 뒤 아직 복기하지 않은 완료 교역을 살펴봅니다.", selector: "#inn-lodging" },
       { title: "이익과 손실의 원인", text: "복기 화면은 구입가와 판매가, 최종 손익을 비교하고 가격에 크게 작용한 요소를 보여 줍니다.\n◆는 가장 큰 요소, ▲는 유리한 요소, ▼는 불리한 요소입니다." },
       { title: "복기를 마치면", text: "복기 목록의 거래에는 이익 또는 손실 뱃지가 남고 해당 교역품의 거래지식이 1 오릅니다.\n완료한 화면은 행상인의 길 상행록에 최근 10일 동안 남으며, 복기 종료 후 기존 숙박으로 이어집니다." }
     ]
@@ -543,7 +578,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     pages: [
       { title: "숙박 계산서", text: "숙박에는 객실과 마굿간, 말 먹이와 세면용 물 비용이 포함됩니다.\n거점과 도시 소식에 따라 숙박비가 달라질 수 있습니다.", selector: "#inn-lodging" },
       { title: "식사와 기분", text: "오늘 주점이나 여관에서 식사했다면 숙박 후 나하나의 기분이 회복됩니다.\n식사하지 않았다면 붉은 경고와 함께 큰 기분 감소가 적용됩니다.", selector: ".inn-lodging-effect" },
-      { title: "밤을 마무리하기", text: "숙박비를 지불하면 거래가 없는 날에도 관세와 식비를 포함한 상행 복기를 진행합니다.\n복기를 마치면 다음 날 아침까지 쉬고 말의 체력과 허기가 회복됩니다." }
+      { title: "밤을 마무리하기", text: "숙박비를 지불하면 거래가 없는 날에도 관세·식비·정기선을 포함한 상행 복기를 진행합니다.\n복기를 마치면 다음 날 아침까지 쉬고 말의 체력과 허기가 회복됩니다." }
     ]
   }
 ]);
@@ -558,6 +593,9 @@ const ADVANCED_TUTORIAL_MENU_LABELS = Object.freeze({
   "trade-company-relation": "상회관계",
   "trade-company-documents": "어음·정보",
   "trade-gate-information": "관문정보",
+  "port-ferry": "정기선",
+  "port-information": "정보수집",
+  "port-special-export": "수출일정",
   "meal-appetite": "식욕·상태",
   "meal-tooltip": "음식정보",
   "camp-comfort": "안락도",
@@ -648,7 +686,7 @@ const WAGON_MOUNTAIN_EXTRA_WEAR_BONUS = 0.33;
 const WAGON_OVERWEIGHT_CHANCE_RATE = 0.05;
 const WAGON_MAX_EXTRA_WEAR_CHANCE = 0.95;
 const WAGON_MAX_OVERWEIGHT_EFFECT_MULTIPLIER = 3;
-const HORSE_HUNGER_EXTRA_HEALTH_LOSS = 3;
+const HORSE_HUNGER_MAX_EXTRA_HEALTH_LOSS = 3;
 const HORSE_MAX_WEIGHT_HEALTH_THRESHOLD = 0.5;
 const HORSE_MAX_WEIGHT_REDUCTION_LIMIT = 0.1;
 const WAGON_EFFECT_DESCRIPTIONS = new Map([
@@ -827,6 +865,21 @@ const gateBulletinLocation = document.querySelector("#gate-bulletin-location");
 const gateBulletinStatus = document.querySelector("#gate-bulletin-status");
 const gateBulletinList = document.querySelector("#gate-bulletin-list");
 const gateBulletinClose = document.querySelector("#gate-bulletin-close");
+const portModal = document.querySelector("#port-modal");
+const portSceneBackground = document.querySelector("#port-scene-background");
+const portLocation = document.querySelector("#port-location");
+const portHomeView = document.querySelector("#port-home-view");
+const portRouteView = document.querySelector("#port-route-view");
+const portExportView = document.querySelector("#port-export-view");
+const portHomeInformation = document.querySelector("#port-home-information");
+const portHomeRouteSummary = document.querySelector("#port-home-route-summary");
+const portHomeExportSummary = document.querySelector("#port-home-export-summary");
+const portRouteCount = document.querySelector("#port-route-count");
+const portRouteList = document.querySelector("#port-route-list");
+const portRouteListTab = document.querySelector("#port-route-list-tab");
+const portRouteMapTab = document.querySelector("#port-route-map-tab");
+const portExportList = document.querySelector("#port-export-list");
+const portClose = document.querySelector("#port-close");
 const merchantPathModal = document.querySelector("#merchant-path-modal");
 const memorialModal = document.querySelector("#memorial-modal");
 const tradeModal = document.querySelector("#trade-modal");
@@ -891,6 +944,7 @@ const settlementTutorialPrompts = document.querySelector("#settlement-tutorial-p
 const settlementCommerceGuide = document.querySelector("#settlement-commerce-guide");
 const settlementNewsGuide = document.querySelector("#settlement-news-guide");
 const settlementGateGuide = document.querySelector("#settlement-gate-guide");
+const settlementPortGuide = document.querySelector("#settlement-port-guide");
 const travelToolbarStatus = document.querySelector("#travel-toolbar-status");
 const travelToolbarTime = document.querySelector("#travel-toolbar-time");
 const gameClock = document.querySelector("#game-clock");
@@ -1059,6 +1113,8 @@ const footprintNoticeQueue = [];
 let evaluatingPartnerFootprints = false;
 let travelStepTimer;
 let travelCountdownTimer;
+let sailingArrivalInProgress = false;
+let sailingArrivalWaitTimer = 0;
 let customCursorMode = "";
 let campInProgress = false;
 let campSetupOpen = false;
@@ -1072,6 +1128,9 @@ let pendingName = "";
 let skipTutorialsForNewJourney = false;
 let activeServiceContext = null;
 let activeServiceView = "home";
+let activePortContext = null;
+let activePortView = "home";
+let portMapReturnScene = "road";
 let tavernStoryDialogueLock = false;
 let restoringInterfaceState = false;
 let interfacePersistTimer;
@@ -1156,6 +1215,7 @@ window.ProjectWMapView.init({
   getAssetUrl: assetId => assetMap.get(assetId) ?? "",
   getInformationCards: () => window.ProjectWInformation?.getCards?.() || [],
   getCityEvents: placement => window.ProjectWCityEvents?.getViewedSettlementEvents?.(placement) || [],
+  getSpecialExportSchedules: placement => portSpecialExportDiscoveriesFor(placement?.id),
   getSettlementNotes: settlementId => settlementNotesFor(settlementId),
   getSettlementOutletGoods: placement => window.ProjectWMerchantPath?.getSettlementOutletGoods?.(placement) || [],
   getEntryTariffPreview: (placement, routePreview) => mapEntryTariffPreview(placement, routePreview),
@@ -1225,7 +1285,7 @@ window.ProjectWCityEvents.init({
     const blockers = [
       "#dialog-modal", "#tutorial-layer", "#information-acquired-modal", "#entry-tax-modal",
       "#route-event-modal", "#city-events-modal", "#trade-modal", "#meal-modal", "#inn-modal",
-      "#service-modal", "#wallet-modal", "#information-modal", "#merchant-path-modal",
+      "#service-modal", "#port-modal", "#wallet-modal", "#information-modal", "#merchant-path-modal",
       "#memorial-modal", "#partner-event-panel"
     ].map(selector => document.querySelector(selector));
     return Boolean(game && !game.hidden && blockers.every(element => !element || element.hidden));
@@ -1328,7 +1388,7 @@ window.ProjectWTrade.init({
   getCityEventModifiers: settlement => window.ProjectWCityEvents.getModifiers(settlement),
   hasPartnerHangover: () => {
     const partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment);
-    return ["숙취", "과식", "고혈당", "속쓰림"].find(name => partnerHasStatus(partner, name)) || "";
+    return ["숙취", "과식", "고혈당", "속쓰림", "배멀미"].find(name => partnerHasStatus(partner, name)) || "";
   },
   getAssetUrl: assetId => assetMap.get(assetId) ?? "",
   showMerchantComment: (page, itemName, itemKey) => showMerchantCommentPopup(page, itemName, itemKey),
@@ -1422,8 +1482,8 @@ window.ProjectWMeal.init({
     const fullnessRestriction = partnerMealFullnessRestriction(partner);
     return {
       hangover: partnerHasStatus(partner, "숙취"),
-      alcoholDisabled: ["숙취", "속쓰림"].some(name => partnerHasStatus(partner, name)),
-      snackDisabled: kind === "snack" && ["숙취", "과식", "고혈당", "속쓰림"].some(name => partnerHasStatus(partner, name)),
+      alcoholDisabled: ["숙취", "속쓰림", "배멀미"].some(name => partnerHasStatus(partner, name)),
+      snackDisabled: kind === "snack" && ["숙취", "과식", "고혈당", "속쓰림", "배멀미"].some(name => partnerHasStatus(partner, name)),
       forcedWaterCount: partnerHasStatus(partner, "아린 혀") ? 3 : 0,
       forceMostExpensive: partnerHasStatus(partner, "수행자"),
       moodGainMultiplier: partnerHasStatus(partner, "느글거림") ? 0.5 : 1,
@@ -1698,6 +1758,20 @@ gateBulletinClose?.addEventListener("click", closeGateBulletin);
 gateBulletinModal?.addEventListener("pointerdown", event => {
   if (event.target === gateBulletinModal) closeGateBulletin();
 });
+portClose?.addEventListener("click", closePortModal);
+portModal?.addEventListener("pointerdown", event => {
+  if (event.target === portModal) closePortModal();
+});
+portModal?.addEventListener("click", event => {
+  const viewButton = event.target.closest("button[data-port-view]");
+  if (viewButton && portModal.contains(viewButton)) setPortView(viewButton.dataset.portView);
+  const backButton = event.target.closest("button[data-port-back]");
+  if (backButton && portModal.contains(backButton)) setPortView("home");
+});
+portRouteList?.addEventListener("click", handlePortRouteClick);
+portRouteListTab?.addEventListener("click", () => setPortView("routes"));
+portRouteMapTab?.addEventListener("click", () => void openPortRouteMap());
+portHomeInformation?.addEventListener("click", () => void collectPortInformation());
 window.addEventListener("keydown", event => {
   if (event.key !== "Escape" || !gateBulletinModal || gateBulletinModal.hidden) return;
   event.preventDefault();
@@ -1812,6 +1886,15 @@ roadAction.addEventListener("blur", hideSettlementExitTooltip);
 settlementCommerceGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.CITY_COMMERCE));
 settlementNewsGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.CITY_NEWS));
 settlementGateGuide?.addEventListener("click", () => startTutorial(TUTORIAL_IDS.GATE_OVERVIEW));
+settlementPortGuide?.addEventListener("click", () => {
+  const placement = currentSettlementPlacement();
+  if (!openPortModal(placement)) return;
+  if (normalizeTutorialProgress(account?.tutorialProgress).portTutorialPending) {
+    schedulePendingNarrativePresentation();
+    return;
+  }
+  window.setTimeout(() => startTutorial(TUTORIAL_IDS.PORT_OVERVIEW, 0, { replayCompleted: true }), 0);
+});
 settlementNoteButton?.addEventListener("click", () => {
   const settlementId = settlementNoteButton.dataset.settlementId
     || account?.travel?.settlementId
@@ -2053,7 +2136,12 @@ window.addEventListener("keydown", event => {
     closeServiceModal();
     return;
   }
-  if (!dialogModal.hidden || !walletModal.hidden || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden || (partnerEventPanel && !partnerEventPanel.hidden) || !sceneTransition.hidden || gameScreen.hidden || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+  if (portModal && !portModal.hidden && event.key === "Escape") {
+    event.preventDefault();
+    closePortModal();
+    return;
+  }
+  if (!dialogModal.hidden || !walletModal.hidden || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || (portModal && !portModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden || (partnerEventPanel && !partnerEventPanel.hidden) || !sceneTransition.hidden || gameScreen.hidden || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
   if (isTextInput) return;
   if ((tutorialRuntime && tutorialLayer && !tutorialLayer.hidden)
     || (advancedTutorialRuntime && advancedTutorialLayer && !advancedTutorialLayer.hidden)) return;
@@ -2166,6 +2254,7 @@ function chooseAnonymousName() {
     wagon: createInitialWagonState(),
     settlementDialogueVisit: createInitialSettlementDialogueVisit(),
     settlementNotes: {},
+    portSpecialExportDiscoveries: {},
     interfaceState: createInitialInterfaceState(),
     cityEvents: window.ProjectWCityEvents.createState(1),
     routeEvents: window.ProjectWRouteEvents.createState(),
@@ -2269,6 +2358,7 @@ function confirmName() {
       wagon: createInitialWagonState(),
       settlementDialogueVisit: createInitialSettlementDialogueVisit(),
       settlementNotes: {},
+      portSpecialExportDiscoveries: {},
       interfaceState: createInitialInterfaceState(),
       cityEvents: window.ProjectWCityEvents.createState(1),
       routeEvents: window.ProjectWRouteEvents.createState(),
@@ -2359,6 +2449,13 @@ function preloadImageSource(source) {
     image.src = source;
     if (image.complete) finish();
   });
+}
+
+async function preloadSailingResources() {
+  await loadAssets();
+  await Promise.all(["Asset_A_13", "Asset_A_14", "Asset_A_15"]
+    .map(assetId => preloadImageSource(assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "")));
+  window.ProjectWAudio.preloadAssets?.(["Asset_BGM_12", "Asset_BGS_14", "Asset_BGS_15"]);
 }
 
 function dialoguePageAssetSource(page) {
@@ -2782,6 +2879,7 @@ function clearSavedJourneyData() {
   window.ProjectWInn.close();
   window.ProjectWEntryTax.close(false);
   closeGateBulletin(false);
+  closePortModal(false);
   window.ProjectWMapView.endDestinationSelection();
   gameScreen.classList.remove("is-destination-picking", "is-wagon-moving");
   travelPauseReasons.clear();
@@ -2812,6 +2910,7 @@ function openDialog({
   speaker,
   message,
   showCharacter,
+  dialogClass = "",
   playerDialogue = false,
   bottomDialogue = false,
   narration = false,
@@ -2822,7 +2921,8 @@ function openDialog({
 }) {
   pauseTravelClock("dialog");
   dialogModal.hidden = false;
-  dialogCard.classList.remove("is-options-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm");
+  dialogCard.classList.remove("is-options-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "is-port-boarding-confirm");
+  if (dialogClass) dialogCard.classList.add(String(dialogClass));
   if (optionsTabs) optionsTabs.hidden = true;
   optionsSoundPanel.hidden = true;
   if (optionsCodePanel) optionsCodePanel.hidden = true;
@@ -2968,7 +3068,7 @@ function createDialogButton(action) {
 
 function closeDialog() {
   dialogModal.hidden = true;
-  dialogCard.classList.remove("is-options-dialog", "is-player-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "without-character");
+  dialogCard.classList.remove("is-options-dialog", "is-player-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "is-port-boarding-confirm", "without-character");
   dialogCard.removeAttribute("tabindex");
   activeDialogueAdvance = null;
   dialogueAdvanceLocked = false;
@@ -3140,6 +3240,11 @@ function loadAccount() {
     parsed.settlementDialogueVisit = normalizeSettlementDialogueVisit(parsed.settlementDialogueVisit);
     if (!parsed.settlementNotes) migrated = true;
     parsed.settlementNotes = normalizeSettlementNotes(parsed.settlementNotes);
+    if (!parsed.portSpecialExportDiscoveries) migrated = true;
+    parsed.portSpecialExportDiscoveries = normalizePortSpecialExportDiscoveries(
+      parsed.portSpecialExportDiscoveries,
+      parsed.worldTime.day
+    );
     if (!parsed.interfaceState) migrated = true;
     parsed.interfaceState = normalizeInterfaceState(parsed.interfaceState);
     if (!parsed.cityEvents) migrated = true;
@@ -3238,6 +3343,8 @@ function captureInterfaceState() {
         billNoteMode: serviceBillNoteMode
       }
     };
+  } else if (portModal && !portModal.hidden && activePortContext) {
+    overlay = { type: "port" };
   } else if (!walletModal?.hidden) overlay = moduleResumeState(window.ProjectWWallet, "wallet");
   else if (!informationModal?.hidden) overlay = { type: "information" };
   else if (!merchantPathModal?.hidden) overlay = moduleResumeState(window.ProjectWMerchantPath, "merchant-path");
@@ -3318,6 +3425,8 @@ async function restoreInterfaceState(savedValue) {
         serviceBillNoteMode = overlay.state?.billNoteMode === "redeem" ? "redeem" : "issue";
         setServiceView(String(overlay.state?.view || "home"));
       }
+    } else if (overlay.type === "port" && placement) {
+      openPortModal(placement);
     } else if (overlay.type === "trade" && placement) {
       await window.ProjectWTrade.restoreResumeState?.(overlay.state, { settlement: placement });
     } else if (overlay.type === "meal" && placement) {
@@ -3393,7 +3502,8 @@ function partnerMealFullnessRestriction(partner = normalizePartnerState(account?
     { name: "숙취", maximum: 100 },
     { name: "과식", maximum: 100 },
     { name: "고혈당", maximum: 150 },
-    { name: "속쓰림", maximum: 100 }
+    { name: "속쓰림", maximum: 100 },
+    { name: "배멀미", maximum: 100 }
   ].filter(rule => partnerHasStatus(partner, rule.name));
   if (!candidates.length) return { maximum: 0, reason: "" };
   candidates.sort((left, right) => left.maximum - right.maximum);
@@ -3728,6 +3838,7 @@ async function isPartnerCharacterPaintedAt(image, clientX, clientY) {
 
 async function handlePartnerCharacterTouch(event) {
   if (!account || currentScene !== "partner" || moving || !partnerCharacter) return;
+  if (account.travel?.mode === "sailing") return;
   if (event.type === "click" && !await isPartnerCharacterPaintedAt(partnerCharacter, event.clientX, event.clientY)) return;
   if (currentScene !== "partner") return;
 
@@ -3812,7 +3923,8 @@ function partnerHasStatus(partner, statusName) {
     "콧노래": "N_S_033",
     "식도락": "N_S_034",
     "기분 좋음": "N_S_035",
-    "배려심": "N_S_036"
+    "배려심": "N_S_036",
+    "배멀미": "N_S_037"
   };
   const expectedId = knownStatusIds[String(statusName || "").trim()] || "";
   return partner.effects.some(effect => {
@@ -3825,6 +3937,12 @@ function partnerAccessState(partner = normalizePartnerState(account?.partner, ac
   if (presentation.label === "화남" || partnerHasStatus(partner, "화남")) return { allLocked: true, cardsLocked: true, reason: "나하나가 화가 나 있어 파트너 기능을 사용할 수 없습니다." };
   if (partnerHasStatus(partner, "추가 수면")) return { allLocked: true, cardsLocked: true, reason: "나하나가 추가 수면 상태라 파트너 기능을 사용할 수 없습니다." };
   if (partnerHasStatus(partner, "감기 기운")) return { allLocked: true, cardsLocked: true, reason: "나하나가 감기 기운으로 쉬고 있어 파트너 기능을 사용할 수 없습니다." };
+  if (account?.travel?.mode === "sailing") return {
+    allLocked: true,
+    cardsLocked: false,
+    sailing: true,
+    reason: "항해 중에는 대화 카드, 상식 주입, 달래기만 사용할 수 있습니다."
+  };
   const atSettlement = account?.travel?.mode === "settlement";
   const atInn = atSettlement && Boolean(window.ProjectWInn?.isActive?.());
   if (atInn) return { allLocked: false, cardsLocked: false, reason: "" };
@@ -3881,13 +3999,17 @@ function loadTalkCardDefinitions() {
       talkCardDefinitions.clear();
       rows.forEach(row => {
         const id = String(row.ID || "").trim();
-        const title = String(row["노출되는 이름"] || "").trim();
+        const rawTitle = String(row["노출되는 이름"] || "").trim();
         const dialogueId = String(row["불러오기_대화"] || "").trim();
-        if (!id || !title || !dialogueId) return;
+        if (!id || !dialogueId) return;
+        const category = String(row["분류"] || "일반").replace(/[\[\]]/g, "").trim() || "일반";
+        const parsedCardNumber = Number.parseInt(id.split("_").at(-1), 10);
+        const sailingIndex = Number.isFinite(parsedCardNumber) ? Math.max(1, parsedCardNumber - 97) : 1;
+        const title = rawTitle || (category === "항해" ? `항해 이야기 ${sailingIndex}` : id);
         talkCardDefinitions.set(id, {
           id,
           title,
-          category: String(row["분류"] || "일반").replace(/[\[\]]/g, "").trim() || "일반",
+          category,
           dialogueId,
           conditions: {
             regions: splitTalkCardValues(row["발생 지역 조건"]),
@@ -4003,7 +4125,10 @@ function createPartnerTalkCard(cardId, loadFailed = false) {
 function talkCardContextLockReason(definition) {
   if (!definition) return "대화 카드 정보를 확인할 수 없습니다.";
   const camping = account?.travel?.mode === "camp";
+  const sailing = account?.travel?.mode === "sailing";
   if (definition.id === "T_C_999" && account?.travel?.mode !== "road") return "정령의 가호를 위한 특수 대화 카드는 길 위에서만 사용할 수 있습니다.";
+  if (definition.category === "항해" && !sailing) return "항해 대화 카드는 항해 중에만 사용할 수 있습니다.";
+  if (sailing && definition.category !== "항해") return "항해 중에는 항해 분류의 대화 카드만 사용할 수 있습니다.";
   if (definition.category === "야영" && !camping) return "야영 대화 카드는 야영지에서만 사용할 수 있습니다.";
   if (camping && definition.category !== "야영") return "야영 중에는 야영 분류의 대화 카드만 사용할 수 있습니다.";
   return "";
@@ -4045,8 +4170,8 @@ async function useTalkCard(cardId, quickResolve = false) {
     companionExperience: companionLifetimeExperience(account.partner)
   };
 
-  activeTalkCardId = cardId;
   pauseTravelClock("talk-card");
+  activeTalkCardId = cardId;
   renderPartnerTalkCards();
   let settled = false;
   const settle = () => {
@@ -4181,6 +4306,33 @@ function rollTalkCardGeneration(placementId) {
   return roadTalkCardGenerationQueue;
 }
 
+function rollSailingTalkCardGeneration() {
+  if (!account || account.travel?.mode !== "sailing" || !hasReachedEarlyTutorialBranch()) return false;
+  account.talkCards = normalizeTalkCardState(account.talkCards);
+  if (account.talkCards.hand.length >= TALK_CARD_HAND_SIZE) return false;
+  const mood = normalizePartnerState(account.partner, account.partnerMoodAdjustment).mood;
+  const baseChance = talkCardGenerationChance(mood);
+  const cheerfulStatusBonus = partnerHasStatus(account.partner, "기분 좋음") ? .03 : 0;
+  const chance = baseChance <= 0 ? 0 : Math.min(1, baseChance + partnerDialogueCardChanceBonus() + cheerfulStatusBonus);
+  if (Math.random() >= chance) return false;
+  const context = {
+    regions: [],
+    routes: ["항해"],
+    terrains: ["해상"],
+    environments: ["항해"]
+  };
+  talkCardGenerationInProgress += 1;
+  const queued = roadTalkCardGenerationQueue.then(() => generateTalkCard(context, { category: "항해" }));
+  roadTalkCardGenerationQueue = queued.catch(error => {
+    console.error("항해 대화 카드 생성 중 오류가 발생했습니다.", error);
+    return false;
+  }).finally(() => {
+    talkCardGenerationInProgress = Math.max(0, talkCardGenerationInProgress - 1);
+    schedulePendingNarrativePresentation();
+  });
+  return roadTalkCardGenerationQueue;
+}
+
 function talkCardAreaRouteKey(travel) {
   const path = Array.isArray(travel?.routePath) ? travel.routePath : [];
   return path.length > 1 ? `local-slots-v2:${path.join(">")}` : "";
@@ -4283,7 +4435,7 @@ function hideRoadTalkCardPeek(immediate = false) {
 }
 
 function showRoadTalkCardPeek(forcedAssetId = "") {
-  if (!roadTalkCardPeek || !roadTalkCardPeekImage || currentScene !== "road" || account?.travel?.mode !== "road") return false;
+  if (!roadTalkCardPeek || !roadTalkCardPeekImage || currentScene !== "road" || !["road", "sailing"].includes(account?.travel?.mode)) return false;
   const assetId = ["Asset_N_16", "Asset_N_17", "Asset_N_18"].includes(forcedAssetId)
     ? forcedAssetId
     : roadTalkCardPeekAssetId();
@@ -4302,7 +4454,7 @@ function showRoadTalkCardPeek(forcedAssetId = "") {
   let revealed = false;
   const reveal = () => {
     if (revealed) return;
-    if (sequence !== roadTalkCardPeekSequence || currentScene !== "road" || account?.travel?.mode !== "road") return;
+    if (sequence !== roadTalkCardPeekSequence || currentScene !== "road" || !["road", "sailing"].includes(account?.travel?.mode)) return;
     revealed = true;
     roadTalkCardPeek.hidden = false;
     roadTalkCardPeek.classList.remove("is-visible", "is-leaving");
@@ -4322,17 +4474,23 @@ function showRoadTalkCardPeek(forcedAssetId = "") {
   return true;
 }
 
-async function generateTalkCard(context) {
+async function generateTalkCard(context, options = {}) {
   const loaded = await loadTalkCardDefinitions();
   if (!loaded || !account) return false;
   const state = normalizeTalkCardState(account.talkCards);
   if (state.hand.length >= TALK_CARD_HAND_SIZE) return false;
   const held = new Set(state.hand);
   const partnerRank = normalizePartnerState(account.partner, account.partnerMoodAdjustment).companionRank;
+  const requestedCategory = String(options.category || "").trim();
   const eligible = [...talkCardDefinitions.values()]
-    .filter(definition => definition.id !== "T_C_999" && !held.has(definition.id) && talkCardMatchesContext(definition, context));
+    .filter(definition => definition.id !== "T_C_999"
+      && !held.has(definition.id)
+      && (!requestedCategory || definition.category === requestedCategory)
+      && talkCardMatchesContext(definition, context));
   const loveCards = partnerRank >= 21 ? eligible.filter(definition => definition.category === "애정") : [];
-  const regularCards = eligible.filter(definition => !["애정", "야영"].includes(definition.category));
+  const regularCards = requestedCategory
+    ? eligible
+    : eligible.filter(definition => !["애정", "야영", "항해"].includes(definition.category));
   const pool = loveCards.length && Math.random() < TALK_CARD_LOVE_CHANCE ? loveCards : regularCards;
   if (!pool.length) return false;
   const selected = pool[Math.floor(Math.random() * pool.length)];
@@ -4512,7 +4670,7 @@ function updatePartnerSnackUi(access = partnerAccessState()) {
     closePartnerSnackPanel();
     return;
   }
-  const statusLocked = ["숙취", "과식", "고혈당", "속쓰림"].some(name => partnerHasStatus(partner, name));
+  const statusLocked = ["숙취", "과식", "고혈당", "속쓰림", "배멀미"].some(name => partnerHasStatus(partner, name));
   partnerSnackOpen.disabled = featureLocked || access.allLocked || statusLocked || used || !snacks.length;
   partnerSnackOpen.classList.toggle("is-limit-exhausted", used);
   partnerSnackOpen.classList.toggle("is-system-locked", featureLocked || access.allLocked || statusLocked);
@@ -4597,7 +4755,7 @@ function renderPartnerSnackList(items = partnerSnackItems(), used = Boolean(acco
 async function openPartnerSnackPanel() {
   const access = partnerAccessState();
   const partner = normalizePartnerState(account?.partner, account?.partnerMoodAdjustment);
-  const statusLocked = ["숙취", "과식", "고혈당", "속쓰림"].some(name => partnerHasStatus(partner, name));
+  const statusLocked = ["숙취", "과식", "고혈당", "속쓰림", "배멀미"].some(name => partnerHasStatus(partner, name));
   if (!isFeatureUnlocked("partnerSnack") || access.allLocked || statusLocked || account?.foodUsage?.snackUsed) return;
   await window.ProjectWCargo.load();
   if (!partnerSnackPanel) return;
@@ -4656,16 +4814,17 @@ function updatePartnerCommonSenseUi(access = partnerAccessState()) {
   account.commonSenseUsage = normalizeCommonSenseUsage(account.commonSenseUsage, account.worldTime);
   const usage = account.commonSenseUsage;
   const nextLimitChance = Math.min(100, usage.attempts * 10);
-  partnerCommonSense.disabled = access.allLocked || usage.locked;
-  partnerCommonSense.classList.toggle("is-system-locked", access.allLocked);
+  const accessLocked = access.allLocked && !access.sailing;
+  partnerCommonSense.disabled = accessLocked || usage.locked;
+  partnerCommonSense.classList.toggle("is-system-locked", accessLocked);
   partnerCommonSense.classList.toggle("is-limit-exhausted", usage.locked);
   partnerCommonSense.textContent = usage.locked ? "오늘 상식주입 종료" : "상식 주입";
-  partnerCommonSense.title = access.allLocked
+  partnerCommonSense.title = accessLocked
     ? access.reason
     : usage.locked
       ? "오늘은 더 이상 상식을 주입할 수 없습니다."
       : `다음 시도의 제한 확률 ${nextLimitChance}%`;
-  if (access.allLocked) hidePartnerCommonSensePopup(true);
+  if (accessLocked) hidePartnerCommonSensePopup(true);
 }
 
 async function injectCommonSense() {
@@ -4673,7 +4832,7 @@ async function injectCommonSense() {
   const access = partnerAccessState();
   account.commonSenseUsage = normalizeCommonSenseUsage(account.commonSenseUsage, account.worldTime);
   const usage = account.commonSenseUsage;
-  if (access.allLocked) {
+  if (access.allLocked && !access.sailing) {
     showGameNotice(access.reason);
     return;
   }
@@ -4782,7 +4941,7 @@ function systemMiniDialoguePresentationBlocked() {
     || travelPauseReasons.has("advanced-tutorial") || travelPauseReasons.has("dialog")
     || travelPauseReasons.has("road-comment") || travelPauseReasons.has("route-event-check")
     || travelPauseReasons.has("route-event") || !dialogModal.hidden || !walletModal.hidden
-    || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden
+    || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || (portModal && !portModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden
     || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden
     || !entryTaxModal.hidden || !routeEventModal.hidden || !sceneTransition.hidden
     || (partnerEventPanel && !partnerEventPanel.hidden));
@@ -6161,7 +6320,10 @@ async function startPendingNahanaEventTutorial() {
 function updatePartnerEventUi() {
   if (!partnerEventAlert) return;
   const state = normalizeNahanaEventState(account?.nahanaEvents);
-  const visible = Boolean(account && state.activeId && !state.completedIds.includes(state.activeId));
+  const visible = Boolean(account
+    && account.travel?.mode !== "sailing"
+    && state.activeId
+    && !state.completedIds.includes(state.activeId));
   partnerEventAlert.hidden = !visible;
   partnerEventAlert.setAttribute("aria-hidden", String(!visible));
   partnerEventAlert.classList.toggle("is-active-event", visible);
@@ -6330,18 +6492,23 @@ function partnerBuffEffectDescription(buff) {
   return String(sheetDefinition?.effectDescription || buff?.effectDescription || buff?.description || "").trim();
 }
 
-function horseHungerExtraHealthLossChance(horseState = account?.horse) {
+function horseHungerExtraHealthLossProfile(horseState = account?.horse) {
   const horse = normalizeHorseState(horseState);
   const maxHunger = Math.max(1, horse.maxHunger);
-  return clampNumber(1 - (horse.hunger / maxHunger), 0, 1, 0);
+  const hungerDeficitRatio = clampNumber(1 - (horse.hunger / maxHunger), 0, 1, 0);
+  const expectedLoss = hungerDeficitRatio * HORSE_HUNGER_MAX_EXTRA_HEALTH_LOSS;
+  const guaranteedLoss = Math.floor(expectedLoss);
+  return {
+    expectedLoss,
+    guaranteedLoss,
+    additionalLossChance: expectedLoss - guaranteedLoss
+  };
 }
 
 function rollHorseHungerExtraHealthLoss(horseState = account?.horse, rng = Math.random) {
-  const horse = normalizeHorseState(horseState);
-  if (horse.hunger <= 0) return HORSE_HUNGER_EXTRA_HEALTH_LOSS;
-  return rng() < horseHungerExtraHealthLossChance(horse)
-    ? HORSE_HUNGER_EXTRA_HEALTH_LOSS
-    : 0;
+  const profile = horseHungerExtraHealthLossProfile(horseState);
+  return profile.guaranteedLoss
+    + (rng() < profile.additionalLossChance ? 1 : 0);
 }
 
 function horseMaxWeightReductionRatio(horseState = account?.horse) {
@@ -7286,7 +7453,9 @@ function loadAssets() {
         const assetId = String(row.Asset_ID || "").trim();
         const assetLink = String(row.Asset_Link || "").trim();
         const assetName = String(row.Asset_Name || "").trim();
-        if (assetId && assetLink) assetMap.set(assetId, assetLink);
+        if (assetId === "Asset_BGS_15" && assetLink && assetName === "채찍질") {
+          assetMap.set("Asset_BGS_15_whip", assetLink);
+        } else if (assetId && assetLink) assetMap.set(assetId, assetLink);
         if (assetId && assetName) registerDialogueAssetName(assetId, assetName);
       });
 
@@ -7482,7 +7651,8 @@ function createInitialTutorialProgress() {
     earlyTutorialBranchReached: false,
     talkCardTutorialPending: false,
     sootheTutorialPending: false,
-    gatePassTutorialPending: false
+    gatePassTutorialPending: false,
+    portTutorialPending: false
   };
 }
 
@@ -7704,6 +7874,55 @@ function settlementNotesFor(settlementId) {
   return [...(normalized[String(settlementId || "").trim()] || [])];
 }
 
+function normalizePortSpecialExportDiscoveries(value, currentDay = normalizeWorldTime(account?.worldTime).day) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const day = Math.max(1, Math.trunc(Number(currentDay) || 1));
+  return Object.fromEntries(Object.entries(value)
+    .map(([settlementId, schedules]) => [
+      String(settlementId || "").trim(),
+      (Array.isArray(schedules) ? schedules : [])
+        .map(schedule => ({
+          scheduleId: String(schedule?.scheduleId || "").trim(),
+          settlementId: String(schedule?.settlementId || settlementId || "").trim(),
+          settlementName: String(schedule?.settlementName || "이름 없는 항구").trim(),
+          subcategory: String(schedule?.subcategory || "").trim(),
+          bonusPercent: Math.max(0, Number(schedule?.bonusPercent) || 0),
+          startDay: Math.trunc(Number(schedule?.startDay) || 1),
+          endDay: Math.max(1, Math.trunc(Number(schedule?.endDay) || 1))
+        }))
+        .filter(schedule => schedule.scheduleId && schedule.subcategory && schedule.endDay >= day)
+    ])
+    .filter(([settlementId, schedules]) => settlementId && schedules.length));
+}
+
+function portSpecialExportDiscoveriesFor(settlementId) {
+  const day = normalizeWorldTime(account?.worldTime).day;
+  const normalized = normalizePortSpecialExportDiscoveries(account?.portSpecialExportDiscoveries, day);
+  return (normalized[String(settlementId || "").trim()] || []).map(schedule => ({
+    ...schedule,
+    remainingDays: Math.max(1, schedule.endDay - day + 1)
+  }));
+}
+
+function recordPortSpecialExportDiscoveries(placement, schedules) {
+  if (!account || !placement?.id) return;
+  const day = normalizeWorldTime(account.worldTime).day;
+  account.portSpecialExportDiscoveries = normalizePortSpecialExportDiscoveries(account.portSpecialExportDiscoveries, day);
+  const records = (Array.isArray(schedules) ? schedules : []).map(schedule => ({
+    scheduleId: String(schedule.scheduleId || `${placement.id}|${schedule.slot || 0}|${schedule.week || 0}`),
+    settlementId: placement.id,
+    settlementName: placement.name || "이름 없는 항구",
+    subcategory: String(schedule.subcategory || ""),
+    bonusPercent: Number(schedule.bonusPercent) || 0,
+    startDay: Math.trunc(Number(schedule.startDay) || day),
+    endDay: Math.max(day, Math.trunc(Number(schedule.endDay) || day))
+  })).filter(schedule => schedule.subcategory);
+  if (records.length) account.portSpecialExportDiscoveries[placement.id] = records;
+  else delete account.portSpecialExportDiscoveries[placement.id];
+  persistAccount();
+  window.ProjectWMapView.refreshSettlementNotes?.(placement.id);
+}
+
 function openSettlementNoteEditor(settlementId) {
   const id = String(settlementId || "").trim();
   const placement = window.ProjectWMapView.getPlacement(id);
@@ -7867,6 +8086,22 @@ function applyGatePassOnSettlementEntry(placement, context = {}) {
   const today = normalizeWorldTime(account.worldTime).day;
   const affiliation = String(placement.affiliation || "").trim();
   const existing = activeGatePass();
+  if (context.seaArrival) {
+    const passDays = String(placement.category || "") === "대도시"
+      ? 5
+      : String(placement.category || "") === "도시"
+        ? 3
+        : 0;
+    if (!affiliation || passDays <= 0) {
+      if (affiliation && existing.affiliation && existing.affiliation !== affiliation) account.gatePass = createInitialGatePass();
+      return "";
+    }
+    const existingExpiry = existing.affiliation === affiliation ? existing.expiresDay : 0;
+    account.gatePass = { affiliation, expiresDay: Math.max(existingExpiry, today + passDays - 1) };
+    markGatePassTutorialPending();
+    const remainingDays = account.gatePass.expiresDay - today + 1;
+    return `${affiliation} 통행증을 받았습니다. 남은 기간은 ${remainingDays}일입니다.`;
+  }
   if (context.crossesBorder) {
     account.gatePass = createInitialGatePass();
     if (context.borderCleared && affiliation) {
@@ -8093,7 +8328,9 @@ function normalizeTutorialProgress(value) {
     talkCardTutorialPending: Boolean(value?.talkCardTutorialPending),
     sootheTutorialPending: Boolean(value?.sootheTutorialPending),
     gatePassTutorialPending: Boolean(value?.gatePassTutorialPending)
-      && !completed.includes(TUTORIAL_IDS.GATE_PASS)
+      && !completed.includes(TUTORIAL_IDS.GATE_PASS),
+    portTutorialPending: Boolean(value?.portTutorialPending)
+      && !completed.includes(TUTORIAL_IDS.PORT_OVERVIEW)
   };
 }
 
@@ -8421,7 +8658,7 @@ function partnerStatusTimer(effectId, options = {}) {
   if (["N_S_007", "N_S_008", "N_S_010", "N_S_011", "N_S_012", "N_S_013", "N_S_014", "N_S_015", "N_S_016", "N_S_017", "N_S_023"].includes(effectId)) {
     return { remainingTimes: 0, expiresAfterDay: day, appliedDay: day };
   }
-  if (["N_S_025", "N_S_026", "N_S_027", "N_S_028", "N_S_029", "N_S_030", "N_S_031", "N_S_032", "N_S_033", "N_S_034", "N_S_035"].includes(effectId)) {
+  if (["N_S_025", "N_S_026", "N_S_027", "N_S_028", "N_S_029", "N_S_030", "N_S_031", "N_S_032", "N_S_033", "N_S_034", "N_S_035", "N_S_037"].includes(effectId)) {
     return { remainingTimes: 0, expiresAfterDay: day, appliedDay: day };
   }
   if (effectId === "N_S_036") return { remainingTimes: 10, expiresAfterDay: 0, appliedDay: day };
@@ -8627,7 +8864,13 @@ function createInitialTravelState() {
     pendingRoadArrivalContinuation: false,
     pendingRoadArrivalPhase: "",
     talkCardAreaRouteKey: "",
-    talkCardAreaRolls: []
+    talkCardAreaRolls: [],
+    sailingOriginId: "",
+    sailingDestinationId: "",
+    sailingTotalDots: 0,
+    sailingCompletedDots: 0,
+    sailingFare: 0,
+    sailingArrivalPhaseIndex: 0
   };
 }
 
@@ -8651,8 +8894,12 @@ function normalizeTravelState(value) {
     }
   }
 
-  const mode = value.mode === "settlement" || value.mode === "camp" ? value.mode : "road";
-  const canMove = mode === "road" && routeIndex < routePath.length - 1;
+  const mode = ["settlement", "camp", "sailing"].includes(value.mode) ? value.mode : "road";
+  const sailingTotalDots = Math.max(0, Math.trunc(Number(value.sailingTotalDots) || 0));
+  const sailingCompletedDots = Math.min(sailingTotalDots, Math.max(0, Math.trunc(Number(value.sailingCompletedDots) || 0)));
+  const canMove = mode === "sailing"
+    ? sailingCompletedDots < sailingTotalDots
+    : mode === "road" && routeIndex < routePath.length - 1;
   const savedTurnBackEndsAt = Math.max(0, Number(value.turnBackEndsAt) || 0);
   const turningBack = mode === "road" && Boolean(value.turningBack) && savedTurnBackEndsAt > 0;
   const moving = Boolean(value.moving) && canMove && !turningBack;
@@ -8665,11 +8912,13 @@ function normalizeTravelState(value) {
   const savedRate = clampNumber(Number(value.progressRate), 0.1, MAX_TRAVEL_RATE, 1);
   const savedRemaining = value.segmentRemainingMs == null ? Number.NaN : Number(value.segmentRemainingMs);
   const legacyNextStepAt = value.nextStepAt == null ? Number.NaN : Number(value.nextStepAt);
+  const baseSegmentMs = mode === "sailing" ? SAILING_STEP_MS : TRAVEL_STEP_MS;
+  const segmentMaximumMs = mode === "sailing" ? SAILING_STEP_MS : MAX_TRAVEL_SEGMENT_MS;
   const segmentRemainingMs = Number.isFinite(savedRemaining)
-    ? Math.min(Math.max(0, savedRemaining), MAX_TRAVEL_SEGMENT_MS)
+    ? Math.min(Math.max(0, savedRemaining), segmentMaximumMs)
     : Number.isFinite(legacyNextStepAt) && canMove
       ? Math.min(Math.max(0, legacyNextStepAt - Date.now()), MAX_TRAVEL_SEGMENT_MS)
-      : TRAVEL_STEP_MS;
+      : baseSegmentMs;
   const savedUpdatedAt = value.progressUpdatedAt == null ? Number.NaN : Number(value.progressUpdatedAt);
   const talkCardAreaRolls = (Array.isArray(value.talkCardAreaRolls) ? value.talkCardAreaRolls : [])
     .map(entry => ({
@@ -8699,7 +8948,13 @@ function normalizeTravelState(value) {
     pendingRoadArrivalContinuation,
     pendingRoadArrivalPhase,
     talkCardAreaRouteKey: String(value.talkCardAreaRouteKey || "").trim(),
-    talkCardAreaRolls
+    talkCardAreaRolls,
+    sailingOriginId: String(value.sailingOriginId || "").trim(),
+    sailingDestinationId: String(value.sailingDestinationId || "").trim(),
+    sailingTotalDots,
+    sailingCompletedDots,
+    sailingFare: Math.max(0, Math.round(Number(value.sailingFare) || 0)),
+    sailingArrivalPhaseIndex: Math.min(2, Math.max(0, Math.trunc(Number(value.sailingArrivalPhaseIndex) || 0)))
   };
 }
 
@@ -8713,6 +8968,10 @@ function ensureTravelState() {
   account.horse = normalizeHorseState(account.horse);
   account.wagon = normalizeWagonState(account.wagon);
   account.settlementDialogueVisit = normalizeSettlementDialogueVisit(account.settlementDialogueVisit);
+  account.portSpecialExportDiscoveries = normalizePortSpecialExportDiscoveries(
+    account.portSpecialExportDiscoveries,
+    account.worldTime.day
+  );
   account.horseFeedItemId = LEGACY_HORSE_FEED_ID_MAP.get(account.horseFeedItemId) || account.horseFeedItemId;
   account.horseFeedItemId = HORSE_FEED_IDS.includes(account.horseFeedItemId) ? account.horseFeedItemId : HORSE_FEED_IDS[0];
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
@@ -8791,7 +9050,7 @@ function resumeTravelClock(reason) {
 function prepareTravelExperience() {
   const travel = ensureTravelState();
   if (!travel) return;
-  ensureRoadTalkCardAreaPlan(travel);
+  if (travel.mode === "road") ensureRoadTalkCardAreaPlan(travel);
   reconcileCompletedNahanaEventRewards();
   refreshNahanaEventAvailability();
   void loadNahanaEventDefinitions().then(() => reconcileActiveNahanaEventStage());
@@ -8803,17 +9062,25 @@ function prepareTravelExperience() {
   reconcileTravelProgress(false);
   const currentTravel = account?.travel;
   if (currentTravel?.moving) {
-    currentTravel.progressRate = calculateTravelRate(currentScene, currentTravel);
+    currentTravel.progressRate = currentTravel.mode === "sailing" ? 1 : calculateTravelRate(currentScene, currentTravel);
     currentTravel.progressUpdatedAt = Date.now();
   }
   persistAccount();
   syncTravelExperience();
+  if (currentTravel?.mode === "sailing" && currentTravel.sailingCompletedDots >= currentTravel.sailingTotalDots) {
+    scheduleSailingArrival(currentTravel);
+    return;
+  }
   scheduleTravelStep();
 }
 
 function reconcileTravelProgress(reschedule = true) {
   const travel = ensureTravelState();
   if (!travel) return;
+  if (travel.mode === "sailing") {
+    reconcileSailingProgress(travel, reschedule);
+    return;
+  }
   if (travel.pendingRoadArrivalContinuation && travel.moving && !isTravelClockPaused()) {
     resumePendingRoadArrivalContinuation(travel);
     return;
@@ -8878,6 +9145,111 @@ function reconcileTravelProgress(reschedule = true) {
   if (changed) persistAccount();
   syncTravelExperience();
   if (reschedule) scheduleTravelStep();
+}
+
+function reconcileSailingProgress(travel, reschedule = true) {
+  if (!travel || travel !== account?.travel || travel.mode !== "sailing") return;
+  const now = Date.now();
+  let changed = false;
+  // 항해 대화 카드를 읽는 동안에는 항해점 판정과 도착 판정을 함께 멈춘다.
+  if (travel.moving && (isTravelClockPaused() || activeTalkCardId)) {
+    travel.progressUpdatedAt = now;
+    syncTravelExperience();
+    return;
+  }
+  if (travel.moving) {
+    const updatedAt = Number.isFinite(travel.progressUpdatedAt) ? travel.progressUpdatedAt : now;
+    let elapsedMs = Math.max(0, now - updatedAt);
+    travel.progressUpdatedAt = now;
+    changed = elapsedMs > 0;
+    while (travel.moving && elapsedMs >= travel.segmentRemainingMs) {
+      elapsedMs -= Math.max(0, travel.segmentRemainingMs);
+      travel.sailingCompletedDots = Math.min(travel.sailingTotalDots, travel.sailingCompletedDots + 1);
+      travel.segmentRemainingMs = SAILING_STEP_MS;
+      advanceSailingDay();
+      const cardRoll = rollSailingTalkCardGeneration();
+      changed = true;
+      if (travel.sailingCompletedDots >= travel.sailingTotalDots) {
+        travel.moving = false;
+        travel.progressUpdatedAt = null;
+        clearTravelTimers();
+        persistAccount();
+        syncTravelExperience();
+        Promise.resolve(cardRoll).finally(() => scheduleSailingArrival(travel));
+        return;
+      }
+      if (isTravelClockPaused()) {
+        elapsedMs = 0;
+        break;
+      }
+    }
+    if (travel.moving && elapsedMs > 0) {
+      travel.segmentRemainingMs = Math.max(0, travel.segmentRemainingMs - elapsedMs);
+    }
+  }
+  if (changed) persistAccount();
+  syncTravelExperience();
+  if (reschedule) scheduleTravelStep();
+}
+
+function advanceSailingDay() {
+  for (let step = 0; step < TIME_PHASES.length; step += 1) {
+    advanceGameTime({ skipCargoTimeDeterioration: true, skipRoadSurfaceAdvance: true });
+  }
+}
+
+async function finishSailingVoyage(travel = account?.travel) {
+  if (!travel || travel !== account?.travel || travel.mode !== "sailing" || sailingArrivalInProgress) return;
+  sailingArrivalInProgress = true;
+  window.clearTimeout(sailingArrivalWaitTimer);
+  sailingArrivalWaitTimer = 0;
+  const destinationId = travel.sailingDestinationId || travel.destinationNodeId;
+  const destination = window.ProjectWMapView.getPlacement(destinationId);
+  const originId = travel.sailingOriginId || travel.departureNodeId || travel.positionId;
+  const origin = window.ProjectWMapView.getPlacement(originId);
+  const sailingDays = Math.max(1, Math.trunc(Number(travel.sailingTotalDots) || 1));
+  const sailingFare = Math.max(0, Math.round(Number(travel.sailingFare) || 0));
+  const arrivalPhaseIndex = Math.min(2, Math.max(0, Math.trunc(Number(travel.sailingArrivalPhaseIndex) || 0)));
+  try {
+    await playSituationTransition("", async () => {
+      if (!destination) return;
+      account.worldTime = normalizeWorldTime(account.worldTime);
+      account.worldTime.phaseIndex = arrivalPhaseIndex;
+      if (sailingFare > 0) {
+        window.ProjectWMerchantPath?.recordReviewExpense?.("ferry", {
+          amount: sailingFare,
+          settlementId: destination.id,
+          settlementName: destination.name || "도착 항구",
+          sourceLabel: "정기선",
+          description: `${origin?.name || "출발 항구"} → ${destination.name || "도착 항구"} · ${sailingDays}일 항해`,
+          contractDay: account.worldTime.day,
+          phaseIndex: arrivalPhaseIndex
+        });
+      }
+      completeSettlementEntry(destination, {
+        seaArrival: true,
+        seaDays: sailingDays,
+        seaOriginId: travel.sailingOriginId
+      });
+      showScene("road", 1, false);
+    });
+    if (destination) showGameNotice(`${destination.name} 항구에 도착했습니다.`);
+  } finally {
+    sailingArrivalInProgress = false;
+    persistAccount();
+    syncTravelExperience();
+    schedulePendingNarrativePresentation();
+  }
+}
+
+function scheduleSailingArrival(travel = account?.travel) {
+  window.clearTimeout(sailingArrivalWaitTimer);
+  if (!travel || travel !== account?.travel || travel.mode !== "sailing" || sailingArrivalInProgress) return;
+  if (narrativePresentationBlocked()) {
+    sailingArrivalWaitTimer = window.setTimeout(() => scheduleSailingArrival(travel), 250);
+    return;
+  }
+  void finishSailingVoyage(travel);
 }
 
 function stopTravelAtCurrentPosition(travel) {
@@ -9079,7 +9451,7 @@ function handleRouteEventResolved(event) {
 }
 
 function advanceGameTime(options = {}) {
-  if (!options.roadSurfaceAlreadyAdvanced) advanceRoadSurfaceState();
+  if (!options.roadSurfaceAlreadyAdvanced && !options.skipRoadSurfaceAdvance) advanceRoadSurfaceState();
   if (!options.skipCargoTimeDeterioration && account?.travel?.mode === "settlement") {
     window.ProjectWCargo?.applyTimeDeterioration?.(1);
   }
@@ -9684,7 +10056,13 @@ function scheduleTravelStep() {
     travelCountdownTimer = window.setInterval(updateTravelDisplays, 250);
     return;
   }
-  if (!travel?.moving || isTravelClockPaused()) return;
+  if (!travel?.moving || isTravelClockPaused() || (travel.mode === "sailing" && activeTalkCardId)) return;
+  if (travel.mode === "sailing") {
+    const delay = Math.max(16, Number(travel.segmentRemainingMs) || SAILING_STEP_MS);
+    travelStepTimer = window.setTimeout(reconcileTravelProgress, delay + 8);
+    travelCountdownTimer = window.setInterval(updateTravelDisplays, 250);
+    return;
+  }
   if (travel.pendingRoadArrivalContinuation) {
     resumePendingRoadArrivalContinuation(travel);
     return;
@@ -9704,6 +10082,7 @@ function updateTravelDisplays() {
 }
 
 function calculateTravelRate(sceneName, travel = account?.travel) {
+  if (travel?.mode === "sailing") return 1;
   const horse = normalizeHorseState(account?.horse);
   const wagon = normalizeWagonState(account?.wagon);
   const conditions = getCurrentRoadConditions(travel?.positionId);
@@ -9808,7 +10187,8 @@ function nextPointSeconds(travel) {
 }
 
 function liveSegmentRemainingMs(travel) {
-  if (!travel?.moving) return Math.max(0, Number(travel?.segmentRemainingMs) || TRAVEL_STEP_MS);
+  const segmentLength = travel?.mode === "sailing" ? SAILING_STEP_MS : TRAVEL_STEP_MS;
+  if (!travel?.moving) return Math.max(0, Number(travel?.segmentRemainingMs) || segmentLength);
   const rate = clampNumber(Number(travel.progressRate), 0.1, MAX_TRAVEL_RATE, 1);
   const updatedAt = Number.isFinite(travel.progressUpdatedAt) ? travel.progressUpdatedAt : Date.now();
   const elapsedProgress = Math.max(0, Date.now() - updatedAt) * rate;
@@ -9816,11 +10196,20 @@ function liveSegmentRemainingMs(travel) {
 }
 
 function liveSegmentProgress(travel) {
-  if (!travel?.moving || travel.routeIndex >= travel.routePath.length - 1) return 0;
+  if (!travel?.moving) return 0;
+  if (travel.mode === "sailing") {
+    return clampNumber(1 - (liveSegmentRemainingMs(travel) / SAILING_STEP_MS), 0, 1, 0);
+  }
+  if (travel.routeIndex >= travel.routePath.length - 1) return 0;
   return clampNumber(1 - (liveSegmentRemainingMs(travel) / TRAVEL_STEP_MS), 0, 1, 0);
 }
 
 function routeProgressPercent(travel) {
+  if (travel?.mode === "sailing") {
+    const total = Math.max(1, Number(travel.sailingTotalDots) || 1);
+    const completed = Math.max(0, Number(travel.sailingCompletedDots) || 0);
+    return clampNumber(((completed + liveSegmentProgress(travel)) / total) * 100, 0, 100, 0);
+  }
   const lastIndex = Math.max(1, travel?.routePath?.length - 1);
   const segment = liveSegmentProgress(travel);
   return clampNumber(((travel.routeIndex + segment) / lastIndex) * 100, 0, 100, 0);
@@ -9828,12 +10217,17 @@ function routeProgressPercent(travel) {
 
 function updateTravelPinPositions(travel = account?.travel) {
   if (!travel?.routePath?.length) return;
-  const progress = routeProgressPercent(travel);
   const segmentProgress = liveSegmentProgress(travel);
+  const progress = travel.mode === "sailing"
+    ? clampNumber((
+      (Math.max(0, Math.trunc(Number(travel.sailingCompletedDots) || 0)) + segmentProgress)
+      / Math.max(1, Math.trunc(Number(travel.sailingTotalDots) || 1))
+    ) * 100, 0, 100, 0)
+    : routeProgressPercent(travel);
   const nextPlacementId = travel.moving ? travel.routePath[travel.routeIndex + 1] || "" : "";
   roadRouteProgress.style.width = `${progress}%`;
   roadRoutePin.style.left = `${travel.routePath.length === 1 ? 50 : progress}%`;
-  window.ProjectWMapView.updatePlayerProgress(travel.positionId, nextPlacementId, segmentProgress);
+  if (travel.mode !== "sailing") window.ProjectWMapView.updatePlayerProgress(travel.positionId, nextPlacementId, segmentProgress);
 }
 
 function updateTravelToolbar() {
@@ -9843,7 +10237,9 @@ function updateTravelToolbar() {
   if (!active) return;
   travelToolbarTime.textContent = travel.turningBack
     ? `회차 ${turnBackSeconds(travel)}초`
-    : `다음 지점 ${nextPointSeconds(travel)}초`;
+    : travel.mode === "sailing"
+      ? `다음 항해점 ${nextPointSeconds(travel)}초`
+      : `다음 지점 ${nextPointSeconds(travel)}초`;
   travelToolbarStatus.classList.toggle("is-half-speed", travel.progressRate < 1);
 }
 
@@ -9856,7 +10252,7 @@ function clearTravelTimers() {
 
 function syncTravelExperience() {
   const travel = account?.travel;
-  const presentingMovement = Boolean(travel?.moving && !isTravelClockPaused());
+  const presentingMovement = Boolean(travel?.mode === "road" && travel?.moving && !isTravelClockPaused());
   gameScreen.classList.toggle("is-wagon-moving", presentingMovement);
   updateGameClock();
   window.ProjectWWallet.refresh();
@@ -9871,9 +10267,19 @@ function syncTravelExperience() {
     syncAudioState();
     return;
   }
-  const nextPositionId = travel.moving ? travel.routePath[travel.routeIndex + 1] || "" : "";
+  const nextPositionId = travel.mode === "sailing"
+    ? travel.sailingDestinationId
+    : travel.moving ? travel.routePath[travel.routeIndex + 1] || "" : "";
   const segmentProgress = liveSegmentProgress(travel);
-  if (travel.positionId !== lastMapFocusPositionId) {
+  if (travel.mode === "sailing") {
+    const sailingOriginId = travel.sailingOriginId || travel.departureNodeId || travel.positionId;
+    if (sailingOriginId !== lastMapFocusPositionId) {
+      window.ProjectWMapView.setPlayerPosition(sailingOriginId, "", 0);
+      lastMapFocusPositionId = sailingOriginId;
+    } else {
+      window.ProjectWMapView.updatePlayerProgress(sailingOriginId, "", 0);
+    }
+  } else if (travel.positionId !== lastMapFocusPositionId) {
     window.ProjectWMapView.setPlayerPosition(travel.positionId, nextPositionId, segmentProgress);
     lastMapFocusPositionId = travel.positionId;
   } else {
@@ -9881,6 +10287,7 @@ function syncTravelExperience() {
   }
   if (travel.mode === "settlement") applySettlementSceneContext(travel);
   else if (travel.mode === "camp") applyCampSceneContext();
+  else if (travel.mode === "sailing") applySailingSceneContext();
   else applyOutdoorSceneContext();
   applyInnSceneBackgroundContext();
   updateRoadControls();
@@ -9912,7 +10319,7 @@ function syncAudioState() {
 
 function applyOutdoorSceneContext() {
   campSetupOpen = false;
-  gameScreen.classList.remove("is-at-settlement");
+  gameScreen.classList.remove("is-at-settlement", "is-sailing");
   roadScene.classList.remove("is-camp-active", "is-camp-setup-open", "is-settlement-active");
   campSetup.hidden = true;
   if (campCardPanel) campCardPanel.hidden = true;
@@ -9937,6 +10344,29 @@ function applyOutdoorSceneContext() {
   roadScene.setAttribute("aria-label", "정면뷰");
 }
 
+function applySailingSceneContext() {
+  campSetupOpen = false;
+  gameScreen.classList.remove("is-at-settlement");
+  gameScreen.classList.add("is-sailing");
+  roadScene.classList.remove("is-camp-active", "is-camp-setup-open", "is-settlement-active");
+  campSetup.hidden = true;
+  if (campCardPanel) campCardPanel.hidden = true;
+  settlementFacilities.hidden = true;
+  if (settlementMealStatus) settlementMealStatus.hidden = true;
+  if (settlementDailyStatus) settlementDailyStatus.hidden = true;
+  if (settlementTutorialPrompts) settlementTutorialPrompts.hidden = true;
+  hideSettlementExitTooltip();
+  window.ProjectWTrade.close();
+  window.ProjectWMeal.close();
+  window.ProjectWInn.close();
+  closeServiceModal();
+  if (portModal && !portModal.hidden) closePortModal();
+  setSceneBackground(roadBackground, "Asset_A_13", "항해 중인 배의 정면 풍경");
+  setSceneBackground(partnerBackground, "Asset_A_14", "항해 중인 배의 파트너 공간");
+  setSceneBackground(mapBackground, "Asset_A_15", "항해 중 펼쳐 본 해도");
+  roadScene.setAttribute("aria-label", "항해 정면뷰");
+}
+
 function roadSceneAssetForConditions(conditions = getCurrentRoadConditions()) {
   const variants = ROAD_SCENE_ASSET_VARIANTS[conditions.region] || ROAD_SCENE_ASSET_VARIANTS["중부"];
   const forest = conditions.terrains.includes("숲길");
@@ -9950,6 +10380,7 @@ function roadSceneAssetForConditions(conditions = getCurrentRoadConditions()) {
 
 function applySettlementSceneContext(travel) {
   campSetupOpen = false;
+  gameScreen.classList.remove("is-sailing");
   gameScreen.classList.add("is-at-settlement");
   roadScene.classList.remove("is-camp-active", "is-camp-setup-open");
   roadScene.classList.add("is-settlement-active");
@@ -9984,7 +10415,7 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
     const button = document.createElement("button");
     button.type = "button";
     const mealFacility = facility.type === "주점";
-    const serviceFacility = ["주점", "여관", "상업조합", "통관 게시판"].includes(facility.type);
+    const serviceFacility = ["주점", "여관", "상업조합", "통관 게시판", "항구"].includes(facility.type);
     const repairing = facility.type === "여관"
       && placement.id === START_DESTINATION_ID
       && !normalizeTutorialProgress(account?.tutorialProgress).reachedHirenbach;
@@ -10020,6 +10451,8 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
         ? "정보 수집"
       : facility.type === "통관 게시판"
         ? "경제 정보 1~3건"
+      : facility.type === "항구"
+        ? "정기선 · 정보 수집"
       : facility.trade
         ? "구입 · 판매"
         : "준비 중";
@@ -10087,9 +10520,13 @@ function renderSettlementGatePass() {
 function settlementFacilitiesFor(placement) {
   const category = placement?.category || "";
   const baseFacilities = (SETTLEMENT_FACILITIES[category] || []).filter(facility => facility.type !== "상회");
-  const companyLimit = category === "대도시" ? 2 : category === "도시" ? 1 : 0;
+  const hasDeparturePort = ["대도시", "도시"].includes(category)
+    && Array.isArray(placement?.sailingRoutes)
+    && placement.sailingRoutes.length > 0;
+  if (hasDeparturePort) {
+    baseFacilities.push({ id: "port", label: "항구", type: "항구", trade: false });
+  }
   const companyFacilities = (placement?.companyNames || [])
-    .slice(0, companyLimit)
     .map(companyName => ({
       id: `company:${companyName}`,
       label: companyName,
@@ -10136,10 +10573,12 @@ function renderSettlementDailyStatus(placement, facilities = settlementFacilitie
 }
 
 function renderSettlementTutorialPrompts(placement) {
-  if (!settlementTutorialPrompts || !settlementCommerceGuide || !settlementNewsGuide || !settlementGateGuide || !account) return;
+  if (!settlementTutorialPrompts || !settlementCommerceGuide || !settlementNewsGuide
+    || !settlementGateGuide || !settlementPortGuide || !account) return;
   const category = String(placement?.category || "");
   const cityEligible = ["도시", "대도시"].includes(category);
   const gateEligible = category === "관문";
+  const portEligible = cityEligible && Array.isArray(placement?.sailingRoutes) && placement.sailingRoutes.length > 0;
   const progress = normalizeTutorialProgress(account.tutorialProgress);
   const commerceCompleted = progress.completed.includes(TUTORIAL_IDS.CITY_COMMERCE);
   const newsCompleted = progress.completed.includes(TUTORIAL_IDS.CITY_NEWS);
@@ -10154,9 +10593,13 @@ function renderSettlementTutorialPrompts(placement) {
   if (newsCopy) newsCopy.textContent = eventCount > 0 ? `현재 소식 ${eventCount}건` : "현재 소식 없음";
   settlementGateGuide.hidden = !gateEligible || gateCompleted;
   settlementGateGuide.disabled = Boolean(progress.activeId && progress.activeId !== TUTORIAL_IDS.GATE_OVERVIEW);
+  // 항구 설명 버튼은 최초 자동 튜토리얼의 완료 여부와 별개로 언제든 다시 볼 수 있다.
+  settlementPortGuide.hidden = !portEligible;
+  settlementPortGuide.disabled = Boolean(progress.activeId && progress.activeId !== TUTORIAL_IDS.PORT_OVERVIEW);
   settlementTutorialPrompts.hidden = settlementCommerceGuide.hidden
     && settlementNewsGuide.hidden
-    && settlementGateGuide.hidden;
+    && settlementGateGuide.hidden
+    && settlementPortGuide.hidden;
 }
 
 function showSettlementExitTooltip() {
@@ -10322,6 +10765,10 @@ function handleSettlementFacilityClick(event) {
     void openGateBulletin(placement);
     return;
   }
+  if (facilityType === "항구") {
+    openPortModal(placement);
+    return;
+  }
   if (facilityType === "상업조합" && !isFeatureUnlocked("guildAccess")) {
     showGameNotice("상업조합을 이용할 자격이 부족합니다. 메인 퀘스트를 진행하면 해금됩니다.");
     return;
@@ -10355,6 +10802,7 @@ function handleSettlementFacilityClick(event) {
 
 function isFacilityOpen(type) {
   if (type === "여관" || type === "통관 게시판") return true;
+  if (type === "항구") return DEPARTURE_PHASES.has(currentTimePhase());
   return BUSINESS_OPEN_PHASES.has(currentTimePhase());
 }
 
@@ -10434,6 +10882,382 @@ function closeGateBulletin(scheduleNext = true) {
   if (!gateBulletinModal) return;
   gateBulletinModal.hidden = true;
   if (scheduleNext) schedulePendingNarrativePresentation();
+}
+
+function portRouteProfiles(placement) {
+  if (!placement || !Array.isArray(placement.sailingRoutes)) return [];
+  return placement.sailingRoutes.map((route, index) => {
+    const destination = (window.ProjectWMapView.getTradeWorldData?.().nodes || [])
+      .find(node => String(node.name || "").trim() === String(route.destinationName || "").trim());
+    return destination ? { ...route, index, destination } : null;
+  }).filter(Boolean);
+}
+
+function portDailyRandom(key) {
+  const source = `${String(account?.worldSeed || "port")}|${normalizeWorldTime(account?.worldTime).day}|${key}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967296;
+}
+
+function portFareForRoute(origin, destination, days) {
+  const duration = Math.max(1, Math.trunc(Number(days) || 1));
+  const base = PORT_FARE_BASE_BY_DAYS.get(duration) || (100 + ((duration - 3) * 25));
+  const variance = .8 + (portDailyRandom(`fare:${origin?.id}:${destination?.id}:${duration}`) * .4);
+  return Math.max(1, Math.round(base * variance));
+}
+
+function portClosureReason(origin, destination) {
+  const destinationWeather = weatherAtPlacement(destination?.id).label;
+  if (PORT_BLOCKED_WEATHER.has(destinationWeather)) return `${destinationWeather}로 입항할 수 없습니다.`;
+  const struma = [origin, destination].find(placement => placement?.name === STRUMA_PORT_NAME);
+  if (!struma) return "";
+  const strumaWeather = weatherAtPlacement(struma.id).label;
+  if (strumaWeather === "폭설") return "스트루마의 폭설로 정기선 운항이 중단되었습니다.";
+  if (portDailyRandom(`struma-closure:${struma.id}`) < .33) return "스트루마 항로 사정으로 오늘 운항하지 않습니다.";
+  return "";
+}
+
+function portDestinationCategoryLabel(destination) {
+  const category = String(destination?.category || "거점").trim() || "거점";
+  if (INLAND_PORT_NAMES.has(String(destination?.name || ""))) return "도시(호수)";
+  return category;
+}
+
+function createPortDestinationIcon(destination) {
+  const icon = document.createElement("span");
+  icon.className = "port-route-icon";
+  const assetId = String(destination?.assetId || "").trim();
+  const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
+  if (source) {
+    const image = document.createElement("img");
+    image.src = source;
+    image.alt = "";
+    image.draggable = false;
+    icon.append(image);
+  } else {
+    icon.textContent = portDestinationCategoryLabel(destination).slice(0, 1);
+  }
+  return icon;
+}
+
+function hasAnyCargoLoaded() {
+  return (window.ProjectWCargo?.getInventoryItems?.() || [])
+    .some(item => Math.max(0, Number(item.quantity) || 0) > 0);
+}
+
+function openPortModal(placement = currentSettlementPlacement()) {
+  if (!portModal || !placement || !["도시", "대도시"].includes(String(placement.category || ""))) return false;
+  if (!isFacilityOpen("항구")) {
+    showGameNotice(`항구는 아침, 낮, 오후에만 이용할 수 있습니다. 지금은 ${currentTimePhase()}입니다.`);
+    return false;
+  }
+  activePortContext = placement;
+  activePortView = "home";
+  void preloadSailingResources();
+  setSceneBackground(portSceneBackground, "Asset_A_16", `${placement.name || "거점"} 항구 풍경`);
+  portModal.classList.remove("is-detail-view");
+  portModal.hidden = false;
+  renderPortModal();
+  window.dispatchEvent(new CustomEvent("projectw:facilitychange", { detail: { open: true, facilityType: "항구" } }));
+  schedulePendingNarrativePresentation();
+  return true;
+}
+
+function closePortModal(emitEvent = true) {
+  if (portModal) {
+    portModal.hidden = true;
+    portModal.classList.remove("is-detail-view");
+  }
+  activePortView = "home";
+  activePortContext = null;
+  refreshAdvancedTutorialLaunchers();
+  if (emitEvent) {
+    window.dispatchEvent(new CustomEvent("projectw:facilitychange", { detail: { open: false, facilityType: "항구" } }));
+    schedulePendingNarrativePresentation();
+  }
+}
+
+function setPortView(view = "home") {
+  if (!activePortContext) return;
+  activePortView = ["routes", "exports"].includes(view) ? view : "home";
+  portModal?.classList.toggle("is-detail-view", activePortView !== "home");
+  portHomeView.hidden = activePortView !== "home";
+  portRouteView.hidden = activePortView !== "routes";
+  portExportView.hidden = activePortView !== "exports";
+  portRouteListTab?.classList.toggle("is-active", activePortView === "routes");
+  portRouteListTab?.setAttribute("aria-selected", String(activePortView === "routes"));
+  if (activePortView === "exports") {
+    recordPortSpecialExportDiscoveries(
+      activePortContext,
+      window.ProjectWTrade?.getSpecialExportSchedules?.(activePortContext) || []
+    );
+  }
+  renderPortModal();
+  scheduleTutorialPosition();
+}
+
+function renderPortModal() {
+  const origin = activePortContext;
+  if (!origin || !portRouteList) return;
+  const profiles = portRouteProfiles(origin);
+  if (portLocation) portLocation.textContent = `${origin.name || "거점"} · 항구`;
+  if (portRouteCount) portRouteCount.textContent = `정기선 ${profiles.length}편 · 매일 요금 변동`;
+  const cards = profiles.map(profile => {
+    const { destination, days, index } = profile;
+    const fare = portFareForRoute(origin, destination, days);
+    const weather = weatherAtPlacement(destination.id).label;
+    const closureReason = portClosureReason(origin, destination);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "port-route-card";
+    button.dataset.portRouteIndex = String(index);
+    button.disabled = Boolean(closureReason);
+    const icon = createPortDestinationIcon(destination);
+    const copy = document.createElement("span");
+    copy.className = "port-route-card-main";
+    const titleRow = document.createElement("span");
+    titleRow.className = "port-route-card-title";
+    const title = document.createElement("strong");
+    const fareCopy = document.createElement("b");
+    title.textContent = destination.name || "이름 없는 항구";
+    titleRow.append(title);
+    const destinationBadge = document.createElement("span");
+    destinationBadge.className = "port-route-type-badge";
+    destinationBadge.textContent = portDestinationCategoryLabel(destination);
+    const duration = document.createElement("span");
+    duration.className = "port-route-stat";
+    const durationLabel = document.createElement("small");
+    durationLabel.textContent = "항해 기간";
+    const durationValue = document.createElement("strong");
+    durationValue.textContent = `${days}일`;
+    duration.append(durationLabel, durationValue);
+    const weatherCopy = document.createElement("span");
+    weatherCopy.className = `port-route-stat ${closureReason ? "is-closed" : "is-weather"}`;
+    const weatherLabel = document.createElement("small");
+    weatherLabel.textContent = "목적지 날씨";
+    const weatherValue = document.createElement("strong");
+    weatherValue.textContent = closureReason ? "운항 중단" : weather;
+    weatherCopy.append(weatherLabel, weatherValue);
+    fareCopy.textContent = closureReason ? "운항 중단" : `${formatCompactNumber(fare)} 가치`;
+    copy.append(titleRow);
+    button.append(icon, copy, destinationBadge, duration, weatherCopy, fareCopy);
+    if (closureReason) button.title = closureReason;
+    return button;
+  });
+  if (!cards.length) {
+    const empty = document.createElement("p");
+    empty.className = "port-route-empty";
+    empty.textContent = "현재 이용할 수 있는 정기선이 없습니다.";
+    cards.push(empty);
+  }
+  portRouteList.replaceChildren(...cards);
+  const specialExports = window.ProjectWTrade?.getSpecialExportSchedules?.(origin) || [];
+  const exportCards = specialExports.map((schedule, index) => {
+    const card = document.createElement("article");
+    card.className = "port-export-card";
+    const order = document.createElement("span");
+    order.className = "port-export-index";
+    order.textContent = String(index + 1);
+    const copy = document.createElement("span");
+    copy.className = "port-export-copy";
+    const title = document.createElement("strong");
+    title.textContent = schedule.subcategory;
+    const status = document.createElement("span");
+    status.textContent = `남은 ${formatCompactNumber(schedule.remainingDays)}일 · 상인 판매 재고 매진`;
+    copy.append(title, status);
+    const bonus = document.createElement("b");
+    bonus.className = "port-export-bonus";
+    bonus.textContent = `매입 +${formatCompactNumber(schedule.bonusPercent)}%`;
+    card.append(order, copy, bonus);
+    return card;
+  });
+  if (!exportCards.length) {
+    const empty = document.createElement("p");
+    empty.className = "port-route-empty";
+    empty.textContent = "현재 확인할 수 있는 특별수출일정이 없습니다.";
+    exportCards.push(empty);
+  }
+  portExportList?.replaceChildren(...exportCards);
+  const opportunity = informationOpportunity("항구", origin);
+  if (portHomeRouteSummary) portHomeRouteSummary.textContent = `연결 항구 ${profiles.length}곳 · 목록 또는 지도에서 선택`;
+  updateInformationButton(portHomeInformation, "항구", origin);
+  if (portHomeExportSummary) {
+    portHomeExportSummary.textContent = specialExports.length
+      ? `${specialExports.length}개 일정 진행 중 · 눌러서 직접 확인`
+      : "현재 진행 중인 일정이 없습니다.";
+  }
+  if (portHomeInformation) portHomeInformation.disabled = opportunity.remaining <= 0;
+  portHomeView.hidden = activePortView !== "home";
+  portRouteView.hidden = activePortView !== "routes";
+  portExportView.hidden = activePortView !== "exports";
+  refreshAdvancedTutorialLaunchers();
+}
+
+function handlePortRouteClick(event) {
+  const button = event.target.closest("button[data-port-route-index]");
+  if (!button || !portRouteList?.contains(button) || button.disabled || !activePortContext) return;
+  const profile = portRouteProfiles(activePortContext)
+    .find(route => route.index === Number(button.dataset.portRouteIndex));
+  if (!profile) return;
+  confirmPortRoute(profile);
+}
+
+function confirmPortRoute(profile) {
+  if (!profile?.destination || !activePortContext) return;
+  const fare = portFareForRoute(activePortContext, profile.destination, profile.days);
+  openDialog({
+    speaker: "정기선 승선",
+    message: `[${profile.destination.name}행 정기선]<br>항해 기간 ${profile.days}일 · 운임 ${formatCompactNumber(fare)} 가치<br><br>일반·보호·비밀 화물칸이 모두 비어 있어야 승선할 수 있습니다.`,
+    showCharacter: false,
+    dialogClass: "is-port-boarding-confirm",
+    actions: [
+      { label: "취소", onClick: closeDialog },
+      { label: "승선", onClick: () => { closeDialog(); void beginPortVoyage(profile); } }
+    ]
+  });
+}
+
+async function openPortRouteMap() {
+  const origin = activePortContext;
+  if (!origin) return;
+  const loaded = await window.ProjectWMapView.load();
+  if (!loaded || !activePortContext) {
+    showGameNotice("항로 지도를 불러오지 못했습니다.");
+    return;
+  }
+  const profiles = portRouteProfiles(origin).filter(profile => !portClosureReason(origin, profile.destination));
+  if (!profiles.length) {
+    showGameNotice("오늘 지도에서 선택할 수 있는 운항 노선이 없습니다.");
+    return;
+  }
+  const routes = profiles.map(profile => ({
+    node: profile.destination,
+    path: [origin.id, profile.destination.id],
+    portRouteIndex: profile.index,
+    sailingDays: profile.days,
+    sailingFare: portFareForRoute(origin, profile.destination, profile.days)
+  }));
+  const weatherInfo = new Map(portRouteProfiles(origin).map(profile => [profile.destination.id, {
+    mode: "forecast",
+    label: weatherAtPlacement(profile.destination.id).label,
+    sourceName: `${origin.name || "출발 항구"} 정기선`,
+    borderTaxRate: 0,
+    originAffiliation: origin.affiliation || "",
+    destinationAffiliation: profile.destination.affiliation || ""
+  }]));
+  portMapReturnScene = currentScene;
+  portModal.hidden = true;
+  gameScreen.classList.add("is-destination-picking");
+  window.ProjectWMapView.beginDestinationSelection(routes, {
+    originName: `${origin.name || "현재 거점"} 항구`,
+    message: `${origin.name || "현재 항구"}에서 출항하는 정기선 목적지를 선택하세요.`,
+    cancelLabel: "항구로 돌아가기",
+    weatherInfoByPlacementId: weatherInfo,
+    mode: "sailing",
+    focusPlacementId: origin.id,
+    originPlacementId: origin.id,
+    onSelect: route => returnFromPortRouteMap(route),
+    onCancel: () => returnFromPortRouteMap()
+  });
+  showScene("map", 1, true);
+}
+
+function returnFromPortRouteMap(route = null) {
+  gameScreen.classList.remove("is-destination-picking");
+  showScene(portMapReturnScene, -1, true);
+  if (!activePortContext || !portModal) return;
+  portModal.hidden = false;
+  setPortView("routes");
+  if (!route) return;
+  const profile = portRouteProfiles(activePortContext)
+    .find(candidate => candidate.index === Number(route.portRouteIndex));
+  if (profile) window.requestAnimationFrame(() => confirmPortRoute(profile));
+}
+
+async function collectPortInformation() {
+  const origin = activePortContext;
+  if (!origin) return false;
+  const preferredSettlementIds = portRouteProfiles(origin).map(profile => profile.destination.id);
+  const collected = await collectFacilityInformation("항구", origin, {
+    preferredSettlementIds,
+    preferredSettlementMultiplier: PORT_DESTINATION_INFORMATION_WEIGHT
+  });
+  if (!activePortContext) return collected;
+  if (!isFacilityOpen("항구")) closePortModal();
+  else renderPortModal();
+  return collected;
+}
+
+async function beginPortVoyage(profile) {
+  const origin = activePortContext;
+  const destination = profile?.destination;
+  if (!origin || !destination) return;
+  if (!isFacilityOpen("항구")) {
+    showGameNotice("현재 시간에는 정기선이 출항하지 않습니다.");
+    return;
+  }
+  const closureReason = portClosureReason(origin, destination);
+  if (closureReason) {
+    showGameNotice(closureReason);
+    renderPortModal();
+    return;
+  }
+  if (hasAnyCargoLoaded()) {
+    showGameNotice("일반·보호·비밀 화물칸을 모두 비워야 정기선에 탈 수 있습니다.");
+    return;
+  }
+  const fare = portFareForRoute(origin, destination, profile.days);
+  if (getRouteEventCurrencyCapacity(origin.region) < fare) {
+    showGameNotice(`운임이 부족합니다. ${formatCompactNumber(fare)} 가치가 필요합니다.`);
+    return;
+  }
+  const payment = autoPayRouteEventCurrency(fare, origin.region);
+  if (payment.paid < fare) {
+    showGameNotice("운임을 지불하지 못했습니다.");
+    return;
+  }
+  const sailingDays = Math.max(1, Math.trunc(Number(profile.days) || 1));
+  const arrivalPhaseIndex = Math.floor(Math.random() * 3);
+  closePortModal();
+  await playSituationTransition("", async () => {
+    const travel = ensureTravelState();
+    travel.mode = "sailing";
+    travel.departureNodeId = origin.id;
+    travel.positionId = origin.id;
+    travel.destinationNodeId = destination.id;
+    travel.routePath = [origin.id, destination.id];
+    travel.routeIndex = 0;
+    travel.moving = true;
+    travel.turningBack = false;
+    travel.turnBackEndsAt = 0;
+    travel.segmentRemainingMs = SAILING_STEP_MS;
+    travel.progressUpdatedAt = Date.now();
+    travel.progressRate = 1;
+    travel.settlementId = "";
+    travel.settlementName = "";
+    travel.settlementAssetId = "";
+    travel.pendingRoadArrivalContinuation = false;
+    travel.pendingRoadArrivalPhase = "";
+    travel.talkCardAreaRouteKey = "";
+    travel.talkCardAreaRolls = [];
+    travel.sailingOriginId = origin.id;
+    travel.sailingDestinationId = destination.id;
+    travel.sailingTotalDots = sailingDays;
+    travel.sailingCompletedDots = 0;
+    travel.sailingFare = payment.paid;
+    travel.sailingArrivalPhaseIndex = arrivalPhaseIndex;
+    persistAccount();
+    showScene("road", 1, false);
+    syncTravelExperience();
+  });
+  queueNahanaSituationEvent("E_017");
+  showGameNotice(`${destination.name}행 정기선이 출항했습니다 · ${sailingDays}일 항해 · 운임 ${formatCompactNumber(payment.paid)} 가치`);
+  schedulePendingNarrativePresentation();
+  scheduleTravelStep();
 }
 
 function openServiceModal(placement, type, label = type, options = {}) {
@@ -10990,7 +11814,12 @@ function informationOpportunity(type, placement = currentSettlementPlacement(), 
   }
   const companyName = String(options.companyName || "").trim();
   const companyProfile = type === "상회" ? window.ProjectWMerchantPath.getCompanyProfile?.(companyName) : null;
-  let maximum = type === "상회"
+  const fixedPortMaximum = type === "항구"
+    ? (INLAND_PORT_NAMES.has(String(placement?.name || "")) ? 3 : 5)
+    : null;
+  let maximum = fixedPortMaximum !== null
+    ? fixedPortMaximum
+    : type === "상회"
     ? Math.max(0, Number(companyProfile?.informationBonus) || 0)
     : type === "상업조합"
       ? guildContributionProfile().maxInformationAttempts
@@ -11006,9 +11835,11 @@ function informationOpportunity(type, placement = currentSettlementPlacement(), 
       companyScore: Math.max(0, Number(companyProfile?.score) || 0)
     };
   }
-  if (type === "여관" && activePartnerBuff("N_Buff_022")) maximum += 1;
-  maximum += Number(window.ProjectWMerchantPath.getInformationBonuses()?.attempts?.[type]) || 0;
-  maximum += Number(window.ProjectWCityEvents.getModifiers(placement).information[type]) || 0;
+  if (type !== "항구") {
+    if (type === "여관" && activePartnerBuff("N_Buff_022")) maximum += 1;
+    maximum += Number(window.ProjectWMerchantPath.getInformationBonuses()?.attempts?.[type]) || 0;
+    maximum += Number(window.ProjectWCityEvents.getModifiers(placement).information[type]) || 0;
+  }
   if (!account || !maximum || !placement) return { maximum, used: 0, remaining: 0, resetInDays: 3 };
   account.informationUsage = normalizeInformationUsage(account.informationUsage, account.worldTime);
   const used = Math.min(maximum, account.informationUsage.facilities[informationUsageKey(placement, type, companyName)] || 0);
@@ -11071,7 +11902,12 @@ async function collectFacilityInformation(type, requestedPlacement = null, optio
     const attemptsToUse = opportunity.remaining;
     const results = [];
     for (let attempt = 0; attempt < attemptsToUse; attempt += 1) {
-      const result = await window.ProjectWInformation.collect({ facility: type, placement });
+      const result = await window.ProjectWInformation.collect({
+        facility: type,
+        placement,
+        preferredSettlementIds: options.preferredSettlementIds,
+        preferredSettlementMultiplier: options.preferredSettlementMultiplier
+      });
       results.push(result);
       if (!result?.attempted) break;
     }
@@ -11099,6 +11935,7 @@ async function collectFacilityInformation(type, requestedPlacement = null, optio
     updateInformationButton(mealInfoCollect, "주점", placement);
     if (activeServiceContext) updateInformationButton(serviceInfoCollect, activeServiceContext.type, activeServiceContext.placement);
     if (activeServiceContext?.type === "상업조합") renderServiceGuildProfile();
+    if (activePortContext) renderPortModal();
     window.ProjectWInn.refresh();
     const failedCount = Math.max(0, attemptsToUse - acquiredResults.length);
     const resultSummary = acquiredResults.length
@@ -11260,7 +12097,7 @@ async function handleNahanaEventLodgingComplete(placement) {
 }
 
 function applyCampSceneContext() {
-  gameScreen.classList.remove("is-at-settlement");
+  gameScreen.classList.remove("is-at-settlement", "is-sailing");
   roadScene.classList.remove("is-settlement-active");
   roadScene.classList.add("is-camp-active");
   roadScene.classList.toggle("is-camp-setup-open", campSetupOpen);
@@ -11336,6 +12173,16 @@ function updateRoadControls() {
     roadLocation.textContent = "야영지 · 저녁";
     roadStatus.textContent = "야영을 진행하거나 야영지에서 다른 행동을 준비할 수 있습니다.";
     setRoadAction("야영 진행", "Space", campInProgress);
+    return;
+  }
+
+  if (travel.mode === "sailing") {
+    const destinationName = getPlacementName(travel.sailingDestinationId || travel.destinationNodeId);
+    roadLocation.textContent = `${destinationName}행 정기선`;
+    roadStatus.textContent = travel.moving
+      ? `항해 중 · ${travel.sailingCompletedDots + 1}/${travel.sailingTotalDots} 항해점까지 ${nextPointSeconds(travel)}초`
+      : "항구에 접안하고 있습니다.";
+    setRoadAction("항해 중", "", true);
     return;
   }
 
@@ -11735,7 +12582,7 @@ function createCampItemOption(item, kind, options = {}) {
   effect.textContent = normalizeEffectText(item.definition.campEffect) || "야영 안락도 변화 없음";
   const notice = document.createElement("small");
   if (kind === "meal") notice.textContent = "선택 시 야영 진행에서 1개 소모";
-  else if (/소모\s*없음/.test(item.definition.campEffect)) notice.textContent = "소모 없음";
+  else if (item.itemId === "G_0267" || /소모\s*없음/.test(item.definition.campEffect)) notice.textContent = "소모 없음";
   else {
     const explicitDamage = explicitCampDurabilityDamage(item);
     const damage = campDurabilityDamage(item);
@@ -11993,7 +12840,7 @@ async function performCamp(forceConfirmation = false) {
     }
   }
   utilityItems.forEach(item => {
-    if (/소모\s*없음/.test(item.definition.campEffect)) return;
+    if (item.itemId === "G_0267" || /소모\s*없음/.test(item.definition.campEffect)) return;
     window.ProjectWCargo.damageItem(item.instanceId, campDurabilityDamage(item));
   });
   window.ProjectWRouteEvents.consumeCampComfortBonus();
@@ -12145,9 +12992,20 @@ function completeSettlementEntry(placement, context = {}) {
   travel.segmentRemainingMs = TRAVEL_STEP_MS;
   travel.progressUpdatedAt = null;
   travel.progressRate = 1;
+  travel.positionId = placement.id;
+  travel.destinationNodeId = placement.id;
+  travel.routePath = [placement.id];
+  travel.routeIndex = 0;
   travel.settlementId = placement.id;
   travel.settlementName = placement.name || "거점";
   travel.settlementAssetId = SETTLEMENT_ASSETS[placement.category] || "Asset_A_06";
+  travel.sailingOriginId = "";
+  travel.sailingDestinationId = "";
+  travel.sailingTotalDots = 0;
+  travel.sailingCompletedDots = 0;
+  travel.sailingFare = 0;
+  travel.sailingArrivalPhaseIndex = 0;
+  lastMapFocusPositionId = "";
   const gatePassNotice = applyGatePassOnSettlementEntry(placement, context);
   account.settlementDialogueVisit = {
     settlementId: placement.id,
@@ -12156,6 +13014,20 @@ function completeSettlementEntry(placement, context = {}) {
   window.ProjectWInformation.verifyAtSettlement?.(placement.id);
   activeTavernVisit = null;
   recordCompanionSettlementEntry(placement.id);
+  const portSettlement = ["도시", "대도시"].includes(String(placement.category || ""))
+    && Array.isArray(placement.sailingRoutes)
+    && placement.sailingRoutes.length > 0;
+  if (portSettlement) {
+    queueNahanaSituationEvent("E_016");
+    void preloadSailingResources();
+  }
+  if (context.seaArrival) {
+    const sailingDays = Math.max(1, Math.trunc(Number(context.seaDays) || 1));
+    if (Math.random() < Math.min(1, sailingDays * .25)) {
+      addPartnerStatus("N_S_037", { expiresAfterDay: normalizeWorldTime(account.worldTime).day });
+    }
+    if (sailingDays >= 3) queueNahanaSituationEvent("E_018");
+  }
   persistAccount();
   if ((SETTLEMENT_FACILITIES[placement.category] || []).some(facility => facility.type === "주점")) beginTavernVisit(placement);
   clearTravelTimers();
@@ -12425,7 +13297,7 @@ function updateGameClock() {
     date: `${date.year}-${date.month}-${date.day}`,
     season,
     weather,
-    phase: TIME_PHASES[time.phaseIndex]
+    phase: account?.travel?.mode === "sailing" ? "항해중" : TIME_PHASES[time.phaseIndex]
   };
   if (gameClockDate) gameClockDate.textContent = `${date.year}년 ${date.month}월 ${date.day}일 ${date.weekday}`;
   if (gameClockSeason) gameClockSeason.textContent = season;
@@ -12495,13 +13367,21 @@ function contractCalendarDate(contractDay) {
 
 function renderRoadRouteBar() {
   const travel = account?.travel;
-  const visible = Boolean(travel && travel.mode === "road" && travel.routePath.length);
+  const visible = Boolean(travel && ["road", "sailing"].includes(travel.mode) && travel.routePath.length);
   roadRouteBar.hidden = !visible;
   if (!visible) {
+    roadRouteBar.classList.remove("is-sailing");
     roadRoutePoints.replaceChildren();
     if (roadRouteName) roadRouteName.hidden = true;
     return;
   }
+
+  if (travel.mode === "sailing") {
+    roadRouteBar.classList.add("is-sailing");
+    renderSailingRouteBar(travel);
+    return;
+  }
+  roadRouteBar.classList.remove("is-sailing");
 
   const path = travel.routePath;
   const lastIndex = Math.max(1, path.length - 1);
@@ -12558,6 +13438,57 @@ function renderRoadRouteBar() {
     ...createRoadRouteWeatherMarkers(travel, path, lastIndex),
     ...createRoadRouteCampPreviewMarkers(travel, path, lastIndex)
   );
+}
+
+function renderSailingRouteBar(travel) {
+  const total = Math.max(1, Math.trunc(Number(travel.sailingTotalDots) || 1));
+  const completed = Math.min(total, Math.max(0, Math.trunc(Number(travel.sailingCompletedDots) || 0)));
+  updateTravelPinPositions(travel);
+  const pinSource = assetMap.get("Asset_Pin") ?? assetFallbacks.get("Asset_Pin");
+  if (pinSource) roadRoutePin.src = pinSource;
+  const destinationName = getPlacementName(travel.sailingDestinationId || travel.destinationNodeId);
+  const originId = travel.sailingOriginId || travel.departureNodeId || travel.positionId;
+  const destinationId = travel.sailingDestinationId || travel.destinationNodeId;
+  const originPlacement = window.ProjectWMapView.getPlacement(originId);
+  const destinationPlacement = window.ProjectWMapView.getPlacement(destinationId);
+  if (roadRouteName) {
+    roadRouteName.textContent = `${destinationName} 항로`;
+    roadRouteName.hidden = false;
+    roadRouteName.classList.remove("is-trade-route", "is-normal-route");
+    roadRouteName.setAttribute("aria-label", `${destinationName} 항로`);
+  }
+  const markers = Array.from({ length: total + 1 }, (_, index) => {
+    const marker = document.createElement("span");
+    marker.className = `road-route-point is-sailing-point ${index === 0 || index === total ? "is-node" : "is-dot"}`;
+    marker.classList.toggle("is-passed", index <= completed);
+    marker.classList.toggle("is-current", index === completed);
+    marker.style.left = `${(index / total) * 100}%`;
+    const visual = document.createElement("span");
+    visual.className = "road-route-point-visual";
+    const endpointPlacement = index === 0 ? originPlacement : index === total ? destinationPlacement : null;
+    const endpointSource = endpointPlacement?.assetId
+      ? (assetMap.get(endpointPlacement.assetId) ?? assetFallbacks.get(endpointPlacement.assetId) ?? "")
+      : "";
+    if (endpointSource) {
+      const image = document.createElement("img");
+      image.src = endpointSource;
+      image.alt = "";
+      image.draggable = false;
+      visual.append(image);
+    } else {
+      visual.textContent = index === 0 ? "⚓" : index === total ? "◆" : "●";
+    }
+    marker.append(visual);
+    if (index === 0 || index === total) {
+      const name = document.createElement("span");
+      name.className = "road-route-point-name";
+      name.textContent = index === 0 ? (originPlacement?.name || "출항") : destinationName;
+      marker.append(name);
+    }
+    marker.setAttribute("aria-label", index === 0 ? "출항" : index === total ? `${destinationName} 도착` : `${index}일차 항해점`);
+    return marker;
+  });
+  roadRoutePoints.replaceChildren(...markers);
 }
 
 function createRoadRouteCampPreviewMarkers(travel, path, lastIndex) {
@@ -13007,18 +13938,10 @@ function buildRoadStatusTooltip(kind) {
     } else rows.push(["과적", "없음", "is-healthy"]);
   } else if (kind === "horse") {
     const horse = normalizeHorseState(account.horse);
-    const hungerHealthLossChance = horseHungerExtraHealthLossChance(horse);
     const maxWeightReductionPercent = horseMaxWeightReductionRatio(horse) * 100;
     title.textContent = "말 상태";
     rows.push(["체력", `${Math.round(horse.health)} / ${Math.round(horse.maxHealth)}`, conditionTextClass(horse.health)]);
     rows.push(["허기", `${Math.round(horse.hunger)} / ${Math.round(horse.maxHunger)}`, conditionTextClass(horse.hunger)]);
-    rows.push([
-      "허기 추가 소모",
-      horse.hunger <= 0
-        ? `체력 +${HORSE_HUNGER_EXTRA_HEALTH_LOSS} 소모 확정`
-        : `${formatCompactNumber(hungerHealthLossChance * 100)}% 확률로 체력 +${HORSE_HUNGER_EXTRA_HEALTH_LOSS} 소모`,
-      horse.hunger <= 25 ? "is-danger" : ""
-    ]);
     rows.push([
       "적재 한도",
       maxWeightReductionPercent > 0
@@ -13032,7 +13955,7 @@ function buildRoadStatusTooltip(kind) {
     title.textContent = "노면 상태";
     rows.push(["지형", describeTerrainConditions(conditions.terrains), "", "condition"]);
     rows.push(["노면", describeRoadSurfaceConditions(conditions.roadSurfaces), "", "condition"]);
-    rows.push(["짐마차 손상", `Dot당 1 · 추가 1 확률 ${formatCompactNumber(wagonExtraWearChance(conditions, load.overweightPercent) * 100)}%`, "is-danger"]);
+    rows.push(["짐마차 손상", `구간당 1 +1 (${formatCompactNumber(wagonExtraWearChance(conditions, load.overweightPercent) * 100)}%)`, "is-danger"]);
   } else if (kind === "environment") {
     const conditions = getCurrentRoadConditions();
     title.textContent = "환경";
@@ -13041,11 +13964,8 @@ function buildRoadStatusTooltip(kind) {
     rows.push(["날씨 환경", `${conditions.weather} · ${describeWeatherRisk(conditions.weather)}`, "", "environment"]);
   } else {
     const wagon = normalizeWagonState(account.wagon);
-    const conditions = getCurrentRoadConditions();
-    const load = window.ProjectWCargo.getLoadSummary();
     title.textContent = "짐마차 상태";
     rows.push(["상태", `${Math.round(wagon.condition)} / ${Math.round(wagon.maxCondition)}`, conditionTextClass(wagon.condition)]);
-    rows.push(["다음 Dot 손상", `1 · 추가 1 확률 ${formatCompactNumber(wagonExtraWearChance(conditions, load.overweightPercent) * 100)}%`]);
     rows.push(["상태이상", describeWagonEffects(wagon.effects), "", "wagonEffects"]);
   }
 
@@ -13247,7 +14167,7 @@ function initCustomCursor() {
     gameCursor.style.top = `${event.clientY}px`;
     gameCursor.hidden = false;
     const target = event.target instanceof Element ? event.target : null;
-    const help = Boolean(target?.closest(".map-view-placement-layer .map-marker, .road-route-point, .road-route-weather-marker, .road-route-pin, [data-road-condition], #horse-whip-hitbox, .horse-feed-controls button, .camp-item-option, .toolbar-date, .cargo-slot.is-occupied, .cargo-weight-panel, .cargo-wagon-summary, .wallet-currency, .merchant-path-window button, .memorial-window button, .meal-window button, .meal-modal-layer > button, .window-side-button, [data-advanced-launcher] button, .service-window button, .service-modal-layer > button, .inn-window button, .partner-event-alert, .partner-event-panel button"));
+    const help = Boolean(target?.closest(".map-view-placement-layer .map-marker, .road-route-point, .road-route-weather-marker, .road-route-pin, [data-road-condition], #horse-whip-hitbox, .horse-feed-controls button, .camp-item-option, .toolbar-date, .cargo-slot.is-occupied, .cargo-weight-panel, .cargo-wagon-summary, .wallet-currency, .merchant-path-window button, .memorial-window button, .meal-window button, .meal-modal-layer > button, .window-side-button, [data-advanced-launcher] button, .service-window button, .service-modal-layer > button, .port-window button, .inn-window button, .partner-event-alert, .partner-event-panel button"));
     setCustomCursorMode(help ? "help" : "default");
   });
   document.documentElement.addEventListener("pointerleave", () => { gameCursor.hidden = true; });
@@ -13299,6 +14219,7 @@ function currentAdvancedScreenContext() {
   if (!account || gameScreen?.hidden || !advancedTutorialLayer?.hidden) return "";
   if (!dialogModal?.hidden || !informationAcquiredModal?.hidden || !innModal?.hidden
     || !partnerEventPanel?.hidden || !partnerFeaturePanel?.hidden) return "";
+  if (portModal && !portModal.hidden) return "port";
   if (!walletModal?.hidden) return "wallet";
   if (!informationModal?.hidden) return "information";
   if (!merchantPathModal?.hidden) return "merchant-path";
@@ -13376,6 +14297,7 @@ function refreshAdvancedTutorialLaunchers() {
     : "";
   const campContext = campSetupOpen && campSetup && !campSetup.hidden ? "camp" : "";
   const innContext = !innModal?.hidden ? "inn" : "";
+  const portContext = portModal && !portModal.hidden ? "port" : "";
   advancedTutorialLaunchers.forEach(launcher => {
     const type = launcher.dataset.advancedLauncher;
     const context = type === "trade"
@@ -13386,6 +14308,8 @@ function refreshAdvancedTutorialLaunchers() {
           ? campContext
           : type === "inn"
             ? innContext
+          : type === "port"
+            ? portContext
           : type === "screen"
             ? currentAdvancedScreenContext()
             : "";
@@ -13690,6 +14614,7 @@ function maybeStartPendingTalkCardTutorial() {
   }
   const modalOpen = !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
     || (gateBulletinModal && !gateBulletinModal.hidden)
+    || (portModal && !portModal.hidden)
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
     || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
     || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
@@ -13719,6 +14644,7 @@ function maybeStartPendingSootheTutorial() {
     || (tutorialLayer && !tutorialLayer.hidden) || (advancedTutorialLayer && !advancedTutorialLayer.hidden)) return false;
   const modalOpen = !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
     || (gateBulletinModal && !gateBulletinModal.hidden)
+    || (portModal && !portModal.hidden)
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
     || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
     || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
@@ -13750,8 +14676,43 @@ function maybeStartPendingGatePassTutorial() {
   return true;
 }
 
+function maybeStartPendingPortTutorial() {
+  if (!account) return false;
+  const progress = normalizeTutorialProgress(account.tutorialProgress);
+  if (!progress.portTutorialPending) return false;
+  if (!shouldStartTutorial(TUTORIAL_IDS.PORT_OVERVIEW)) {
+    progress.portTutorialPending = false;
+    account.tutorialProgress = progress;
+    persistAccount();
+    return false;
+  }
+  const placement = currentSettlementPlacement();
+  const portEligible = ["도시", "대도시"].includes(String(placement?.category || ""))
+    && Array.isArray(placement?.sailingRoutes)
+    && placement.sailingRoutes.length > 0;
+  const portViewOpen = Boolean(portModal && !portModal.hidden && activePortContext?.id === placement?.id);
+  const situationState = normalizeNahanaSituationEventState(account.nahanaSituationEvents);
+  if (!portEligible || !portViewOpen || !isFacilityOpen("항구") || account.travel?.mode !== "settlement") return false;
+  if (gameEntryInProgress || activeNahanaSituationEventId || pendingNahanaEventOpeningId
+    || situationState.pendingIds.length || talkCardGenerationInProgress > 0
+    || pendingSystemMiniDialogueCount > 0 || pendingRoadDialogueCount > 0
+    || activeTalkCardId || tutorialRuntime || advancedTutorialRuntime
+    || (tutorialLayer && !tutorialLayer.hidden) || (advancedTutorialLayer && !advancedTutorialLayer.hidden)
+    || !dialogModal.hidden || !informationModal.hidden || !informationAcquiredModal.hidden
+    || !walletModal.hidden || !merchantPathModal.hidden || !memorialModal.hidden
+    || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden
+    || !entryTaxModal.hidden || !routeEventModal.hidden || !sceneTransition.hidden
+    || (partnerEventPanel && !partnerEventPanel.hidden)) return false;
+  if (!startTutorial(TUTORIAL_IDS.PORT_OVERVIEW)) return false;
+  account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
+  account.tutorialProgress.portTutorialPending = false;
+  persistAccount();
+  return true;
+}
+
 function narrativePresentationBlocked(options = {}) {
   if (!account || gameScreen.hidden || gameEntryInProgress
+    || gameScreen.classList.contains("is-destination-picking")
     || (activeNahanaSituationEventId && !options.ignoreSituationEvent)
     || talkCardGenerationInProgress > 0
     || pendingSystemMiniDialogueCount > 0
@@ -13764,6 +14725,7 @@ function narrativePresentationBlocked(options = {}) {
   if (progress.activeId || (progress.talkCardTutorialPending && !options.ignoreTalkCardTutorialPending)) return true;
   return !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
     || (gateBulletinModal && !gateBulletinModal.hidden)
+    || (portModal && !portModal.hidden)
     || !merchantPathModal.hidden || !memorialModal.hidden || !tradeModal.hidden || !mealModal.hidden
     || !innModal.hidden || !serviceModal.hidden || !entryTaxModal.hidden || !routeEventModal.hidden
     || !sceneTransition.hidden || (partnerEventPanel && !partnerEventPanel.hidden);
@@ -13778,6 +14740,10 @@ function continuePendingNarrativePresentation() {
     && maybeStartFirstCampTutorial()) return true;
   if (maybeStartPendingSootheTutorial()) return true;
   if (maybeStartPendingTalkCardTutorial()) return true;
+  if (portModal && !portModal.hidden) {
+    if (maybeStartPendingPortTutorial()) return true;
+    return false;
+  }
   if (narrativePresentationBlocked()) return false;
   const eventState = normalizeNahanaEventState(account.nahanaEvents);
   const eventId = pendingNahanaEventOpeningId;
@@ -13820,8 +14786,12 @@ function isTutorialActive(tutorialId) {
   return Boolean(account && normalizeTutorialProgress(account.tutorialProgress).activeId === tutorialId);
 }
 
-function startTutorial(tutorialId, step = 0) {
-  if (!shouldStartTutorial(tutorialId) || !tutorialLayer) return false;
+function startTutorial(tutorialId, step = 0, options = {}) {
+  const replayCompleted = Boolean(options.replayCompleted);
+  const progress = account ? normalizeTutorialProgress(account.tutorialProgress) : null;
+  const canReplay = replayCompleted && progress
+    && (!progress.activeId || progress.activeId === tutorialId);
+  if ((!canReplay && !shouldStartTutorial(tutorialId)) || !tutorialLayer) return false;
   if (step === 0 && [3, 4].includes(tutorialId) && currentScene !== "road") {
     showScene("road", -1, false);
   }
@@ -13894,7 +14864,7 @@ function completeTutorial(tutorialId = tutorialRuntime?.id) {
   if (currentScene === "partner" && tutorialId !== TUTORIAL_IDS.TALK_CARD) {
     window.setTimeout(maybeStartEarlyPartnerTutorial, 0);
   }
-  const modalOpen = !walletModal.hidden || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden
+  const modalOpen = !walletModal.hidden || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || (portModal && !portModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden
     || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden
     || !entryTaxModal.hidden || !routeEventModal.hidden || !dialogModal.hidden;
   if (account.travel?.mode === "road" && !modalOpen) {
@@ -13985,8 +14955,8 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["숙박 계산서", "객실과 마굿간 비용을 확인한 뒤 현금으로 지불합니다.", ".inn-invoice-wrap", false, { padding: 18 }],
       ["숙박비 준비", "숙박비 지불을 눌러 자동 납부안을 확인하세요.", "#inn-lodging-pay", true],
       ["숙박비 지불", "올려 둔 화폐로 숙박비를 지불하세요. 거래가 없는 날에도 잠들기 전에 상행 복기가 이어집니다.", "#inn-payment-confirm", true],
-      ["관세와 식비", "복기 목록의 1번 관세와 2번 식비는 지출이 없어도 항상 표시됩니다. 먼저 오늘의 고정 지출을 확인하세요.", "#inn-trade-review-list", false, { padding: 12 }],
-      ["완료한 교역", "구입과 판매를 모두 마친 교역이 있다면 3번부터 이어집니다. 상품을 선택하면 손익과 10% 이상 작용한 주요 요인을 확인할 수 있습니다.", "#inn-trade-review-list", false, { padding: 12 }],
+      ["여정의 고정 지출", "복기 목록의 1번 관세, 2번 식비, 3번 정기선은 지출이 없어도 항상 표시됩니다. 정기선은 도착한 날짜를 기준으로 기록됩니다.", "#inn-trade-review-list", false, { padding: 12 }],
+      ["완료한 교역", "구입과 판매를 모두 마친 교역이 있다면 4번부터 이어집니다. 상품을 선택하면 손익과 10% 이상 작용한 주요 요인을 확인할 수 있습니다.", "#inn-trade-review-list", false, { padding: 12 }],
       ["복기 종료", "복기 종료를 누르면 교역품에는 결과 뱃지와 거래지식 1이 적용됩니다. 오늘의 복기는 상행록에 저장되고 화면이 어두워진 뒤 숙박으로 이어집니다.", "#inn-trade-review-finish", true, { padding: 10 }]
     ],
     7: [
@@ -14016,7 +14986,7 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["축복 선택", "원하는 축복은 이후 강화 포인트를 모아 선택할 수 있습니다.", ".partner-feature-panel", false, { padding: 14 }]
     ],
     [TUTORIAL_IDS.HORSE_FEED]: [
-      ["말의 허기", "말의 허기가 80 이하로 떨어졌습니다. 허기가 낮을수록 Dot 이동 때 체력 3을 추가 소모할 확률이 높아집니다. 허기 0에서는 추가 소모가 반드시 발생합니다.", ".road-condition-marker[data-road-condition='horse']", false, { padding: 14 }],
+      ["말의 허기", "말의 허기가 80 이하로 떨어졌습니다. 허기가 낮을수록 구간 이동 때 확정 체력 소모와 추가 1 소모 확률이 단계적으로 증가합니다. 허기 0에서는 체력을 3 추가 소모합니다.", ".road-condition-marker[data-road-condition='horse']", false, { padding: 14 }],
       ["건초 먹이기", "건초 먹이기를 눌러 말에게 먹이를 주세요.", "#horse-feed-button", true, { padding: 12 }],
       ["허기 회복", "먹이를 먹은 말의 허기가 회복되었습니다. 정면뷰에서 체력과 허기를 계속 살펴보세요.", ".road-condition-marker[data-road-condition='horse']", false, { padding: 14 }]
     ],
@@ -14107,10 +15077,10 @@ function tutorialStepConfiguration(tutorialId, step) {
       }]
     ],
     [TUTORIAL_IDS.TRADE_REVIEW]: [
-      ["첫 상행 복기", "숙박비를 지불하면 거래가 없는 날에도 상행 복기가 시작됩니다. 1번 관세와 2번 식비는 지출이 없어도 항상 자리를 지킵니다.", "#inn-trade-review-view", false, { padding: 12 }],
-      ["관세와 식비", "서로 다른 색의 두 고정 항목에서 합계와 지점별 지출 내역을 확인합니다. 완료한 교역품은 그 뒤에 이어집니다.", "#inn-trade-review-list", false, { padding: 12 }],
-      ["중요한 가격 요인", "3번 이후의 교역품 항목을 열면 10% 이상 작용한 가격 요인이 복수로 표시됩니다. ◆는 가장 큰 요소이며, 초록 ▲는 이익에 도움을 준 요인, 빨간 ▼는 손실을 키운 요인입니다.", "#inn-trade-review-list", false, { padding: 12 }],
-      ["교역품 복기", "완료한 교역이 있다면 3번부터 표시됩니다. 항목을 눌러 구입·판매 가격과 손익, 주요 가격 요인을 확인할 수 있습니다.", "#inn-trade-review-list", false, { padding: 10 }],
+      ["첫 상행 복기", "숙박비를 지불하면 거래가 없는 날에도 상행 복기가 시작됩니다. 관세·식비·정기선은 지출이 없어도 1~3번 자리를 지킵니다.", "#inn-trade-review-view", false, { padding: 12 }],
+      ["여정의 고정 지출", "서로 다른 색의 세 고정 항목에서 관세와 식비, 도착일에 기록된 정기선 운임을 확인합니다. 완료한 교역품은 그 뒤에 이어집니다.", "#inn-trade-review-list", false, { padding: 12 }],
+      ["중요한 가격 요인", "4번 이후의 교역품 항목을 열면 10% 이상 작용한 가격 요인이 복수로 표시됩니다. ◆는 가장 큰 요소이며, 초록 ▲는 이익에 도움을 준 요인, 빨간 ▼는 손실을 키운 요인입니다.", "#inn-trade-review-list", false, { padding: 12 }],
+      ["교역품 복기", "완료한 교역이 있다면 4번부터 표시됩니다. 항목을 눌러 구입·판매 가격과 손익, 주요 가격 요인을 확인할 수 있습니다.", "#inn-trade-review-list", false, { padding: 10 }],
       ["복기 종료", "복기 종료를 누르면 거래에는 결과 뱃지와 거래지식 1이 적용됩니다. 이날 화면은 상행록에 10일간 남고, 화면이 어두워지며 숙박을 계속합니다.", "#inn-trade-review-finish", true, { padding: 10 }]
     ],
     [TUTORIAL_IDS.PARTNER_SOOTHE]: [
@@ -14127,6 +15097,12 @@ function tutorialStepConfiguration(tutorialId, step) {
       ["통행증 획득", "국경 관세를 지불해 통행증을 받았습니다. 거점 시설의 이름 위에서 소속 국가와 남은 기간을 확인할 수 있습니다.", "#settlement-gate-pass", false, { padding: 10 }],
       ["관문 관세 할인", "통행증이 유효한 동안 해당 국가 관문의 기본 관세가 1%p 감소합니다. 국경 관세 자체와 도시 입장관세에는 적용되지 않습니다.", "#settlement-gate-pass", false, { padding: 10 }],
       ["연장과 출국", "같은 국가의 다른 관문에 들어가면 기간이 3일 연장됩니다. 다른 국가로 출국하면 기존 통행증은 사라지고, 새 국경 관세를 지불한 국가의 통행증으로 바뀝니다.", "#settlement-gate-pass", false, { padding: 10 }]
+    ],
+    [TUTORIAL_IDS.PORT_OVERVIEW]: [
+      ["항구 기능", "항구는 아침·낮·오후에 이용할 수 있습니다.\n이 화면에서 정기선, 정보 수집, 특별수출일정을 선택합니다.", "#port-home-view", false, { padding: 10 }],
+      ["정기선", "목록이나 지도에서 목적지를 고를 수 있으며 운임은 출항일마다 달라집니다.\n모든 화물칸을 비워야 승선할 수 있고, 폭우·폭설이나 유빙으로 결항할 수 있습니다.", "#port-home-route", false, { padding: 10 }],
+      ["정보 수집", "1타임을 사용해 남아 있는 수집 기회를 모두 시도합니다.\n정기선으로 연결된 항구의 소식을 얻어 다음 거래를 준비할 수 있습니다.", "#port-home-information", false, { padding: 10 }],
+      ["특별수출일정", "도시 항구는 1개, 대도시 항구는 2개의 일정을 운용합니다.\n직접 확인한 일정은 유효기간 동안 지도에서도 다시 볼 수 있습니다.", "#port-home-export", false, { padding: 10 }]
     ]
   };
   const entry = configurations[tutorialId]?.[step];
@@ -14339,7 +15315,18 @@ function maybeStartFirstTavernTutorial() {
 }
 
 function handleTutorialSettlementEntry(placement) {
-  if (!account || placement?.id !== FIRST_TUTORIAL_DESTINATION_ID) return;
+  if (!account) return;
+  const entryProgress = normalizeTutorialProgress(account.tutorialProgress);
+  const portEligible = ["도시", "대도시"].includes(String(placement?.category || ""))
+    && Array.isArray(placement?.sailingRoutes)
+    && placement.sailingRoutes.length > 0;
+  if (portEligible && !entryProgress.completed.includes(TUTORIAL_IDS.PORT_OVERVIEW)) {
+    entryProgress.portTutorialPending = true;
+    account.tutorialProgress = entryProgress;
+    persistAccount();
+    schedulePendingNarrativePresentation();
+  }
+  if (placement?.id !== FIRST_TUTORIAL_DESTINATION_ID) return;
   if (isTutorialActive(4)) completeTutorial(4);
   const progress = normalizeTutorialProgress(account.tutorialProgress);
   const eventState = normalizeNahanaEventState(account.nahanaEvents);
@@ -14490,6 +15477,12 @@ function handleTutorialFacilityChange(detail) {
     && detail.facilityType === "상업조합") {
     setTutorialStep(1);
   }
+  if (isTutorialActive(TUTORIAL_IDS.PORT_OVERVIEW)
+    && progress.step === 1
+    && detail.open
+    && detail.facilityType === "항구") {
+    setTutorialStep(2);
+  }
   scheduleTutorialPosition();
 }
 
@@ -14620,8 +15613,9 @@ function moveScene(direction) {
     return;
   }
   if (window.ProjectWTrade.isOpen() || window.ProjectWMeal.isOpen() || window.ProjectWEntryTax.isOpen() || !serviceModal?.hidden || moving || gameScreen.classList.contains("is-onboarding") || gameScreen.classList.contains("is-destination-picking")) return;
-  const currentIndex = sceneOrder.indexOf(currentScene);
-  const nextScene = sceneOrder[(currentIndex + direction + sceneOrder.length) % sceneOrder.length];
+  const availableScenes = account?.travel?.mode === "sailing" ? ["road", "partner", "map"] : sceneOrder;
+  const currentIndex = Math.max(0, availableScenes.indexOf(currentScene));
+  const nextScene = availableScenes[(currentIndex + direction + availableScenes.length) % availableScenes.length];
   showScene(nextScene, direction, true);
 }
 
@@ -14672,6 +15666,10 @@ function returnToInnScene(direction = -1) {
 }
 
 function showScene(next, direction, animate) {
+  if (account?.travel?.mode === "sailing" && next === "cargo") {
+    showGameNotice("항해 중에는 화물뷰를 열 수 없습니다.");
+    return;
+  }
   const previous = currentScene;
   if (account?.travel?.moving && previous !== next) reconcileTravelProgress(false);
   currentScene = next;
@@ -14701,6 +15699,12 @@ function showScene(next, direction, animate) {
     window.ProjectWMapView.load().then(loaded => {
       if (loaded && account?.travel?.positionId) {
         const travel = account.travel;
+        if (travel.mode === "sailing") {
+          const sailingOriginId = travel.sailingOriginId || travel.departureNodeId || travel.positionId;
+          window.ProjectWMapView.setPlayerPosition(sailingOriginId, "", 0);
+          lastMapFocusPositionId = sailingOriginId;
+          return;
+        }
         window.ProjectWMapView.updatePlayerProgress(
           travel.positionId,
           travel.moving ? travel.routePath[travel.routeIndex + 1] || "" : "",

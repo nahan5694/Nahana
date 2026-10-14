@@ -20,7 +20,9 @@
     rain: "Asset_BGS_11",
     heavyRain: "Asset_BGS_12",
     goods: "Asset_BGS_13",
-    whip: "Asset_BGS_15"
+    waves: "Asset_BGS_14",
+    seagull: "Asset_BGS_15",
+    whip: "Asset_BGS_15_whip"
   });
   const EFFECT_LEVELS = Object.freeze({
     click: .42,
@@ -30,6 +32,7 @@
     owl: .5,
     horseBreath: .48,
     goods: .65,
+    seagull: .48,
     whip: .72
   });
   const LOOP_FADE_MS = 700;
@@ -196,6 +199,31 @@
     audio.play().catch(error => reportPlaybackFailure(assetId, error));
   }
 
+  function playFadingEffect(name, level = EFFECT_LEVELS[name] ?? .6, holdMs = 6_000, fadeMs = 1_200) {
+    if (!unlocked || document.hidden) return;
+    const assetId = EFFECT_ASSETS[name] || name;
+    const template = templateFor(assetId);
+    if (!template) return;
+    const audio = template.cloneNode(true);
+    const targetVolume = channelVolume("bgs", level);
+    audio.volume = targetVolume;
+    audio.currentTime = 0;
+    audio.play().then(() => {
+      window.setTimeout(() => {
+        const startedAt = performance.now();
+        const timer = window.setInterval(() => {
+          const progress = Math.min(1, (performance.now() - startedAt) / Math.max(1, fadeMs));
+          audio.volume = normalizeVolume(targetVolume * (1 - progress), 0);
+          if (progress < 1) return;
+          window.clearInterval(timer);
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+        }, 40);
+      }, Math.max(0, holdMs));
+    }).catch(error => reportPlaybackFailure(assetId, error));
+  }
+
   function playCurrencyCompletion(completionEffect = "trade", gap = 120) {
     playEffect("coin");
     if (!completionEffect || completionEffect === "coin") return;
@@ -230,6 +258,11 @@
     if (state.mode === "loading") {
       desired.set("loading-hoof", { assetId: EFFECT_ASSETS.hoof, channel: "bgs", level: .34 });
       desired.set("loading-wheel", { assetId: EFFECT_ASSETS.wheel, channel: "bgs", level: .46 });
+      return desired;
+    }
+    if (state.mode === "sailing") {
+      desired.set("bgm", { assetId: "Asset_BGM_12", channel: "bgm", level: .82 });
+      desired.set("waves", { assetId: EFFECT_ASSETS.waves, channel: "bgs", level: .58 });
       return desired;
     }
     const region = ["북부", "중부", "남부"].includes(state.region) ? state.region : "중부";
@@ -333,7 +366,8 @@
 
   function syncRandomEffects() {
     syncRandomEffect("owl", state.active && state.mode === "camp", 10_000, 20_000);
-    syncRandomEffect("horseBreath", state.active && state.moving, 8_000, 15_000);
+    syncRandomEffect("horseBreath", state.active && state.moving && state.mode === "road", 8_000, 15_000);
+    syncRandomEffect("seagull", state.active && state.mode === "sailing", 12_000, 20_000);
   }
 
   function syncRandomEffect(name, active, minimum, maximum) {
@@ -346,8 +380,12 @@
     const delay = minimum + (Math.random() * (maximum - minimum));
     const timer = window.setTimeout(() => {
       randomTimers.delete(name);
-      if ((name === "owl" && state.mode === "camp") || (name === "horseBreath" && state.moving)) {
-        playEffect(name);
+      const stillActive = (name === "owl" && state.mode === "camp")
+        || (name === "horseBreath" && state.mode === "road" && state.moving)
+        || (name === "seagull" && state.mode === "sailing");
+      if (stillActive) {
+        if (name === "seagull") playFadingEffect(name, EFFECT_LEVELS.seagull, 6_000, 1_200);
+        else playEffect(name);
         syncRandomEffect(name, true, minimum, maximum);
       }
     }, delay);
@@ -359,12 +397,17 @@
     syncPlayback();
   }
 
+  function preloadAssets(assetIds = []) {
+    [...new Set(Array.isArray(assetIds) ? assetIds : [])].forEach(assetId => templateFor(assetId)?.load?.());
+  }
+
   window.ProjectWAudio = {
     init,
     unlock,
     setState,
     playEffect,
     playCurrencyCompletion,
+    preloadAssets,
     refreshAssets,
     renderControls,
     getSettings: () => ({ ...settings })

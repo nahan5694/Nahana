@@ -8,7 +8,7 @@
   const CONTRACT_START_DATE = { year: 1433, month: 4, day: 8 };
   const MAX_COMPLETED_JOURNEYS = 6;
   const TRADE_REVIEW_HISTORY_DAYS = 10;
-  const REVIEW_EXPENSE_TYPES = new Set(["tax", "food"]);
+  const REVIEW_EXPENSE_TYPES = new Set(["tax", "food", "ferry"]);
   const OUTLET_STATES = ["observed", "production", "excluded"];
   const LEVEL_THRESHOLDS = [0, 10, 20, 40, 80, 160, 320, 640];
   const EXCLUDED_CATEGORIES = new Set(["여행물품", "야영물품", "여행식량", "야영식량", "여행음식", "야영음식"]);
@@ -553,6 +553,7 @@
   }
 
   function createTradeLogExpenseDetail(entry) {
+    const presentation = reviewExpensePresentation(entry.expenseType);
     const wrapper = document.createElement("div");
     wrapper.className = `merchant-path-log-expense is-${entry.expenseType}`;
     const header = document.createElement("header");
@@ -561,7 +562,7 @@
     const title = document.createElement("h5");
     const total = document.createElement("strong");
     eyebrow.textContent = `${formatNumber(entry.quantity)}건 기록`;
-    title.textContent = entry.expenseType === "tax" ? "지불한 관세" : "지불한 식비";
+    title.textContent = presentation.itemName;
     total.className = Number(entry.total) > 0 ? "is-loss" : "is-neutral";
     total.textContent = `합계 ${Number(entry.total) > 0 ? "-" : ""}${formatNumber(entry.total)} 가치`;
     copy.append(eyebrow, title);
@@ -570,7 +571,7 @@
     list.className = "merchant-path-log-expense-list";
     const records = Array.isArray(entry.details) ? entry.details : [];
     if (!records.length) {
-      list.append(createEmpty(entry.expenseType === "tax" ? "이날 복기할 관세 지출이 없습니다." : "이날 복기할 식비 지출이 없습니다."));
+      list.append(createEmpty(presentation.emptyMessage));
     } else {
       records.forEach(record => {
         const row = document.createElement("article");
@@ -578,8 +579,8 @@
         const place = document.createElement("strong");
         const description = document.createElement("span");
         const amount = document.createElement("b");
-        place.textContent = `${record.settlementName || "이름 없는 거점"} / ${record.sourceLabel || (entry.expenseType === "tax" ? "입장 관세소" : "식사")}`;
-        description.textContent = record.description || (entry.expenseType === "tax" ? "입장 관세" : "식비");
+        place.textContent = `${record.settlementName || "이름 없는 거점"} / ${record.sourceLabel || presentation.sourceLabel}`;
+        description.textContent = record.description || presentation.description;
         amount.textContent = `-${formatNumber(record.amount)} 가치`;
         location.append(place, description);
         row.append(location, amount);
@@ -1509,7 +1510,7 @@
   }
 
   function createExpenseReviewEntry(type, records, reviewDay) {
-    const tax = type === "tax";
+    const presentation = reviewExpensePresentation(type);
     const details = [...records]
       .sort((left, right) => left.contractDay - right.contractDay || left.phaseIndex - right.phaseIndex)
       .map(record => ({
@@ -1523,8 +1524,8 @@
       id: `expense:${type}`,
       kind: "expense",
       expenseType: type,
-      itemName: tax ? "지불한 관세" : "지불한 식비",
-      summaryLabel: tax ? "관세" : "식비",
+      itemName: presentation.itemName,
+      summaryLabel: presentation.summaryLabel,
       quantity: details.length,
       total,
       profit: -total,
@@ -1545,7 +1546,7 @@
       amount,
       settlementId: String(source.settlementId || ""),
       settlementName: String(source.settlementName || "이름 없는 거점"),
-      sourceLabel: String(source.sourceLabel || (type === "tax" ? "입장 관세소" : "식사")),
+      sourceLabel: String(source.sourceLabel || reviewExpensePresentation(type).sourceLabel),
       description: String(source.description || ""),
       contractDay: Math.max(1, Math.trunc(Number(source.contractDay) || 1)),
       phaseIndex: Math.max(0, Math.trunc(Number(source.phaseIndex) || 0)),
@@ -1555,6 +1556,30 @@
 
   function normalizeReviewExpenses(source) {
     return (Array.isArray(source) ? source : []).map(normalizeReviewExpense).filter(Boolean);
+  }
+
+  function reviewExpensePresentation(type) {
+    if (type === "tax") return {
+      itemName: "지불한 관세",
+      summaryLabel: "관세",
+      sourceLabel: "입장 관세소",
+      description: "입장 관세",
+      emptyMessage: "이날 복기할 관세 지출이 없습니다."
+    };
+    if (type === "ferry") return {
+      itemName: "이용한 정기선",
+      summaryLabel: "정기선",
+      sourceLabel: "정기선",
+      description: "정기선 운임",
+      emptyMessage: "이날 복기할 정기선 이용 기록이 없습니다."
+    };
+    return {
+      itemName: "지불한 식비",
+      summaryLabel: "식비",
+      sourceLabel: "식사",
+      description: "식비",
+      emptyMessage: "이날 복기할 식비 지출이 없습니다."
+    };
   }
 
   function getTradeReviewHistory() {

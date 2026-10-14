@@ -1046,6 +1046,7 @@
   }
 
   function createExpenseReviewDetail(entry) {
+    const presentation = expenseReviewPresentation(entry.expenseType);
     const fragment = document.createDocumentFragment();
     const header = document.createElement("header");
     const titleWrap = document.createElement("div");
@@ -1053,7 +1054,7 @@
     const title = document.createElement("h4");
     const total = document.createElement("strong");
     eyebrow.textContent = `이전 복기 이후 · ${formatNumber(entry.quantity)}건`;
-    title.textContent = entry.expenseType === "tax" ? "최근에 지불한 관세" : "최근에 지불한 식비";
+    title.textContent = presentation.title;
     total.className = Number(entry.total) > 0 ? "is-loss" : "is-neutral";
     total.textContent = `합계 ${Number(entry.total) > 0 ? "-" : ""}${formatNumber(entry.total)} 가치`;
     titleWrap.append(eyebrow, title);
@@ -1061,9 +1062,7 @@
 
     const introduction = document.createElement("p");
     introduction.className = "inn-expense-review-introduction";
-    introduction.textContent = entry.expenseType === "tax"
-      ? "거점에 들어가며 징수당한 관세를 지점별로 모았습니다."
-      : "주점 식사, 시장 간식과 여관 음식에 지불한 비용을 모았습니다.";
+    introduction.textContent = presentation.introduction;
 
     const list = document.createElement("section");
     list.className = `inn-expense-review-list is-${entry.expenseType}`;
@@ -1075,21 +1074,43 @@
       const age = document.createElement("span");
       const amount = document.createElement("b");
       const description = document.createElement("small");
-      place.textContent = `${record.settlementName || "이름 없는 거점"} / ${record.sourceLabel || (entry.expenseType === "tax" ? "입장 관세소" : "식사")}`;
+      place.textContent = `${record.settlementName || "이름 없는 거점"} / ${record.sourceLabel || presentation.sourceLabel}`;
       age.textContent = Number(record.ageDays) > 0 ? `${formatNumber(record.ageDays)}일 전` : "오늘";
       amount.textContent = `-${formatNumber(record.amount)} 가치`;
-      description.textContent = record.description || (entry.expenseType === "tax" ? "입장 관세" : "식비");
+      description.textContent = record.description || presentation.description;
       location.append(place, age);
       row.append(location, amount, description);
       list.append(row);
     });
     if (!records.length) {
-      list.append(emptyMessage(entry.expenseType === "tax"
-        ? "이번 복기에서 확인할 관세 지출이 없습니다."
-        : "이번 복기에서 확인할 식비 지출이 없습니다."));
+      list.append(emptyMessage(presentation.emptyMessage));
     }
     fragment.append(header, introduction, list);
     return fragment;
+  }
+
+  function expenseReviewPresentation(type) {
+    if (type === "tax") return {
+      title: "최근에 지불한 관세",
+      introduction: "거점에 들어가며 징수당한 관세를 지점별로 모았습니다.",
+      sourceLabel: "입장 관세소",
+      description: "입장 관세",
+      emptyMessage: "이번 복기에서 확인할 관세 지출이 없습니다."
+    };
+    if (type === "ferry") return {
+      title: "최근에 이용한 정기선",
+      introduction: "도착일을 기준으로 정기선 운임과 출발지·도착지를 모았습니다.",
+      sourceLabel: "정기선",
+      description: "정기선 운임",
+      emptyMessage: "이번 복기에서 확인할 정기선 이용 기록이 없습니다."
+    };
+    return {
+      title: "최근에 지불한 식비",
+      introduction: "주점 식사, 시장 간식과 여관 음식에 지불한 비용을 모았습니다.",
+      sourceLabel: "식사",
+      description: "식비",
+      emptyMessage: "이번 복기에서 확인할 식비 지출이 없습니다."
+    };
   }
 
   function createTradeReviewValue(action, record, total) {
