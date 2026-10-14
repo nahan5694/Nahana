@@ -17,6 +17,7 @@
   const SIZE_WEALTH = new Map([["마을", 1], ["도시", 2], ["대도시", 4], ["관문", 2]]);
   const FACILITY_WEALTH = new Map([["시장", 1], ["교역소", 1.5], ["상회", 2], ["좌판", 1.5], ["환전상", 2.5]]);
   const OFFER_FILTERS = new Set(["all", "goods", "currencies", "information", "notes"]);
+  const NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 });
   const TIME_PHASE_COUNT = 5;
   const TRADE_TIME_SCHEMA_VERSION = 2;
   const RESTOCK_INTERVAL_DAYS = 7;
@@ -193,6 +194,7 @@
   let currencyAnalysisView = "table";
   let suspendedForMap = false;
   let activeTradeScrollTarget = null;
+  let tradeComputationCache = null;
   const merchantCommentPlans = new Map();
   let elements = {};
 
@@ -1329,9 +1331,12 @@
   }
 
   function currentSpecialExportSchedules() {
-    return current
-      ? specialExportSchedulesFor(current.settlement, current.definitions, current.worldTime)
-      : [];
+    if (!current) return [];
+    const cache = activeTradeComputationCache();
+    if (cache?.specialExportSchedules) return cache.specialExportSchedules;
+    const schedules = specialExportSchedulesFor(current.settlement, current.definitions, current.worldTime);
+    if (cache) cache.specialExportSchedules = schedules;
+    return schedules;
   }
 
   function currentSpecialExportSchedule() {
@@ -1945,6 +1950,78 @@
     });
   }
 
+  function resetTradeComputationCache() {
+    tradeComputationCache = current ? {
+      merchantKey: String(current.merchantKey || ""),
+      settlementId: String(current.settlement?.id || ""),
+      worldTick: worldTimeTick(current.worldTime),
+      playerItems: null,
+      playerItemsById: null,
+      merchantLotsById: null,
+      specialExportSchedules: null,
+      settlementMerchantEntries: null,
+      settlementStockLots: null,
+      settlementAllStockLots: null,
+      stockQuantityByItem: new Map(),
+      weightedStockQuantityByItem: new Map(),
+      subcategorySupply: new Map(),
+      weeklySupply: new Map(),
+      merchantValuations: new Map(),
+      playerValuations: new Map(),
+      tradeEntries: { player: new Map(), merchant: new Map() },
+      cargoImpacts: new Map(),
+      itemNotebooks: new Map()
+    } : null;
+  }
+
+  function activeTradeComputationCache() {
+    if (!current) return null;
+    const merchantKey = String(current.merchantKey || "");
+    const settlementId = String(current.settlement?.id || "");
+    const worldTick = worldTimeTick(current.worldTime);
+    if (!tradeComputationCache
+      || tradeComputationCache.merchantKey !== merchantKey
+      || tradeComputationCache.settlementId !== settlementId
+      || tradeComputationCache.worldTick !== worldTick) {
+      resetTradeComputationCache();
+    }
+    return tradeComputationCache;
+  }
+
+  function cachedPlayerInventoryItems() {
+    const cache = activeTradeComputationCache();
+    if (!cache) return window.ProjectWCargo.getInventoryItems();
+    if (!cache.playerItems) {
+      cache.playerItems = window.ProjectWCargo.getInventoryItems();
+      cache.playerItemsById = new Map(cache.playerItems.map(item => [String(item.instanceId || ""), item]));
+    }
+    return cache.playerItems;
+  }
+
+  function cachedPlayerInventoryItem(instanceId) {
+    cachedPlayerInventoryItems();
+    return activeTradeComputationCache()?.playerItemsById?.get(String(instanceId || "")) || null;
+  }
+
+  function cachedMerchantLot(lotId) {
+    const cache = activeTradeComputationCache();
+    if (!cache) return current?.merchant?.stockLots?.find(lot => lot.lotId === lotId) || null;
+    if (!cache.merchantLotsById) {
+      cache.merchantLotsById = new Map((current?.merchant?.stockLots || []).map(lot => [String(lot.lotId || ""), lot]));
+    }
+    return cache.merchantLotsById.get(String(lotId || "")) || null;
+  }
+
+  function cachedItemNotebook(itemId) {
+    const cache = activeTradeComputationCache();
+    const key = String(itemId || "");
+    if (!cache || !key) return window.ProjectWMerchantPath?.getItemNotebook?.(key) || null;
+    if (!cache.itemNotebooks.has(key)) {
+      cache.itemNotebooks.set(key, window.ProjectWMerchantPath?.getItemNotebook?.(key) || null);
+    }
+    return cache.itemNotebooks.get(key);
+  }
+
   function captureCatalogScrollPositions() {
     return {
       player: Math.max(0, Number(elements.playerItems?.scrollTop) || 0),
@@ -1972,6 +2049,7 @@
       else elements.companyIcon.removeAttribute("src");
     }
     current.worldTime = normalizeWorldTime(getWorldTime());
+    resetTradeComputationCache();
     const connected = current.goodsSource === "csv" && current.currencySource === "csv" && current.mapSource === "csv";
     const unresolved = current.unresolvedProducts.length;
     elements.dataStatus.textContent = current.currencyOnly
@@ -2010,7 +2088,7 @@
     }
     if (current.facilityType === "시장") {
       for (const tradeKey of [...proposal.player.goods.keys()]) {
-        const item = window.ProjectWCargo.getInventoryItems().find(entry => entry.instanceId === playerInstanceId(tradeKey));
+        const item = cachedPlayerInventoryItem(playerInstanceId(tradeKey));
         if (isMarketPurchaseBlocked("player", item?.definition)) proposal.player.goods.delete(tradeKey);
       }
     }
@@ -2402,7 +2480,7 @@
   }
 
   function createPlayerCatalogEntries() {
-    return window.ProjectWCargo.getInventoryItems().flatMap(item => {
+    return cachedPlayerInventoryItems().flatMap(item => {
       const valuation = playerSellValuation(item, item.definition);
       if (isStackedTradeItem(item)) {
         return [{
@@ -2623,6 +2701,32 @@
     element.dataset.tradeDelta = "1";
   }
 
+  function refreshCatalogSelectionState(owner, key) {
+    const container = owner === "merchant" ? elements.merchantItems : elements.playerItems;
+    if (!container) return;
+    const button = [...container.querySelectorAll("[data-trade-action='adjust'][data-trade-kind='goods']")]
+      .find(entry => entry.dataset.tradeOwner === owner && entry.dataset.tradeKey === String(key));
+    const stack = button?.closest(".trade-item-stack");
+    if (!button || !stack) return;
+    const selected = selectedQuantity(owner, "goods", key);
+    const available = availableQuantity(owner, "goods", key);
+    const marketPurchaseBlocked = stack.classList.contains("is-market-purchase-blocked");
+    const specialExportSoldOut = stack.classList.contains("is-special-export-sold-out");
+    const unavailable = marketPurchaseBlocked || selected >= available;
+    stack.classList.toggle("is-unavailable", unavailable);
+    button.setAttribute("aria-disabled", String(unavailable));
+    const amountValue = stack.querySelector(".trade-item-amount strong");
+    const selectedCopy = stack.querySelector(".trade-item-amount small");
+    if (amountValue) {
+      amountValue.textContent = marketPurchaseBlocked
+        ? "거부"
+        : specialExportSoldOut
+          ? "매진"
+          : `× ${formatNumber(Math.max(0, available - selected))}`;
+    }
+    if (selectedCopy) selectedCopy.textContent = selected > 0 ? `${selected} 선택` : "";
+  }
+
   function tradeCategoryClass(category) {
     const normalized = String(category || "").replaceAll(" ", "");
     if (normalized === "여행물품" || normalized === "야영물품") return "is-travel-supply";
@@ -2676,28 +2780,39 @@
   }
 
   function merchantLot(lotId) {
-    return current?.merchant?.stockLots?.find(lot => lot.lotId === lotId) || null;
+    return cachedMerchantLot(lotId);
   }
 
   function tradeEntry(owner, key) {
     if (!current) return null;
+    const cache = activeTradeComputationCache();
+    const entryCache = cache?.tradeEntries?.[owner];
+    const cacheKey = String(key || "");
+    if (entryCache?.has(cacheKey)) return entryCache.get(cacheKey);
     if (owner === "merchant") {
       const lot = merchantLot(key);
       const definition = lot ? current.definitionsById.get(lot.itemId) : null;
       if (!lot || !definition) return null;
       const valuation = merchantSellValuation(lot, definition);
-      return { ...lot, definition, actualValue: valuation.value, tradeBreakdown: valuation.breakdown };
+      const entry = { ...lot, definition, actualValue: valuation.value, tradeBreakdown: valuation.breakdown };
+      entryCache?.set(cacheKey, entry);
+      return entry;
     }
-    const item = window.ProjectWCargo.getInventoryItems().find(entry => entry.instanceId === playerInstanceId(key));
+    const item = cachedPlayerInventoryItem(playerInstanceId(key));
     if (!item) return null;
     const valuation = playerSellValuation(item, item.definition);
-    return { ...item, actualValue: valuation.value, tradeBreakdown: valuation.breakdown };
+    const entry = { ...item, actualValue: valuation.value, tradeBreakdown: valuation.breakdown };
+    entryCache?.set(cacheKey, entry);
+    return entry;
   }
 
   function merchantSellValuation(lot, definition) {
+    const cache = activeTradeComputationCache();
+    const cacheKey = String(lot?.lotId || "");
+    if (cacheKey && cache?.merchantValuations.has(cacheKey)) return cache.merchantValuations.get(cacheKey);
     const baseValue = Number(definition.baseValue) || 0;
     if (lot?.itemId === NAHANA_EVENT_GIFT_ITEM_ID) {
-      return {
+      const valuation = {
         value: Math.max(1, Math.round(baseValue)),
         baseValue,
         qualityAdjustment: 0,
@@ -2711,6 +2826,8 @@
         preDurabilityValue: baseValue,
         breakdown: ["이벤트 선물 · 고정 가치"]
       };
+      if (cacheKey) cache?.merchantValuations.set(cacheKey, valuation);
+      return valuation;
     }
     const nonTradeItem = isNonTradeCategory(definition.category);
     const qualityAdjustment = nonTradeItem ? 0 : qualityAdjustmentFor(lot, QUALITY_SELL_RANGES);
@@ -2729,7 +2846,7 @@
       * Math.max(.1, 1 + (relationshipAdjustment / 100));
     const unroundedValue = preDurabilityValue
       * durabilityValue.ratio;
-    return {
+    const valuation = {
       value: Math.max(0, Math.round(unroundedValue)),
       baseValue,
       qualityAdjustment,
@@ -2751,10 +2868,15 @@
         `열화 가치 ${formatNumber(durabilityValue.percent)}%`
       ]
     };
+    if (cacheKey) cache?.merchantValuations.set(cacheKey, valuation);
+    return valuation;
   }
 
   function playerSellValuation(item, definition) {
     if (!current) return { value: Number(definition?.baseValue) || 0, breakdown: [] };
+    const cache = activeTradeComputationCache();
+    const cacheKey = String(item?.instanceId || "");
+    if (cacheKey && cache?.playerValuations.has(cacheKey)) return cache.playerValuations.get(cacheKey);
     const nonTradeItem = isNonTradeCategory(definition.category);
     const qualityAdjustment = nonTradeItem ? 0 : qualityAdjustmentFor(item, QUALITY_BUY_RANGES);
     const market = regionalMarketValuation(item, definition, "playerSell");
@@ -2783,7 +2905,7 @@
       * (1 + (originProductSaleAdjustment / 100))
       * durabilityValue.ratio;
     const totalAdjustment = baseValue > 0 ? ((unroundedValue / baseValue) - 1) * 100 : 0;
-    return {
+    const valuation = {
       value: Math.max(0, Math.round(unroundedValue)),
       baseValue,
       qualityAdjustment,
@@ -2809,6 +2931,8 @@
         `총 보정 ${signedPercent(totalAdjustment)}`
       ]
     };
+    if (cacheKey) cache?.playerValuations.set(cacheKey, valuation);
+    return valuation;
   }
 
   function merchantExperienceForCargoSale(item, quantity, saleValue, bargainAdjustmentPercent = 0) {
@@ -3085,7 +3209,7 @@
     const totalQuantity = Math.max(1, Math.trunc(Number(item?.quantity) || 1));
     const settlementId = String(current?.settlement?.id || "");
     const merchantKey = String(current?.merchantKey || "");
-    const legacyJourneys = new Map((window.ProjectWMerchantPath?.getItemNotebook?.(item?.itemId)?.journeys || [])
+    const legacyJourneys = new Map((cachedItemNotebook(item?.itemId)?.journeys || [])
       .map(journey => [String(journey?.id || ""), journey]));
     let remaining = totalQuantity;
     let sameSettlementQuantity = 0;
@@ -3197,11 +3321,18 @@
 
   function regionalWeeklySupplyAdjustment(subcategory, options = {}) {
     if (!current || !subcategory) return 0;
+    const cache = activeTradeComputationCache();
+    const cacheKey = `${subcategory}|${options.persist === false ? "read" : "persist"}`;
+    if (cache?.weeklySupply.has(cacheKey)) return cache.weeklySupply.get(cacheKey);
     if (!state.marketSupply || typeof state.marketSupply !== "object") state.marketSupply = {};
     const key = `${current.settlement.id}|${subcategory}`;
     const week = Math.floor((Math.max(1, current.worldTime?.day || 1) - 1) / RESTOCK_INTERVAL_DAYS);
     let record = state.marketSupply[key];
-    if (record && Number(record.week) === week) return Number(record.adjustment) || 0;
+    if (record && Number(record.week) === week) {
+      const currentAdjustment = Number(record.adjustment) || 0;
+      cache?.weeklySupply.set(cacheKey, currentAdjustment);
+      return currentAdjustment;
+    }
     const storedWeek = Number(record?.week);
     let previousWeek = Number.isFinite(storedWeek) ? Math.max(-1, Math.trunc(storedWeek)) : -1;
     let adjustment = Number(record?.adjustment) || 0;
@@ -3214,6 +3345,7 @@
     adjustment = Math.round(adjustment * 10) / 10;
     state.marketSupply[key] = { week, adjustment };
     if (options.persist !== false) persistState();
+    cache?.weeklySupply.set(cacheKey, adjustment);
     return adjustment;
   }
 
@@ -3263,6 +3395,9 @@
 
   function subcategorySupplyPressure(subcategory) {
     if (!subcategory || !current) return 0;
+    const cache = activeTradeComputationCache();
+    const cacheKey = String(subcategory);
+    if (cache?.subcategorySupply.has(cacheKey)) return cache.subcategorySupply.get(cacheKey);
     const stockLots = settlementAllStockLots();
     const stockedItemIds = new Set(stockLots.map(lot => lot.itemId));
     const buckets = new Map();
@@ -3302,7 +3437,9 @@
       const ratio = Math.max(0, bucket.stock) / bucket.baseline * 100;
       return sum + (supplyPressureForRatio(ratio) * (STOCK_PRESSURE_WEIGHTS.get(sourceType) || 0));
     }, 0);
-    return clamp(Math.round(pressure * 10) / 10, -40, 40);
+    const result = clamp(Math.round(pressure * 10) / 10, -40, 40);
+    cache?.subcategorySupply.set(cacheKey, result);
+    return result;
   }
 
   function supplyPressureForRatio(ratio) {
@@ -3350,39 +3487,61 @@
   }
 
   function citywideStockQuantity(itemId) {
+    const cache = activeTradeComputationCache();
+    const cacheKey = String(itemId || "");
+    if (cache?.stockQuantityByItem.has(cacheKey)) return cache.stockQuantityByItem.get(cacheKey);
     const quantity = settlementStockLots().filter(lot => lot.itemId === itemId)
       .reduce((sum, lot) => sum + Math.max(0, Number(lot.quantity) || 0), 0);
-    return Math.max(0, quantity);
+    const result = Math.max(0, quantity);
+    cache?.stockQuantityByItem.set(cacheKey, result);
+    return result;
   }
 
   function citywideWeightedStockQuantity(itemId) {
-    return settlementStockLots().filter(lot => lot.itemId === itemId)
+    const cache = activeTradeComputationCache();
+    const cacheKey = String(itemId || "");
+    if (cache?.weightedStockQuantityByItem.has(cacheKey)) return cache.weightedStockQuantityByItem.get(cacheKey);
+    const result = settlementStockLots().filter(lot => lot.itemId === itemId)
       .reduce((sum, lot) => {
         const weight = STOCK_PRESSURE_WEIGHTS.get(lot.sourceType) || 0;
         return sum + (Math.max(0, Number(lot.quantity) || 0) * weight);
       }, 0);
+    cache?.weightedStockQuantityByItem.set(cacheKey, result);
+    return result;
   }
 
   function settlementMerchantEntries() {
     if (!current) return [];
+    const cache = activeTradeComputationCache();
+    if (cache?.settlementMerchantEntries) return cache.settlementMerchantEntries;
     const activeMerchantKeys = new Set(tradeFacilitiesForSettlement(current.settlement)
       .map(facility => `${current.settlement.id}|${facility.id}`));
     activeMerchantKeys.add(current.merchantKey);
-    return Object.entries(state.merchants)
+    const entries = Object.entries(state.merchants)
       .filter(([merchantKey]) => activeMerchantKeys.has(merchantKey));
+    if (cache) cache.settlementMerchantEntries = entries;
+    return entries;
   }
 
   function settlementStockLots() {
-    return settlementMerchantEntries()
+    const cache = activeTradeComputationCache();
+    if (cache?.settlementStockLots) return cache.settlementStockLots;
+    const lots = settlementMerchantEntries()
       .flatMap(([, merchant]) => (merchant.stockLots || [])
         .filter(lot => merchantAvailableQuantity(lot) > 0)
         .map(lot => ({ ...lot, quantity: merchantAvailableQuantity(lot) })));
+    if (cache) cache.settlementStockLots = lots;
+    return lots;
   }
 
   function settlementAllStockLots() {
-    return settlementMerchantEntries()
+    const cache = activeTradeComputationCache();
+    if (cache?.settlementAllStockLots) return cache.settlementAllStockLots;
+    const lots = settlementMerchantEntries()
       .flatMap(([, merchant]) => (merchant.stockLots || [])
         .map(lot => ({ ...lot, quantity: merchantAvailableQuantity(lot) })));
+    if (cache) cache.settlementAllStockLots = lots;
+    return lots;
   }
 
   function signedPercent(value) {
@@ -3552,9 +3711,8 @@
       button.setAttribute("aria-pressed", String(active));
     });
 
-    const playerTotal = offerValue("player");
-    const merchantTotal = offerValue("merchant");
-    const balance = balanceResult(playerTotal, merchantTotal);
+    const balance = calculateBalanceResult();
+    const playerTotal = balance.rawPlayerValue;
     renderBargainControl();
     const cargoPreview = window.ProjectWCargo.previewExchange(proposedCargoExchange());
     renderCargoPreview(cargoPreview);
@@ -3857,6 +4015,9 @@
   }
 
   function offerCargoImpact(owner, key, quantity) {
+    const cache = activeTradeComputationCache();
+    const cacheKey = `${owner}|${String(key || "")}|${Math.max(0, Number(quantity) || 0)}`;
+    if (cache?.cargoImpacts.has(cacheKey)) return cache.cargoImpacts.get(cacheKey);
     const entry = tradeEntry(owner, key);
     const exchange = owner === "player"
       ? { remove: [{ instanceId: playerInstanceId(key), quantity }] }
@@ -3872,10 +4033,12 @@
         purchaseValue: entry?.actualValue
       }] };
     const preview = window.ProjectWCargo.previewExchange(exchange);
-    return {
+    const impact = {
       slots: preview.usedSlots - preview.currentUsedSlots,
       weight: preview.weight - preview.currentWeight
     };
+    cache?.cargoImpacts.set(cacheKey, impact);
+    return impact;
   }
 
   function formatDelta(value) {
@@ -3889,15 +4052,20 @@
   }
 
   function attachGoodsTooltip(element, owner, entry, tooltipQuantity = 1) {
+    let metadata = null;
+    const getMetadata = () => {
+      if (!metadata) metadata = tooltipMetadata(entry, tooltipQuantity, owner);
+      return metadata;
+    };
     const show = event => {
-      window.ProjectWCargo.showDefinitionTooltip(entry.itemId, tooltipQuantity, event.clientX, event.clientY, tooltipMetadata(entry, tooltipQuantity, owner));
+      window.ProjectWCargo.showDefinitionTooltip(entry.itemId, tooltipQuantity, event.clientX, event.clientY, getMetadata());
     };
     element.addEventListener("pointerenter", show);
     element.addEventListener("pointermove", show);
     element.addEventListener("pointerleave", window.ProjectWCargo.hideTooltip);
     element.addEventListener("focusin", () => {
       const rect = element.getBoundingClientRect();
-      window.ProjectWCargo.showDefinitionTooltip(entry.itemId, tooltipQuantity, rect.right, rect.top + (rect.height / 2), tooltipMetadata(entry, tooltipQuantity, owner));
+      window.ProjectWCargo.showDefinitionTooltip(entry.itemId, tooltipQuantity, rect.right, rect.top + (rect.height / 2), getMetadata());
     });
     element.addEventListener("focusout", event => {
       if (!element.contains(event.relatedTarget)) window.ProjectWCargo.hideTooltip();
@@ -4018,7 +4186,7 @@
         if (removed && target.dataset.tradeKind === "notes") window.ProjectWAudio?.playEffect("paper");
       }
       window.ProjectWCargo.hideTooltip();
-      if (removed) renderProposalChange(target.dataset.tradeKind);
+      if (removed) renderProposalChange(target.dataset.tradeKind, target.dataset.tradeOwner, target.dataset.tradeKey);
       return;
     }
     if (action === "clear") {
@@ -4071,7 +4239,7 @@
 
   function fillOfferWithCurrency(owner) {
     if (!current || current.currencyOnly) return;
-    const balance = balanceResult(offerValue("player"), offerValue("merchant"));
+    const balance = calculateBalanceResult();
     const playerSide = owner === "player";
     let remaining = playerSide
       ? playerCurrencyShortfall(balance)
@@ -4218,7 +4386,7 @@
     }
     window.ProjectWAudio?.playEffect("coin");
     render();
-    const result = balanceResult(offerValue("player"), offerValue("merchant"));
+    const result = calculateBalanceResult();
     notify(result.valid
       ? `${focusType} 중점으로 받을 화폐를 구성했습니다.`
       : `${focusType} 재고가 부족해 가능한 범위에서 구성했습니다. 가치를 확인해주세요.`);
@@ -4240,7 +4408,7 @@
     if (kind === "notes" && (owner !== "player" || !billNotesEligible())) return false;
     if (kind === "currencies" && owner === "merchant" && proposal.player.notes.size > 0) return false;
     if (kind === "goods" && owner === "player") {
-      const item = window.ProjectWCargo.getInventoryItems().find(entry => entry.instanceId === playerInstanceId(key));
+      const item = cachedPlayerInventoryItem(playerInstanceId(key));
       if (isMarketPurchaseBlocked(owner, item?.definition)) {
         notify("이 시장에서는 전문적인 취급이 필요한 상품을 매입하지 않습니다.");
         return false;
@@ -4256,12 +4424,17 @@
     if (!options.silent && kind === "currencies" && next !== previous) window.ProjectWAudio?.playEffect("coin");
     if (!options.silent && kind === "goods" && next !== previous) window.ProjectWAudio?.playEffect("goods");
     if (!options.silent && kind === "notes" && next !== previous) window.ProjectWAudio?.playEffect("paper");
-    if (next !== previous) renderProposalChange(kind);
+    if (next !== previous) renderProposalChange(kind, owner, key);
     return next !== previous;
   }
 
-  function renderProposalChange(kind) {
+  function renderProposalChange(kind, owner = "", key = "") {
     if (kind === "currencies") {
+      renderOffers();
+      return;
+    }
+    if (kind === "goods") {
+      refreshCatalogSelectionState(owner, key);
       renderOffers();
       return;
     }
@@ -4288,7 +4461,7 @@
       return window.ProjectWBillNotes.entries(getPlayerBillNotes()).find(entry => entry.id === String(key))?.quantity || 0;
     }
     if (owner === "merchant") return merchantAvailableQuantity(merchantLot(key));
-    const item = window.ProjectWCargo.getInventoryItems().find(entry => entry.instanceId === playerInstanceId(key));
+    const item = cachedPlayerInventoryItem(playerInstanceId(key));
     if (!item) return 0;
     if (isMarketPurchaseBlocked(owner, item.definition)) return 0;
     if (isStackedTradeItem(item)) return Math.max(0, Math.trunc(Number(item.quantity) || 0));
@@ -4330,9 +4503,15 @@
     return offerBreakdown(owner).total;
   }
 
-  function balanceResult(playerTotal, merchantTotal) {
+  function calculateBalanceResult() {
     const playerBreakdown = offerBreakdown("player");
     const merchantBreakdown = offerBreakdown("merchant");
+    return balanceResult(playerBreakdown.total, merchantBreakdown.total, { playerBreakdown, merchantBreakdown });
+  }
+
+  function balanceResult(playerTotal, merchantTotal, breakdowns = {}) {
+    const playerBreakdown = breakdowns.playerBreakdown || offerBreakdown("player");
+    const merchantBreakdown = breakdowns.merchantBreakdown || offerBreakdown("merchant");
     const rawPlayerValue = Math.max(0, Math.trunc(Number(playerTotal) || playerBreakdown.total || 0));
     const bargain = current?.currencyOnly ? { bonusPercent: 0 } : getBargainProfile(bargainContext());
     const bargainBonusPercent = Math.max(0, Number(bargain?.bonusPercent) || 0);
@@ -4376,6 +4555,8 @@
         nonCurrencyAssetValue,
         nonCurrencyAssetRatio,
         nonCurrencyAssetValid,
+        playerBreakdown,
+        merchantBreakdown,
         difference: 100,
         merchantDisadvantaged: false,
         message: "양쪽에 상품이나 화폐를 올려주세요."
@@ -4402,6 +4583,8 @@
       nonCurrencyAssetValue,
       nonCurrencyAssetRatio,
       nonCurrencyAssetValid,
+      playerBreakdown,
+      merchantBreakdown,
       difference,
       merchantDisadvantaged,
       message: !nonCurrencyAssetValid
@@ -4477,8 +4660,10 @@
       render();
       return;
     }
-    const playerPaidValue = offerValue("player");
-    const balance = balanceResult(playerPaidValue, offerValue("merchant"));
+    // 거래 확정 직전에는 세션 캐시를 버리고 실제 재고·수요·가격으로 다시 판정한다.
+    resetTradeComputationCache();
+    const balance = calculateBalanceResult();
+    const playerPaidValue = balance.rawPlayerValue;
     if (!balance.valid) {
       notify(balance.message);
       render();
@@ -4505,8 +4690,8 @@
     const currencyTransferred = proposal.player.currencies.size > 0 || proposal.merchant.currencies.size > 0;
 
     const playerItems = new Map(window.ProjectWCargo.getInventoryItems().map(item => [item.instanceId, item]));
-    const playerGoodsValue = offerBreakdown("player").goods;
-    const merchantGoodsValue = offerBreakdown("merchant").goods;
+    const playerGoodsValue = balance.playerBreakdown.goods;
+    const merchantGoodsValue = balance.merchantBreakdown.goods;
     const combinedGoodsValue = playerGoodsValue + merchantGoodsValue;
     const saleBargainValue = combinedGoodsValue > 0
       ? balance.bargainUsedValue * playerGoodsValue / combinedGoodsValue
@@ -4923,6 +5108,7 @@
     }));
     window.dispatchEvent(new CustomEvent("projectw:tradeclose"));
     current = null;
+    tradeComputationCache = null;
     activeTradeScrollTarget = null;
     proposal = createProposal();
     offerFilters = { player: "all", merchant: "all" };
@@ -5432,7 +5618,7 @@
   }
 
   function formatNumber(value) {
-    return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(Number(value) || 0);
+    return NUMBER_FORMATTER.format(Number(value) || 0);
   }
 
   function normalizeWorldTime(value) {
