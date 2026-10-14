@@ -3170,7 +3170,6 @@
     currentRecord.cardIds = [...new Set([...(currentRecord.cardIds || []), String(effect.cardId || "")].filter(Boolean))];
     state.marketInformation[key] = currentRecord;
     persistState();
-    refresh();
     return currentRecord.adjustment;
   }
 
@@ -3490,12 +3489,12 @@
     const notesRequireGoods = proposal.player.notes.size <= 0 || proposal.merchant.goods.size > 0;
     const valid = balance.valid && cargoPreview.possible && notesRequireGoods;
     if (elements.playerCurrencyFill) {
-      const missingValue = balance.valid ? 0 : playerCurrencyShortfall(balance);
+      const missingValue = playerCurrencyShortfall(balance);
       elements.playerCurrencyFill.hidden = Boolean(current.currencyOnly);
       elements.playerCurrencyFill.disabled = current.currencyOnly || balance.merchantValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("player", missingValue, true);
     }
     if (elements.merchantCurrencyFill) {
-      const missingValue = balance.valid ? 0 : Math.max(0, balance.playerMaximumValue - balance.merchantValue);
+      const missingValue = Math.max(0, balance.playerMaximumValue - balance.merchantValue);
       elements.merchantCurrencyFill.hidden = Boolean(current.currencyOnly);
       elements.merchantCurrencyFill.disabled = current.currencyOnly || proposal.player.notes.size > 0 || balance.playerMaximumValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("merchant", missingValue, false);
     }
@@ -3930,14 +3929,15 @@
     }
     if (action === "remove") {
       const collection = proposal[target.dataset.tradeOwner]?.[target.dataset.tradeKind];
+      let removed = false;
       if (collection instanceof Map) {
-        const removed = collection.delete(target.dataset.tradeKey);
+        removed = collection.delete(target.dataset.tradeKey);
         if (removed && target.dataset.tradeKind === "currencies") window.ProjectWAudio?.playEffect("coin");
         if (removed && target.dataset.tradeKind === "goods") window.ProjectWAudio?.playEffect("goods");
         if (removed && target.dataset.tradeKind === "notes") window.ProjectWAudio?.playEffect("paper");
       }
       window.ProjectWCargo.hideTooltip();
-      render();
+      if (removed) renderProposalChange(target.dataset.tradeKind);
       return;
     }
     if (action === "clear") {
@@ -3991,7 +3991,6 @@
   function fillOfferWithCurrency(owner) {
     if (!current || current.currencyOnly) return;
     const balance = balanceResult(offerValue("player"), offerValue("merchant"));
-    if (balance.valid) return;
     const playerSide = owner === "player";
     let remaining = playerSide
       ? playerCurrencyShortfall(balance)
@@ -4030,7 +4029,7 @@
     }
     if (added > 0) window.ProjectWAudio?.playEffect("coin");
     else notify(playerSide ? "부족한 가치를 채울 화폐가 없습니다." : "상인이 건넬 수 있는 적절한 화폐가 없습니다.");
-    render();
+    renderOffers();
   }
 
   function maximumCurrencyExchangePayout(playerValue, feeRate) {
@@ -4176,6 +4175,14 @@
     if (kind === "currencies" && next !== previous) window.ProjectWAudio?.playEffect("coin");
     if (kind === "goods" && next !== previous) window.ProjectWAudio?.playEffect("goods");
     if (kind === "notes" && next !== previous) window.ProjectWAudio?.playEffect("paper");
+    if (next !== previous) renderProposalChange(kind);
+  }
+
+  function renderProposalChange(kind) {
+    if (kind === "currencies") {
+      renderOffers();
+      return;
+    }
     render();
   }
 

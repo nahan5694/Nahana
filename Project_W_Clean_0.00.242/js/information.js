@@ -407,11 +407,11 @@
     return normalized;
   }
 
-  function storeState(state, shouldPersist = true) {
+  function storeState(state, shouldPersist = true, shouldRefresh = true) {
     const normalized = normalizeState(state);
     setState(normalized);
     if (shouldPersist) persist();
-    refresh();
+    if (shouldRefresh) refresh();
     return normalized;
   }
 
@@ -433,6 +433,32 @@
     }
   }
 
+  async function collectBatch(options = {}, attempts = 1) {
+    if (collectionPending) return [{ acquired: false, attempted: false, message: "이미 정보를 모으는 중입니다." }];
+    collectionPending = true;
+    const requestedAttempts = Math.max(1, integer(attempts, 1));
+    const candidateCache = {};
+    const results = [];
+    try {
+      for (let attempt = 0; attempt < requestedAttempts; attempt += 1) {
+        const result = await collectInformation({
+          ...options,
+          candidateCache,
+          deferStore: true
+        });
+        results.push(result);
+        if (!result?.attempted) break;
+      }
+      return results;
+    } catch (error) {
+      console.error("정보 묶음 획득 처리 실패", error);
+      results.push({ acquired: false, attempted: false, message: "정보를 준비하지 못했습니다. 횟수와 시간은 소모되지 않았습니다. 다시 시도해 주세요." });
+      return results;
+    } finally {
+      collectionPending = false;
+    }
+  }
+
   async function collectInformation({
     facility = "",
     placement = null,
@@ -440,7 +466,9 @@
     special = "",
     replaceWolfenTrack = false,
     preferredSettlementIds = [],
-    preferredSettlementMultiplier = PORT_DESTINATION_INFORMATION_WEIGHT_MULTIPLIER
+    preferredSettlementMultiplier = PORT_DESTINATION_INFORMATION_WEIGHT_MULTIPLIER,
+    candidateCache = null,
+    deferStore = false
   } = {}) {
     if (!await load()) return { acquired: false, attempted: false, message: loadError };
     const state = currentState();
@@ -450,10 +478,20 @@
       state.discoveredKeys = state.discoveredKeys.filter(key => !text(key).startsWith("WOLFEN:"));
     }
     const requestedSpecial = text(special);
-    const candidates = (await buildCandidates(state, placement, facility, {
-      preferredSettlementIds,
-      preferredSettlementMultiplier
-    })).filter(candidate => !requestedSpecial
+    const discoveredKeys = new Set(state.discoveredKeys);
+    let availableCandidates = Array.isArray(candidateCache?.candidates)
+      ? candidateCache.candidates
+      : null;
+    if (!availableCandidates) {
+      availableCandidates = await buildCandidates(state, placement, facility, {
+        preferredSettlementIds,
+        preferredSettlementMultiplier
+      });
+      if (candidateCache && typeof candidateCache === "object") candidateCache.candidates = availableCandidates;
+    }
+    const candidates = availableCandidates
+      .filter(candidate => !discoveredKeys.has(candidate.instanceKey))
+      .filter(candidate => !requestedSpecial
       || candidate.template?.special === requestedSpecial
       || array(candidate.variants).some(variant => variant?.special === requestedSpecial));
     if (!candidates.length) return { acquired: false, attempted: false, message: "지금 얻을 수 있는 새로운 정보가 없습니다." };
@@ -545,7 +583,7 @@
       return { acquired: false, attempted: true, message: "정보를 기록하지 못했습니다. 다시 시도해 주세요." };
     }
     applyAcquisitionEffect(storedCard);
-    storeState(normalizedState);
+    storeState(normalizedState, !deferStore, !deferStore);
     const presentedCard = presentCard(storedCard);
     showAcquiredInformation(presentedCard);
     return {
@@ -1754,6 +1792,7 @@
     createState,
     normalizeState,
     collect,
+    collectBatch,
     createGateBulletin,
     acquisitionChance,
     updateCollectionTooltip,

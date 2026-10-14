@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.340";
+const GAME_VERSION = "0.00.341";
 const ACCOUNT_SCHEMA_VERSION = 54;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -11900,17 +11900,13 @@ async function collectFacilityInformation(type, requestedPlacement = null, optio
   facilityInformationPending = true;
   try {
     const attemptsToUse = opportunity.remaining;
-    const results = [];
-    for (let attempt = 0; attempt < attemptsToUse; attempt += 1) {
-      const result = await window.ProjectWInformation.collect({
-        facility: type,
-        placement,
-        preferredSettlementIds: options.preferredSettlementIds,
-        preferredSettlementMultiplier: options.preferredSettlementMultiplier
-      });
-      results.push(result);
-      if (!result?.attempted) break;
-    }
+    const collectionOptions = {
+      facility: type,
+      placement,
+      preferredSettlementIds: options.preferredSettlementIds,
+      preferredSettlementMultiplier: options.preferredSettlementMultiplier
+    };
+    const results = await window.ProjectWInformation.collectBatch(collectionOptions, attemptsToUse);
     const attemptedResults = results.filter(result => result?.attempted);
     if (!attemptedResults.length) {
       const result = results[0];
@@ -11927,6 +11923,8 @@ async function collectFacilityInformation(type, requestedPlacement = null, optio
     }
     account.informationUsage = normalizeInformationUsage(account.informationUsage, account.worldTime);
     persistAccount();
+    window.ProjectWInformation.refresh();
+    window.ProjectWTrade.refresh();
     if (consumesTime && currentTimePhase() === "밤" && type !== "여관") {
       window.ProjectWMeal.close();
       closeServiceModal();
