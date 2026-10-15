@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.359";
+const GAME_VERSION = "0.00.361";
 const ACCOUNT_SCHEMA_VERSION = 56;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -4315,9 +4315,15 @@ function applyTalkCardOutcome(definition, alreadyUnlocked = false, outcomeBefore
   const state = normalizeTalkCardState(account.talkCards);
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const partner = account.partner;
-  ["sweet", "salty", "stimulus", "weight", "mood"].forEach(key => {
+  ["sweet", "salty", "stimulus", "weight"].forEach(key => {
     partner[key] = clampNumber(partner[key] + (Number(definition.effects[key]) || 0), 0, 100, partner[key]);
   });
+  partner.mood = clampNumber(
+    partner.mood + (Number(definition.effects.mood) || 0),
+    partnerMoodFloor(partner),
+    partnerMaximumMoodFromGifts(partner.gifts),
+    partner.mood
+  );
   state.hand = state.hand.filter(cardId => cardId !== definition.id);
   state.campCardIds = state.campCardIds.filter(cardId => cardId !== definition.id);
   state.readCount += 1;

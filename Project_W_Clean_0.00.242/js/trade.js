@@ -3922,17 +3922,20 @@
     renderBargainControl();
     const cargoPreview = window.ProjectWCargo.previewExchange(proposedCargoExchange());
     renderCargoPreview(cargoPreview);
-    const notesRequireGoods = proposal.player.notes.size <= 0 || proposal.merchant.goods.size > 0;
-    const valid = balance.valid && cargoPreview.possible && notesRequireGoods;
+    const noteSettlement = billNoteSettlement(balance);
+    const valid = balance.valid && cargoPreview.possible && noteSettlement.valid;
     if (elements.playerCurrencyFill) {
       const missingValue = playerCurrencyShortfall(balance);
       elements.playerCurrencyFill.hidden = Boolean(current.currencyOnly);
       elements.playerCurrencyFill.disabled = current.currencyOnly || balance.merchantValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("player", missingValue, true);
     }
     if (elements.merchantCurrencyFill) {
-      const missingValue = Math.max(0, balance.playerMaximumValue - balance.merchantValue);
+      const missingValue = Math.max(0, Math.min(
+        balance.playerMaximumValue - balance.merchantValue,
+        noteSettlement.remainingMerchantCurrencyValue
+      ));
       elements.merchantCurrencyFill.hidden = Boolean(current.currencyOnly);
-      elements.merchantCurrencyFill.disabled = current.currencyOnly || proposal.player.notes.size > 0 || balance.playerMaximumValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("merchant", missingValue, false);
+      elements.merchantCurrencyFill.disabled = current.currencyOnly || balance.playerMaximumValue <= 0 || missingValue <= 0 || !hasAvailableCurrency("merchant", missingValue, true);
     }
     elements.exchangeFocusButtons?.forEach(button => {
       button.disabled = !current.currencyOnly || playerTotal <= 0;
@@ -3944,7 +3947,7 @@
         ? `환전 할증 ${formatNumber(balance.exchangeFee)} · ${formatNumber(balance.exchangeFeeRate)}%`
         : "";
     }
-    renderBalanceStatus(balance, { notesRequireGoods, cargoPreview, valid });
+    renderBalanceStatus(balance, { notesValid: noteSettlement.valid, cargoPreview, valid });
     elements.confirm.disabled = !valid;
   }
 
@@ -3970,7 +3973,7 @@
     );
   }
 
-  function renderBalanceStatus(balance, { notesRequireGoods, cargoPreview, valid }) {
+  function renderBalanceStatus(balance, { notesValid, cargoPreview, valid }) {
     if (!elements.balanceStatus) return;
     const status = elements.balanceStatus;
     status.classList.toggle("is-valid", valid);
@@ -3984,7 +3987,7 @@
 
     const availability = valid
       ? cargoPreview.overweight ? "가능 · 최대 중량 초과" : "가능"
-      : !notesRequireGoods
+      : !notesValid
         ? "불가 · 어음 사용 조건"
         : !cargoPreview.possible
           ? "불가 · 화물칸 부족"
@@ -4328,7 +4331,7 @@
       button.dataset.tradeKind = "currencies";
       button.dataset.tradeKey = currency.id;
       button.dataset.tradeDelta = "1";
-      button.disabled = selected >= available || (owner === "merchant" && proposal.player.notes.size > 0);
+      button.disabled = selected >= available;
       const mark = document.createElement("span");
       mark.className = "trade-currency-coin";
       const assetId = `Asset_Coin_${index + 1}`;
@@ -4460,13 +4463,44 @@
     return Math.max(0, balance.merchantValue - balance.rawPlayerValue - balance.bargainAllowance);
   }
 
+  function billNoteSettlement(balance) {
+    const noteValue = Math.max(0, Number(balance?.playerBreakdown?.notes) || 0);
+    if (noteValue <= 0) {
+      return {
+        valid: true,
+        maximumMerchantCurrencyValue: Number.POSITIVE_INFINITY,
+        remainingMerchantCurrencyValue: Number.POSITIVE_INFINITY
+      };
+    }
+    const merchantGoodsValue = Math.max(0, Number(balance?.merchantBreakdown?.goods) || 0);
+    const merchantCurrencyValue = Math.max(0, Number(balance?.merchantBreakdown?.currencies) || 0);
+    const playerBreakdown = balance?.playerBreakdown || {};
+    const cashablePlayerValue = Math.max(0,
+      (Number(playerBreakdown.goods) || 0)
+      + (Number(playerBreakdown.information) || 0)
+      + (Number(playerBreakdown.currencies) || 0)
+      + (Number(balance?.bargainAllowance) || 0)
+    );
+    const goodsValueNotCoveredByNotes = Math.max(0, merchantGoodsValue - noteValue);
+    const maximumMerchantCurrencyValue = Math.max(0, cashablePlayerValue - goodsValueNotCoveredByNotes);
+    return {
+      valid: merchantGoodsValue > 0 && merchantCurrencyValue <= maximumMerchantCurrencyValue + 0.0001,
+      maximumMerchantCurrencyValue,
+      remainingMerchantCurrencyValue: Math.max(0, maximumMerchantCurrencyValue - merchantCurrencyValue)
+    };
+  }
+
   function fillOfferWithCurrency(owner) {
     if (!current || current.currencyOnly) return;
     const balance = calculateBalanceResult();
     const playerSide = owner === "player";
+    const noteSettlement = billNoteSettlement(balance);
     let remaining = playerSide
       ? playerCurrencyShortfall(balance)
-      : Math.max(0, balance.playerMaximumValue - balance.merchantValue);
+      : Math.max(0, Math.min(
+        balance.playerMaximumValue - balance.merchantValue,
+        noteSettlement.remainingMerchantCurrencyValue
+      ));
     if ((playerSide ? balance.merchantValue : balance.playerMaximumValue) <= 0 || remaining <= 0) return;
     const wallet = playerSide ? getPlayerWallet() : current.merchant.wallet;
     const currencies = current.currencies
@@ -4478,6 +4512,7 @@
       .filter(entry => entry.value > 0 && entry.available > 0)
       .sort((left, right) => right.value - left.value);
     let added = 0;
+    let addedValue = 0;
     currencies.forEach(entry => {
       if (remaining <= 0 || entry.available <= 0) return;
       const quantity = Math.min(entry.available, Math.floor((remaining + 0.0001) / entry.value));
@@ -4486,6 +4521,7 @@
       entry.available -= quantity;
       remaining -= entry.value * quantity;
       added += quantity;
+      addedValue += entry.value * quantity;
     });
     while (playerSide && remaining > 0.0001) {
       const available = currencies.filter(entry => entry.available > 0);
@@ -4498,6 +4534,24 @@
       chosen.available -= 1;
       remaining -= chosen.value;
       added += 1;
+      addedValue += chosen.value;
+    }
+    if (!playerSide && remaining > 0.0001) {
+      const maximumMerchantValue = balance.playerMaximumValue / 0.8;
+      const differenceRoom = Math.max(0, maximumMerchantValue - balance.merchantValue - addedValue);
+      const noteRoom = Number.isFinite(noteSettlement.remainingMerchantCurrencyValue)
+        ? Math.max(0, noteSettlement.remainingMerchantCurrencyValue - addedValue)
+        : Number.POSITIVE_INFINITY;
+      const covering = currencies
+        .filter(entry => entry.available > 0 && entry.value >= remaining && entry.value <= differenceRoom + 0.0001 && entry.value <= noteRoom + 0.0001)
+        .sort((left, right) => (left.value - remaining) - (right.value - remaining))[0];
+      if (covering) {
+        proposal[owner].currencies.set(covering.currency.id, (proposal[owner].currencies.get(covering.currency.id) || 0) + 1);
+        covering.available -= 1;
+        remaining -= covering.value;
+        added += 1;
+        addedValue += covering.value;
+      }
     }
     if (added > 0) window.ProjectWAudio?.playEffect("coin");
     else notify(playerSide ? "부족한 가치를 채울 화폐가 없습니다." : "상인이 건넬 수 있는 적절한 화폐가 없습니다.");
@@ -4629,7 +4683,6 @@
     if (current.currencyOnly && kind !== "currencies") return false;
     if (kind === "information" && (owner !== "player" || !["상회", "좌판"].includes(current.facilityType))) return false;
     if (kind === "notes" && (owner !== "player" || !billNotesEligible())) return false;
-    if (kind === "currencies" && owner === "merchant" && proposal.player.notes.size > 0) return false;
     if (kind === "goods" && owner === "player") {
       const item = cachedPlayerInventoryItem(playerInstanceId(key));
       if (isMarketPurchaseBlocked(owner, item?.definition)) {
@@ -4643,7 +4696,6 @@
     const next = Math.min(availableQuantity(owner, kind, key), Math.max(0, previous + delta));
     if (next > 0) collection.set(key, next);
     else collection.delete(key);
-    if (kind === "notes" && next > previous) proposal.merchant.currencies.clear();
     if (!options.silent && kind === "currencies" && next !== previous) window.ProjectWAudio?.playEffect("coin");
     if (!options.silent && kind === "goods" && next !== previous) window.ProjectWAudio?.playEffect("goods");
     if (!options.silent && kind === "notes" && next !== previous) window.ProjectWAudio?.playEffect("paper");
@@ -4878,15 +4930,15 @@
 
   function confirmTrade() {
     if (!current) return;
-    if (proposal.player.notes.size > 0 && proposal.merchant.goods.size <= 0) {
-      notify("어음은 상회의 상품을 구입할 때만 사용할 수 있습니다. 화폐 환전은 대도시 상업조합에서 진행하세요.");
-      render();
-      return;
-    }
     // 거래 확정 직전에는 세션 캐시를 버리고 실제 재고·수요·가격으로 다시 판정한다.
     resetTradeComputationCache();
     const balance = calculateBalanceResult();
     const playerPaidValue = balance.rawPlayerValue;
+    if (!billNoteSettlement(balance).valid) {
+      notify("어음은 상회의 상품 결제에만 사용할 수 있습니다. 어음의 남는 가치를 상인의 화폐로 받을 수 없습니다.");
+      render();
+      return;
+    }
     if (!balance.valid) {
       notify(balance.message);
       render();
