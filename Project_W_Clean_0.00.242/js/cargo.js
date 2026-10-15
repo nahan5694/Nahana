@@ -811,7 +811,12 @@
     elements.viewport.dataset.cargoCompartment = activeCompartment;
     const load = getLoadSummary();
     const weightRatio = Math.min(1, load.ratio);
-    elements.slotCount.textContent = String(slotCapacity);
+    const activeUsedSlots = activeCompartment === "protected"
+      ? layout.protectedUsedSlots
+      : activeCompartment === "secret" ? layout.secretUsedSlots : null;
+    elements.slotCount.textContent = activeUsedSlots === null
+      ? String(slotCapacity)
+      : `${formatNumber(activeUsedSlots)} / ${formatNumber(configuredCapacity)}`;
     if (elements.compartmentLabel) elements.compartmentLabel.textContent = `${SLOT_TYPE_LABELS[activeCompartment]} 화물칸`;
     elements.weightValue.textContent = `${formatNumber(load.weight)} / ${formatNumber(load.maxWeight)}`;
     elements.weightFill.style.width = `${weightRatio * 100}%`;
@@ -831,14 +836,24 @@
       const type = button.dataset.cargoCompartment;
       const capacity = Math.max(0, Number(capacityLimits[type]) || 0);
       const capacityLabel = button.querySelector("[data-cargo-compartment-capacity]");
-      if (capacityLabel) capacityLabel.textContent = `${formatNumber(capacity)}칸`;
+      const usedSlots = type === "protected"
+        ? layout.protectedUsedSlots
+        : type === "secret" ? layout.secretUsedSlots : null;
+      if (capacityLabel) {
+        capacityLabel.textContent = usedSlots === null
+          ? `${formatNumber(capacity)}칸`
+          : `${formatNumber(usedSlots)} / ${formatNumber(capacity)}칸`;
+      }
       const lockedSlots = type === "protected"
         ? layout.protectedLockedSlots
         : type === "secret" ? layout.secretLockedSlots : 0;
       const lockedCopy = lockedSlots > 0
         ? `, 임시 일반 화물칸 사용으로 ${formatNumber(lockedSlots)}칸 잠김`
         : "";
-      button.setAttribute("aria-label", `${SLOT_TYPE_LABELS[type] || "일반"} 화물칸 ${formatNumber(capacity)}칸으로 전환${lockedCopy}`);
+      const occupancyCopy = usedSlots === null
+        ? `${formatNumber(capacity)}칸`
+        : `${formatNumber(usedSlots)} / ${formatNumber(capacity)}칸 사용`;
+      button.setAttribute("aria-label", `${SLOT_TYPE_LABELS[type] || "일반"} 화물칸 ${occupancyCopy}, 전환${lockedCopy}`);
       button.title = lockedCopy ? `${formatNumber(lockedSlots)}칸이 임시 일반 화물칸으로 사용 중입니다.` : "";
       button.hidden = !isCompartmentAvailable(type, unlocks) || type === activeCompartment;
       button.classList.remove("is-active");

@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.358";
+const GAME_VERSION = "0.00.359";
 const ACCOUNT_SCHEMA_VERSION = 56;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -237,7 +237,7 @@ const ADVANCED_TUTORIAL_DEFINITIONS = Object.freeze([
     contexts: ["port"],
     pages: [
       { title: "목적지 선택", text: "정기선은 목록에서 고르거나 지도를 펼쳐 목적지를 선택할 수 있습니다.\n운임은 항해 기간과 출항일의 사정에 따라 달라집니다.", selector: "#port-home-route", padding: 10 },
-      { title: "승선 조건과 결항", text: "일반·보호·비밀 화물칸을 모두 비워야 승선할 수 있습니다.\n목적지에 폭우나 폭설이 오면 결항하며, 스트루마 항로는 유빙 때문에 추가로 운항이 중단될 수 있습니다.", selector: "#port-home-route", padding: 10 },
+      { title: "승선 조건과 결항", text: "교역품은 일반·보호·비밀 화물칸에서 모두 내려야 승선할 수 있습니다. 야영 물품·여행 물품·여행 식량은 싣고 탈 수 있습니다.\n목적지에 폭우나 폭설이 오면 결항하며, 스트루마 항로는 유빙 때문에 추가로 운항이 중단될 수 있습니다.", selector: "#port-home-route", padding: 10 },
       { title: "도착과 통행증", text: "항해로 대도시에 도착하면 5일, 도시에 도착하면 3일짜리 통행증을 받습니다.\n마을 항구는 도착만 가능하며 통행증을 발급하지 않습니다." }
     ]
   },
@@ -11481,9 +11481,14 @@ function createPortDestinationIcon(destination) {
   return icon;
 }
 
-function hasAnyCargoLoaded() {
+function hasPortRestrictedCargoLoaded() {
+  const allowedCategories = new Set(["야영물품", "여행물품", "여행식량"]);
   return (window.ProjectWCargo?.getInventoryItems?.() || [])
-    .some(item => Math.max(0, Number(item.quantity) || 0) > 0);
+    .some(item => {
+      if (Math.max(0, Number(item.quantity) || 0) <= 0) return false;
+      const category = String(item.definition?.category || "").replace(/\s+/g, "");
+      return !allowedCategories.has(category);
+    });
 }
 
 function openPortModal(placement = currentSettlementPlacement()) {
@@ -11648,7 +11653,7 @@ function confirmPortRoute(profile) {
   const fare = portFareForRoute(activePortContext, profile.destination, profile.days);
   openDialog({
     speaker: "정기선 승선",
-    message: `[${profile.destination.name}행 정기선]<br>항해 기간 ${profile.days}일 · 운임 ${formatCompactNumber(fare)} 가치<br><br>일반·보호·비밀 화물칸이 모두 비어 있어야 승선할 수 있습니다.`,
+    message: `[${profile.destination.name}행 정기선]<br>항해 기간 ${profile.days}일 · 운임 ${formatCompactNumber(fare)} 가치<br><br>교역품은 모두 내려야 합니다. 야영 물품·여행 물품·여행 식량은 싣고 탈 수 있습니다.`,
     showCharacter: false,
     dialogClass: "is-port-boarding-confirm",
     actions: [
@@ -11743,8 +11748,8 @@ async function beginPortVoyage(profile) {
     renderPortModal();
     return;
   }
-  if (hasAnyCargoLoaded()) {
-    showGameNotice("일반·보호·비밀 화물칸을 모두 비워야 정기선에 탈 수 있습니다.");
+  if (hasPortRestrictedCargoLoaded()) {
+    showGameNotice("교역품을 모두 내려야 정기선에 탈 수 있습니다. 야영 물품·여행 물품·여행 식량은 제외됩니다.");
     return;
   }
   const fare = portFareForRoute(origin, destination, profile.days);
@@ -15710,7 +15715,7 @@ function tutorialStepConfiguration(tutorialId, step) {
     ],
     [TUTORIAL_IDS.PORT_OVERVIEW]: [
       ["항구 기능", "항구는 아침·낮·오후에 이용할 수 있습니다.\n이 화면에서 정기선, 정보 수집, 특별수출일정을 선택합니다.", "#port-home-view", false, { padding: 10 }],
-      ["정기선", "목록이나 지도에서 목적지를 고를 수 있으며 운임은 출항일마다 달라집니다.\n모든 화물칸을 비워야 승선할 수 있고, 폭우·폭설이나 유빙으로 결항할 수 있습니다.", "#port-home-route", false, { padding: 10 }],
+      ["정기선", "목록이나 지도에서 목적지를 고를 수 있으며 운임은 출항일마다 달라집니다.\n교역품은 모두 내려야 하지만 야영 물품·여행 물품·여행 식량은 싣고 탈 수 있습니다. 폭우·폭설이나 유빙으로 결항할 수 있습니다.", "#port-home-route", false, { padding: 10 }],
       ["정보 수집", "1타임을 사용해 남아 있는 수집 기회를 모두 시도합니다.\n정기선으로 연결된 항구의 소식을 얻어 다음 거래를 준비할 수 있습니다.", "#port-home-information", false, { padding: 10 }],
       ["특별수출일정", "도시 항구는 1개, 대도시 항구는 2개의 일정을 운용합니다.\n직접 확인한 일정은 유효기간 동안 지도에서도 다시 볼 수 있습니다.", "#port-home-export", false, { padding: 10 }]
     ]
