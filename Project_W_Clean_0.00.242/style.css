@@ -11304,6 +11304,18 @@ button.inn-maintenance-option.is-selected { border-color: #76502c; background: l
 .partner-mood-gauge[data-mood-state="불만"] > i { background: linear-gradient(90deg, #a75c35, #ce8b4e); }
 .partner-mood-gauge[data-mood-state="통상"] > i { background: linear-gradient(90deg, #8a7738, #b7a653); }
 .partner-mood-gauge[data-mood-state="좋은 상태"] > i { background: linear-gradient(90deg, #4f7953, #79a566); }
+.partner-mood-gauge.is-over-hundred > i { background: linear-gradient(90deg, #4f91aa, #7dcce4); }
+.partner-mood-hundred-mark {
+  position: absolute;
+  z-index: 2;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: #f7e6bd;
+  box-shadow: 0 0 0 1px #375b67, 0 0 5px #d5f3ff;
+  pointer-events: none;
+}
 .partner-spirit-status { display: grid; gap: 8px; padding: 11px 12px 12px; }
 .partner-spirit-heading {
   display: grid;
@@ -11337,6 +11349,7 @@ button.inn-maintenance-option.is-selected { border-color: #76502c; background: l
 .partner-action-menu { display: grid; gap: 9px; padding: 11px; }
 .partner-blessing-group { display: grid; gap: 6px; }
 .partner-action-primary { position: relative; width: 100%; }
+.partner-snack-gift-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .partner-blessing-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -11551,7 +11564,8 @@ button.inn-maintenance-option.is-selected { border-color: #76502c; background: l
 .blessing-card > button { min-height: 40px; font-size: .67rem; font-weight: 900; }
 .blessing-card.is-available > button { border-color: #663b1c; background: linear-gradient(#8a5b31, #67401f); color: #fff0d1; }
 .partner-feature-empty { margin: 0; padding: 14px; border: 1px dashed #80634466; background: #fff1d096; color: #6d5945; font-size: .64rem; font-weight: 800; line-height: 1.5; text-align: center; }
-.partner-snack-panel {
+.partner-snack-panel,
+.partner-gift-panel {
   position: absolute;
   z-index: 20;
   top: 0;
@@ -11570,12 +11584,19 @@ button.inn-maintenance-option.is-selected { border-color: #76502c; background: l
   backdrop-filter: blur(5px);
   overflow: hidden;
 }
-.partner-snack-panel[hidden] { display: none; }
-.partner-snack-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 9px; border-bottom: 1px solid #80603d59; }
-.partner-snack-panel > header div { display: grid; gap: 2px; }
-.partner-snack-panel > header span { color: #856343; font-size: .55rem; font-weight: 850; }
-.partner-snack-panel > header strong { font-size: .88rem; }
-.partner-snack-panel > header button { min-height: 30px; padding: 4px 10px; }
+.partner-gift-panel { z-index: 21; grid-template-rows: auto auto minmax(0, 1fr); height: min(78vh, 680px); }
+.partner-snack-panel[hidden],
+.partner-gift-panel[hidden] { display: none; }
+.partner-snack-panel > header,
+.partner-gift-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 9px; border-bottom: 1px solid #80603d59; }
+.partner-snack-panel > header div,
+.partner-gift-panel > header div { display: grid; gap: 2px; }
+.partner-snack-panel > header span,
+.partner-gift-panel > header span { color: #856343; font-size: .55rem; font-weight: 850; }
+.partner-snack-panel > header strong,
+.partner-gift-panel > header strong { font-size: .88rem; }
+.partner-snack-panel > header button,
+.partner-gift-panel > header button { min-height: 30px; padding: 4px 10px; }
 .partner-snack-status { margin: 0; color: #705032; font-size: .63rem; font-weight: 800; line-height: 1.5; }
 .partner-snack-list { display: grid; align-content: start; gap: 7px; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #8e6943 #ead5ae; }
 .partner-snack-list::-webkit-scrollbar { width: 8px; }
@@ -11584,6 +11605,27 @@ button.inn-maintenance-option.is-selected { border-color: #76502c; background: l
 .partner-snack-item { display: grid; gap: 4px; width: 100%; padding: 9px 11px !important; text-align: left; }
 .partner-snack-item strong { font-size: .76rem; }
 .partner-snack-item span { color: #755537; font-size: .59rem; font-weight: 800; }
+.partner-gift-wardrobe,
+.partner-gift-inventory { display: grid; gap: 7px; min-height: 0; padding: 8px; border: 1px solid #8a68465e; background: #f7e8c9ad; }
+.partner-gift-inventory { grid-template-rows: auto minmax(0, 1fr); }
+.partner-gift-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.partner-gift-section-heading > strong { color: #4c321e; font-size: .7rem; }
+.partner-gift-section-heading > span { color: #80613f; font-size: .57rem; font-weight: 850; }
+.partner-gift-section-heading > button { min-height: 27px; padding: 3px 8px; font-size: .56rem; }
+.partner-gift-section-heading > button.is-active { border-color: #567360; background: linear-gradient(#76947e, #536f5d); color: #fff8df; }
+.partner-gift-outfit-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.partner-gift-outfit { display: grid; gap: 2px; min-height: 44px; padding: 6px 8px !important; text-align: left; }
+.partner-gift-outfit strong { font-size: .62rem; }
+.partner-gift-outfit span { color: #76573a; font-size: .51rem; font-weight: 800; }
+.partner-gift-outfit.is-active { border-color: #5f7967; box-shadow: inset 0 0 0 2px #63836d5c; background: linear-gradient(#e4eedb, #bfd0af); }
+.partner-gift-list { display: grid; align-content: start; gap: 6px; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #8e6943 #ead5ae; }
+.partner-gift-card { display: grid; gap: 4px; padding: 8px 9px; border: 1px solid #89705266; border-left: 4px solid #85725d; background: #ded2bfbd; opacity: .75; }
+.partner-gift-card.is-owned { border-left-color: #a4692f; background: linear-gradient(100deg, #fff0cc, #e1bf83); opacity: 1; }
+.partner-gift-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.partner-gift-card header strong { color: #412c1b; font-size: .67rem; }
+.partner-gift-card header span { padding: 2px 5px; border: 1px solid #80613f70; background: #f8e7c4; color: #745236; font-size: .49rem; font-weight: 900; }
+.partner-gift-card p { margin: 0; color: #60452f; font-size: .56rem; font-weight: 800; line-height: 1.4; }
+.partner-gift-card small { color: #846b50; font-size: .49rem; font-weight: 800; }
 .partner-dashboard button.is-system-locked:disabled { filter: grayscale(1) brightness(.82); opacity: .66; }
 
 .partner-common-sense-popup {
@@ -11877,7 +11919,8 @@ button.is-limit-exhausted:disabled span { color: #6c6862 !important; }
   }
   .partner-touch-popup > p { font-size: .8rem; line-height: 1.55; }
   .partner-blessing-options button { min-height: 27px; }
-  .partner-snack-panel { height: min(76vh, 520px); max-height: calc(100vh - 88px); padding: 9px; }
+  .partner-snack-panel,
+  .partner-gift-panel { height: min(76vh, 520px); max-height: calc(100vh - 88px); padding: 9px; }
   .partner-common-sense-popup { right: 18px; bottom: calc(16px + var(--small-popup-stack-offset, 0px)); width: min(590px, 65vw); min-height: 150px; grid-template-columns: 106px minmax(0, 1fr); padding: 11px 14px 11px 9px; }
   .merchant-comment-popup,
   .tavern-comment-popup,

@@ -344,6 +344,9 @@
       description,
       useEffect: String(readColumn(row, "사용 효과") || "").trim(),
       campEffect: String(readColumn(row, "야영 효과") || "").trim(),
+      giftSellerSettlement: String(readColumn(row, "선물 판매처_1") || "").trim(),
+      giftSellerFacility: String(readColumn(row, "선물 판매처_2") || "").trim(),
+      reaction: String(readColumn(row, "리액션") || "").trim(),
       maxStack: stackValue || 1,
       horseHungerRecovery: readDescriptionEffect(String(readColumn(row, "사용 효과") || ""), "허기"),
       horseHealthRecovery: readDescriptionEffect(String(readColumn(row, "사용 효과") || ""), "체력")

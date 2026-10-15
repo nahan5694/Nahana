@@ -1,5 +1,5 @@
-const GAME_VERSION = "0.00.352";
-const ACCOUNT_SCHEMA_VERSION = 54;
+const GAME_VERSION = "0.00.354";
+const ACCOUNT_SCHEMA_VERSION = 56;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
@@ -83,6 +83,19 @@ const TALK_CARD_BUFF_CHANCE_BONUSES = Object.freeze({
   N_Buff_027: 0.06,
   N_Buff_028: 0.10
 });
+const NAHANA_EVENT_GIFT_ID = "G_0308";
+const OUTFIT_GIFT_FAMILIES = Object.freeze({ G_0285: "B", G_0286: "C", G_0287: "D" });
+const REGION_OUTFIT_GIFTS = Object.freeze({ 북부: "G_0285", 중부: "G_0286", 남부: "G_0287" });
+const MAX_MOOD_GIFT_IDS = new Set(["G_0290", "G_0295", "G_0301", "G_0302", "G_0305"]);
+const TALK_CARD_GIFT_IDS = new Set(["G_0293", "G_0296", "G_0307", NAHANA_EVENT_GIFT_ID]);
+const ADVICE_GIFT_IDS = new Set(["G_0294", "G_0299", "G_0300", "G_0306"]);
+const CAMP_COMFORT_GIFT_IDS = new Set(["G_0294", "G_0299", "G_0303"]);
+const TIMED_MOOD_RECOVERY_GIFT_IDS = new Set(["G_0288", "G_0297", "G_0304"]);
+const STATUS_BLOCKING_GIFT_BY_STATUS_ID = new Map([
+  ["N_S_014", "G_0291"],
+  ["N_S_015", "G_0292"],
+  ["N_S_016", "G_0303"]
+]);
 const MAX_COMPANION_RANK = 50;
 const COMPANION_EVENT_RANKS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 const NAHANA_SITUATION_EVENT_IDS = Object.freeze(
@@ -107,7 +120,8 @@ const TUTORIAL_IDS = Object.freeze({
   PARTNER_SOOTHE: 26,
   GATE_OVERVIEW: 27,
   GATE_PASS: 28,
-  PORT_OVERVIEW: 29
+  PORT_OVERVIEW: 29,
+  PARTNER_GIFT: 30
 });
 const TUTORIAL_MAX_ID = Math.max(...Object.values(TUTORIAL_IDS));
 const ADVANCED_TRADE_CONTEXTS = ["trade:상회", "trade:교역소", "trade:좌판", "trade:시장"];
@@ -1034,6 +1048,7 @@ const partnerRankExperience = document.querySelector("#partner-rank-experience")
 const partnerMoodValue = document.querySelector("#partner-mood-value");
 const partnerMoodGauge = document.querySelector("#partner-mood-gauge");
 const partnerMoodFill = document.querySelector("#partner-mood-fill");
+const partnerMoodHundredMark = document.querySelector("#partner-mood-hundred-mark");
 const partnerMoodLabel = document.querySelector("#partner-mood-label");
 const partnerAppetiteToggle = document.querySelector("#partner-appetite-toggle");
 const partnerAppetitePanel = document.querySelector("#partner-appetite-panel");
@@ -1050,6 +1065,13 @@ const partnerSnackPanel = document.querySelector("#partner-snack-panel");
 const partnerSnackClose = document.querySelector("#partner-snack-close");
 const partnerSnackStatus = document.querySelector("#partner-snack-status");
 const partnerSnackList = document.querySelector("#partner-snack-list");
+const partnerGiftOpen = document.querySelector("#partner-gift-open");
+const partnerGiftPanel = document.querySelector("#partner-gift-panel");
+const partnerGiftClose = document.querySelector("#partner-gift-close");
+const partnerGiftAutoOutfit = document.querySelector("#partner-gift-auto-outfit");
+const partnerGiftOutfitList = document.querySelector("#partner-gift-outfit-list");
+const partnerGiftList = document.querySelector("#partner-gift-list");
+const partnerGiftCount = document.querySelector("#partner-gift-count");
 const partnerCommonSense = document.querySelector("#partner-common-sense");
 const partnerCommonSensePopup = document.querySelector("#partner-common-sense-popup");
 const partnerCommonSenseCharacter = document.querySelector("#partner-common-sense-character");
@@ -1394,7 +1416,11 @@ window.ProjectWTrade.init({
   getWorldSeed: () => String(account?.worldSeed || "title"),
   getFoodUsage: () => account?.foodUsage ?? createInitialFoodUsage(),
   getPartnerMood: () => normalizePartnerState(account?.partner, account?.partnerMoodAdjustment).mood,
+  getCompanionRank: () => normalizePartnerState(account?.partner, account?.partnerMoodAdjustment).companionRank,
+  getOwnedGiftIds: () => ownedPartnerGiftIds(),
+  completePermanentGiftPurchases,
   getMerchantCommentBonus: () => activePartnerBuffValue(["N_Buff_021"], 2)
+    + ownedPartnerGiftIds().filter(id => ADVICE_GIFT_IDS.has(id)).length
     - (partnerHasStatus(normalizePartnerState(account?.partner, account?.partnerMoodAdjustment), "피로") ? 1 : 0),
   getMerchantCommentMisreadChance: () => partnerHasStatus(
     normalizePartnerState(account?.partner, account?.partnerMoodAdjustment),
@@ -1823,6 +1849,13 @@ partnerSnackList?.addEventListener("click", event => {
   const button = event.target.closest("button[data-partner-snack-instance]");
   if (button) givePartnerSnack(button.dataset.partnerSnackInstance);
 });
+partnerGiftOpen?.addEventListener("click", openPartnerGiftPanel);
+partnerGiftClose?.addEventListener("click", closePartnerGiftPanel);
+partnerGiftAutoOutfit?.addEventListener("click", togglePartnerAutoOutfit);
+partnerGiftOutfitList?.addEventListener("click", event => {
+  const button = event.target.closest("button[data-partner-outfit-id]");
+  if (button) equipPartnerOutfit(button.dataset.partnerOutfitId);
+});
 partnerCardHand?.addEventListener("click", handleTalkCardClick);
 campCardHand?.addEventListener("click", handleTalkCardClick);
 partnerCharacter?.addEventListener("click", handlePartnerCharacterTouch);
@@ -2045,6 +2078,7 @@ window.addEventListener("projectw:tradeclose", () => {
   updateShopSideDialogueActions();
   latestTradeTutorialContext = null;
   refreshAdvancedTutorialLaunchers();
+  schedulePendingNarrativePresentation();
 });
 window.addEventListener("projectw:informationacquiredview", refreshAdvancedTutorialLaunchers);
 window.addEventListener("projectw:cargochange", event => {
@@ -2147,6 +2181,11 @@ window.addEventListener("keydown", event => {
   if (!partnerSnackPanel?.hidden && event.key === "Escape") {
     event.preventDefault();
     closePartnerSnackPanel();
+    return;
+  }
+  if (!partnerGiftPanel?.hidden && event.key === "Escape") {
+    event.preventDefault();
+    closePartnerGiftPanel();
     return;
   }
   if (!serviceModal?.hidden && event.key === "Escape") {
@@ -2478,7 +2517,24 @@ async function preloadSailingResources() {
 
 function dialoguePageAssetSource(page) {
   const assetId = dialoguePageCharacterAssetId(page);
-  return assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
+  return assetId ? nahanaAssetSource(assetId) : "";
+}
+
+function resolveNahanaOutfitAssetId(assetId) {
+  const normalizedId = String(assetId || "").trim();
+  const match = /^Asset_N_(\d{2})$/i.exec(normalizedId);
+  if (!match || !account) return normalizedId;
+  const giftId = selectedPartnerOutfitGiftId(account.partner);
+  const family = OUTFIT_GIFT_FAMILIES[giftId];
+  if (!family) return normalizedId;
+  const variantId = `Asset_N_${family}_${match[1]}`;
+  return assetMap.get(variantId) ? variantId : normalizedId;
+}
+
+function nahanaAssetSource(assetId) {
+  const resolvedId = resolveNahanaOutfitAssetId(assetId);
+  return assetMap.get(resolvedId) ?? assetFallbacks.get(resolvedId)
+    ?? assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "";
 }
 
 function dialoguePageCharacterAssetId(page) {
@@ -3120,8 +3176,9 @@ function setDialogCharacter(assetId) {
     delete dialogCharacter.dataset.assetId;
     return;
   }
-  dialogCharacter.dataset.assetId = assetId;
-  const source = assetMap.get(assetId) ?? assetFallbacks.get(assetId);
+  const resolvedAssetId = resolveNahanaOutfitAssetId(assetId);
+  dialogCharacter.dataset.assetId = resolvedAssetId;
+  const source = nahanaAssetSource(assetId);
   if (source) {
     dialogCharacter.src = source;
     return;
@@ -3235,6 +3292,24 @@ function loadAccount() {
     parsed.guildContribution = normalizeGuildContribution(parsed.guildContribution);
     if (!parsed.featureUnlocks) migrated = true;
     parsed.featureUnlocks = normalizeFeatureUnlocks(parsed.featureUnlocks, false);
+    const giftEventCompleted = parsed.nahanaEvents.completedIds.includes("N_E_005");
+    const giftEventPurchaseRecorded = giftEventCompleted
+      || (parsed.nahanaEvents.activeId === "N_E_005" && parsed.nahanaEvents.context.giftPurchased);
+    if (giftEventPurchaseRecorded && !parsed.partner.gifts.ownedIds.includes(NAHANA_EVENT_GIFT_ID)) {
+      parsed.partner.gifts.ownedIds.push(NAHANA_EVENT_GIFT_ID);
+      migrated = true;
+    }
+    if (giftEventCompleted && !parsed.featureUnlocks.partnerGift) {
+      parsed.featureUnlocks.partnerGift = true;
+      migrated = true;
+    }
+    if (giftEventCompleted
+      && !parsed.tutorialProgress.completed.includes(TUTORIAL_IDS.PARTNER_GIFT)
+      && !parsed.tutorialProgress.giftTutorialPending
+      && parsed.tutorialProgress.activeId !== TUTORIAL_IDS.PARTNER_GIFT) {
+      parsed.tutorialProgress.giftTutorialPending = true;
+      migrated = true;
+    }
     if (!parsed.codeUnlocks) migrated = true;
     parsed.codeUnlocks = normalizeCodeUnlocks(parsed.codeUnlocks);
     const firstEventRewardConfirmed = parsed.nahanaEvents.completedIds.includes("N_E_001")
@@ -3624,15 +3699,22 @@ function updatePartnerUi() {
       ? `${partner.companionExperience} / ${requirement}`
       : `${partner.companionExperience} · 최고 등급`;
   }
-  const moodValue = Math.round(clampNumber(partner.mood, 0, 100, 50));
-  if (partnerMoodValue) partnerMoodValue.textContent = `${moodValue} / 100`;
+  const maximumMood = partnerMaximumMoodFromGifts(partner.gifts);
+  const moodValue = Math.round(clampNumber(partner.mood, 0, maximumMood, 50));
+  if (partnerMoodValue) partnerMoodValue.textContent = `${moodValue} / ${maximumMood}`;
   if (partnerMoodLabel) partnerMoodLabel.textContent = presentation.label;
   if (partnerMoodGauge) {
     partnerMoodGauge.dataset.moodState = presentation.label;
+    partnerMoodGauge.classList.toggle("is-over-hundred", moodValue > 100);
     partnerMoodGauge.setAttribute("aria-valuenow", String(moodValue));
+    partnerMoodGauge.setAttribute("aria-valuemax", String(maximumMood));
     partnerMoodGauge.setAttribute("aria-valuetext", `${presentation.label} ${moodValue}`);
   }
-  if (partnerMoodFill) partnerMoodFill.style.width = `${moodValue}%`;
+  if (partnerMoodFill) partnerMoodFill.style.width = `${Math.min(100, moodValue / maximumMood * 100)}%`;
+  if (partnerMoodHundredMark) {
+    partnerMoodHundredMark.hidden = maximumMood <= 100;
+    partnerMoodHundredMark.style.left = `${Math.min(100, 100 / maximumMood * 100)}%`;
+  }
   renderPartnerAppetite();
   if (partnerSpiritValue) partnerSpiritValue.textContent = `${partner.spirit} / ${companionSpiritMaximum(partner.companionRank)}`;
   updatePartnerCharacterUi(presentation);
@@ -3651,7 +3733,7 @@ function updatePartnerCharacterUi(presentation = partnerMoodPresentation(normali
   const featureOpen = Boolean(activePartnerFeature && partnerFeaturePanel && !partnerFeaturePanel.hidden);
   const assetId = statusOverride?.assetId || partnerTouchCharacterAssetId || (featureOpen ? "Asset_N_11" : snackOpen ? "Asset_N_08" : presentation.assetId);
   if (partnerCharacter) {
-    partnerCharacter.dataset.assetId = assetId;
+    partnerCharacter.dataset.assetId = resolveNahanaOutfitAssetId(assetId);
     partnerCharacter.alt = statusOverride
       ? `${statusOverride.label} 상태의 나하나`
       : partnerTouchCharacterAssetId
@@ -3661,7 +3743,7 @@ function updatePartnerCharacterUi(presentation = partnerMoodPresentation(normali
         : snackOpen
           ? "간식을 고르는 나하나"
           : `${presentation.label} 상태의 나하나`;
-    const source = assetMap.get(assetId) ?? assetFallbacks.get(assetId);
+    const source = nahanaAssetSource(assetId);
     if (source) partnerCharacter.src = source;
   }
 }
@@ -3672,7 +3754,7 @@ function applyPartnerTouchCharacterAsset(page) {
   const statusLocksCharacterAsset = Boolean(statusOverride)
     || PARTNER_SICK_STATUS_NAMES.some(name => partnerHasStatus(partner, name));
   const assetId = statusLocksCharacterAsset ? "" : resolveDialogueAssetId(page);
-  const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId)) : "";
+  const source = assetId ? nahanaAssetSource(assetId) : "";
   partnerTouchCharacterAssetId = source ? assetId : "";
   updatePartnerCharacterUi();
 }
@@ -4008,6 +4090,14 @@ function updatePartnerAccessUi(partner, presentation) {
         ? "정령력이 부족합니다."
         : "정령력 1을 사용해 무작위 가호를 얻습니다.";
   }
+  if (partnerGiftOpen) {
+    const featureLocked = !isFeatureUnlocked("partnerGift");
+    partnerGiftOpen.disabled = featureLocked;
+    partnerGiftOpen.classList.toggle("is-system-locked", featureLocked);
+    partnerGiftOpen.title = featureLocked
+      ? "나하나 이벤트를 진행하면 선물 기능이 해금됩니다."
+      : "구입한 선물과 의상을 확인합니다.";
+  }
   updatePartnerAttentionMarks(partner, access);
   if (access.allLocked) {
     closePartnerSnackPanel();
@@ -4015,6 +4105,7 @@ function updatePartnerAccessUi(partner, presentation) {
   }
   updatePartnerSnackUi(access);
   updatePartnerCommonSenseUi(access);
+  if (!partnerGiftPanel?.hidden) renderPartnerGiftPanel();
 }
 
 function loadTalkCardDefinitions() {
@@ -4264,7 +4355,7 @@ function applyTalkCardOutcome(definition, alreadyUnlocked = false, outcomeBefore
     void resolveNahanaEventCondition(2);
   }
   window.setTimeout(() => {
-    maybeStartEarlyPartnerTutorial();
+    if (!maybeStartPendingGiftTutorial()) maybeStartEarlyPartnerTutorial();
     schedulePendingNarrativePresentation();
   }, 0);
 }
@@ -4464,7 +4555,7 @@ function showRoadTalkCardPeek(forcedAssetId = "") {
   const assetId = ["Asset_N_16", "Asset_N_17", "Asset_N_18"].includes(forcedAssetId)
     ? forcedAssetId
     : roadTalkCardPeekAssetId();
-  const source = assetId ? (assetMap.get(assetId) ?? assetFallbacks.get(assetId) ?? "") : "";
+  const source = assetId ? nahanaAssetSource(assetId) : "";
   if (!source) return false;
 
   hideRoadTalkCardPeek(true);
@@ -4790,6 +4881,7 @@ async function openPartnerSnackPanel() {
   if (!isFeatureUnlocked("partnerSnack") || access.allLocked || statusLocked || account?.foodUsage?.snackUsed) return;
   await window.ProjectWCargo.load();
   if (!partnerSnackPanel) return;
+  closePartnerGiftPanel();
   partnerSnackPanel.hidden = false;
   updatePartnerCharacterUi();
   renderPartnerSnackList();
@@ -4799,6 +4891,192 @@ function closePartnerSnackPanel() {
   if (!partnerSnackPanel || partnerSnackPanel.hidden) return;
   partnerSnackPanel.hidden = true;
   updatePartnerCharacterUi();
+}
+
+function partnerGiftDefinitions() {
+  return (window.ProjectWCargo?.getItemDefinitions?.() || [])
+    .filter(definition => String(definition?.category || "").replaceAll(" ", "") === "선물")
+    .sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || ""), "en", { numeric: true }));
+}
+
+function partnerGiftEffectDescription(definition) {
+  return [definition?.useEffect, definition?.campEffect]
+    .filter(Boolean)
+    .join("<br>")
+    .replace(/\b\d+(?:\.\d+)?%\s*확률로/gi, "일정 확률로")
+    .replace(/\s*\+\s*\d+(?:\.\d+)?%?/g, " 증가")
+    .replace(/\s*-\s*\d+(?:\.\d+)?%?/g, " 완화")
+    .replaceAll("기본 아영", "기본 야영")
+    || "의상 교체 가능";
+}
+
+function ownedPartnerGiftIds(partner = account?.partner) {
+  return normalizePartnerGiftState(partner?.gifts).ownedIds;
+}
+
+function hasOwnedPartnerGift(giftId, partner = account?.partner) {
+  return ownedPartnerGiftIds(partner).includes(String(giftId || ""));
+}
+
+function currentPartnerRegion() {
+  const travel = normalizeTravelState(account?.travel);
+  const placementId = travel.mode === "settlement"
+    ? travel.settlementId || travel.positionId
+    : travel.positionId || travel.settlementId;
+  return String(window.ProjectWMapView?.getPlacement?.(placementId)?.region || "").trim();
+}
+
+function selectedPartnerOutfitGiftId(partner = account?.partner) {
+  const gifts = normalizePartnerGiftState(partner?.gifts);
+  if (gifts.autoOutfit) {
+    const regionalId = REGION_OUTFIT_GIFTS[currentPartnerRegion()];
+    if (regionalId && gifts.ownedIds.includes(regionalId)) return regionalId;
+  }
+  return gifts.equippedOutfitId;
+}
+
+function renderPartnerGiftPanel() {
+  if (!partnerGiftPanel || !account) return;
+  account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  const gifts = account.partner.gifts;
+  const definitions = partnerGiftDefinitions();
+  const owned = new Set(gifts.ownedIds);
+  const equippedId = selectedPartnerOutfitGiftId(account.partner);
+  if (partnerGiftCount) partnerGiftCount.textContent = `${definitions.filter(definition => owned.has(definition.id)).length} / ${definitions.length}`;
+  if (partnerGiftAutoOutfit) {
+    partnerGiftAutoOutfit.disabled = !gifts.ownedIds.some(id => Object.hasOwn(OUTFIT_GIFT_FAMILIES, id));
+    partnerGiftAutoOutfit.setAttribute("aria-pressed", String(gifts.autoOutfit));
+    partnerGiftAutoOutfit.textContent = gifts.autoOutfit ? "자동 환복 켬" : "자동 환복 끔";
+    partnerGiftAutoOutfit.classList.toggle("is-active", gifts.autoOutfit);
+  }
+  if (partnerGiftOutfitList) {
+    const defaultButton = document.createElement("button");
+    defaultButton.type = "button";
+    defaultButton.dataset.partnerOutfitId = "";
+    defaultButton.className = "partner-gift-outfit";
+    defaultButton.classList.toggle("is-active", !equippedId && !gifts.autoOutfit);
+    defaultButton.innerHTML = "<strong>기본 의상</strong><span>평소 모습</span>";
+    const outfitButtons = definitions.filter(definition => Object.hasOwn(OUTFIT_GIFT_FAMILIES, definition.id)).map(definition => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.partnerOutfitId = definition.id;
+      button.className = "partner-gift-outfit";
+      button.disabled = !owned.has(definition.id);
+      button.classList.toggle("is-active", equippedId === definition.id);
+      const name = document.createElement("strong");
+      name.textContent = definition.displayName || definition.name3 || definition.id;
+      const detail = document.createElement("span");
+      detail.textContent = owned.has(definition.id)
+        ? `${({ G_0285: "북부", G_0286: "중부", G_0287: "남부" })[definition.id]} 자동 환복 의상`
+        : "아직 구입하지 않음";
+      button.append(name, detail);
+      return button;
+    });
+    partnerGiftOutfitList.replaceChildren(defaultButton, ...outfitButtons);
+  }
+  if (partnerGiftList) {
+    partnerGiftList.replaceChildren(...definitions.map(definition => {
+      const card = document.createElement("article");
+      card.className = "partner-gift-card";
+      card.dataset.partnerGiftId = definition.id;
+      card.classList.toggle("is-owned", owned.has(definition.id));
+      const header = document.createElement("header");
+      const name = document.createElement("strong");
+      name.textContent = definition.displayName || definition.name3 || definition.id;
+      const badge = document.createElement("span");
+      badge.textContent = owned.has(definition.id) ? "보유" : "미보유";
+      header.append(name, badge);
+      const effect = document.createElement("p");
+      renderFormattedText(effect, partnerGiftEffectDescription(definition));
+      const source = document.createElement("small");
+      source.textContent = definition.id === NAHANA_EVENT_GIFT_ID
+        ? "나하나 이벤트에서 획득"
+        : `${definition.giftSellerSettlement || "판매처 미정"} · ${definition.giftSellerFacility || "상점 미정"}`;
+      card.append(header, effect, source);
+      return card;
+    }));
+  }
+}
+
+async function openPartnerGiftPanel() {
+  if (!account) return;
+  if (!isFeatureUnlocked("partnerGift")) {
+    showGameNotice("아직 선물 기능이 해금되지 않았습니다.");
+    return;
+  }
+  await window.ProjectWCargo.load();
+  closePartnerSnackPanel();
+  closePartnerFeature();
+  if (!partnerGiftPanel) return;
+  partnerGiftPanel.hidden = false;
+  renderPartnerGiftPanel();
+  updatePartnerCharacterUi();
+  if (isTutorialActive(TUTORIAL_IDS.PARTNER_GIFT)
+    && normalizeTutorialProgress(account.tutorialProgress).step === 0) {
+    setTutorialStep(1);
+  }
+}
+
+function closePartnerGiftPanel() {
+  if (!partnerGiftPanel || partnerGiftPanel.hidden) return;
+  partnerGiftPanel.hidden = true;
+  updatePartnerCharacterUi();
+}
+
+function equipPartnerOutfit(giftId = "") {
+  if (!account) return;
+  account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  const normalizedId = String(giftId || "").trim();
+  if (normalizedId && (!Object.hasOwn(OUTFIT_GIFT_FAMILIES, normalizedId) || !hasOwnedPartnerGift(normalizedId))) return;
+  account.partner.gifts.equippedOutfitId = normalizedId;
+  account.partner.gifts.autoOutfit = false;
+  persistAccount();
+  renderPartnerGiftPanel();
+  updatePartnerCharacterUi();
+}
+
+function togglePartnerAutoOutfit() {
+  if (!account) return;
+  account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  if (!account.partner.gifts.ownedIds.some(id => Object.hasOwn(OUTFIT_GIFT_FAMILIES, id))) return;
+  account.partner.gifts.autoOutfit = !account.partner.gifts.autoOutfit;
+  persistAccount();
+  renderPartnerGiftPanel();
+  updatePartnerCharacterUi();
+}
+
+async function completePermanentGiftPurchases(giftIds = []) {
+  if (!account) return;
+  account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  const giftDefinitionIds = new Set(partnerGiftDefinitions().map(definition => definition.id));
+  const purchased = [...new Set(giftIds.map(String))]
+    .filter(id => giftDefinitionIds.has(id) && !account.partner.gifts.ownedIds.includes(id));
+  if (!purchased.length) return;
+  account.partner.gifts.ownedIds.push(...purchased);
+  account.partner.effects = account.partner.effects.filter(id => !["N_S_002", "N_S_004"].includes(id));
+  delete account.partner.statusTimers.N_S_002;
+  delete account.partner.statusTimers.N_S_004;
+  const moodBeforeGift = account.partner.mood;
+  if (moodBeforeGift <= 25) {
+    addPartnerStatus("N_S_003");
+    account.partner.effects = account.partner.effects.filter(id => id !== "N_S_002");
+    delete account.partner.statusTimers.N_S_002;
+  }
+  if (moodBeforeGift >= 75) {
+    account.partner.mood = partnerMaximumMoodFromGifts(account.partner.gifts);
+  } else if (moodBeforeGift >= 25) {
+    account.partner.mood = 75;
+  }
+  account.partnerMoodAdjustment = account.partner.mood - 50;
+  persistAccount();
+  updatePartnerUi();
+  if (!partnerGiftPanel?.hidden) renderPartnerGiftPanel();
+  const purchasedDefinitions = partnerGiftDefinitions().filter(definition => purchased.includes(definition.id));
+  const reaction = purchasedDefinitions.map(definition => String(definition.reaction || "").trim()).filter(Boolean).join("<br>");
+  if (reaction) {
+    await loadAssets();
+    showTavernCommentPopup({ speaker: "나하나", text: reaction, imageCategory: "SD", assetId: "Asset_SD_14" });
+  }
 }
 
 function givePartnerSnack(instanceId) {
@@ -4903,7 +5181,8 @@ async function injectCommonSense() {
       usage.attempts += 1;
       account.partner.commonSenseSuccessStreak += 1;
       account.partner.statusStreaks.idleDots = 0;
-      if (account.partner.commonSenseSuccessStreak >= 6) {
+      const successRequirement = hasOwnedPartnerGift("G_0289") ? 5 : 6;
+      if (account.partner.commonSenseSuccessStreak >= successRequirement) {
         addPartnerStatus("N_S_011", { expiresAfterDay: normalizeWorldTime(account.worldTime).day });
         account.partner.commonSenseSuccessStreak = 0;
       }
@@ -6237,6 +6516,17 @@ function applyNahanaEventReward(eventId, state) {
     window.ProjectWMerchantPath?.grantPeddlerPoints?.(1);
   }
   if (["N_E_002", "N_E_003", "N_E_004"].includes(eventId)) grantNahanaEventFeatureUnlocks(eventId);
+  if (eventId === "N_E_005") {
+    account.featureUnlocks = normalizeFeatureUnlocks(account.featureUnlocks, false);
+    account.featureUnlocks.partnerGift = true;
+    if (!account.partner.gifts.ownedIds.includes(NAHANA_EVENT_GIFT_ID)) {
+      account.partner.gifts.ownedIds.push(NAHANA_EVENT_GIFT_ID);
+    }
+    account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
+    if (!account.tutorialProgress.completed.includes(TUTORIAL_IDS.PARTNER_GIFT)) {
+      account.tutorialProgress.giftTutorialPending = true;
+    }
+  }
   state.rewardGrantedIds.push(eventId);
   updatePartnerUi();
   return true;
@@ -6328,7 +6618,9 @@ function closeNahanaEventReward(definition) {
     startTutorial(7);
     return;
   }
-  void startPendingNahanaEventTutorial();
+  void startPendingNahanaEventTutorial().then(started => {
+    if (!started) schedulePendingNarrativePresentation();
+  });
 }
 
 async function startPendingNahanaEventTutorial() {
@@ -6621,9 +6913,11 @@ function partnerWagonDamageReductionChance() {
 }
 
 function partnerCampComfortBonus() {
-  return activePartnerBuffTierValue([
+  const blessingBonus = activePartnerBuffTierValue([
     ["N_Buff_017", 10], ["N_Buff_016", 7], ["N_Buff_015", 4]
   ]);
+  const giftBonus = ownedPartnerGiftIds().filter(id => CAMP_COMFORT_GIFT_IDS.has(id)).length;
+  return blessingBonus + giftBonus;
 }
 
 function partnerMoodBuffChance() {
@@ -6659,11 +6953,13 @@ function partnerDialogueCardBuffGrade() {
 }
 
 function partnerDialogueCardChanceBonus() {
-  return activePartnerBuffTierValue([
+  const blessingBonus = activePartnerBuffTierValue([
     ["N_Buff_028", TALK_CARD_BUFF_CHANCE_BONUSES.N_Buff_028],
     ["N_Buff_027", TALK_CARD_BUFF_CHANCE_BONUSES.N_Buff_027],
     ["N_Buff_026", TALK_CARD_BUFF_CHANCE_BONUSES.N_Buff_026]
   ]);
+  const giftBonus = ownedPartnerGiftIds().filter(id => TALK_CARD_GIFT_IDS.has(id)).length * .01;
+  return blessingBonus + giftBonus;
 }
 
 window.ProjectWPartnerBuffs = {
@@ -6881,6 +7177,7 @@ function openPartnerFeature(feature) {
   }
   if (!partnerFeaturePanel || partnerAccessState().allLocked) return;
   closePartnerSnackPanel();
+  closePartnerGiftPanel();
   activePartnerFeature = feature === "bless" ? "bless" : "buff";
   partnerFeaturePanel.hidden = false;
   partnerBlessingToggle?.setAttribute("aria-expanded", String(activePartnerFeature === "bless"));
@@ -7500,7 +7797,7 @@ function loadAssets() {
         if (assetId === "Asset_BGS_15" && assetLink && assetName === "채찍질") {
           assetMap.set("Asset_BGS_15_whip", assetLink);
         } else if (assetId && assetLink) assetMap.set(assetId, assetLink);
-        if (assetId && assetName) registerDialogueAssetName(assetId, assetName);
+        if (assetId && assetName && !/^Asset_N_[BCD]_\d{2}$/i.test(assetId)) registerDialogueAssetName(assetId, assetName);
       });
 
       document.querySelectorAll("img[data-asset-id]").forEach(image => {
@@ -7517,6 +7814,7 @@ function loadAssets() {
       window.ProjectWAudio.refreshAssets();
       updateCustomCursorAsset();
       syncTravelExperience();
+      updatePartnerUi();
     })
     .catch(error => {
       console.error(error);
@@ -7613,8 +7911,29 @@ function createInitialPartnerState() {
     consumedFoodIds: [],
     tasteDrift: createInitialTasteDrift(),
     activeBuffs: [],
-    blessings: []
+    blessings: [],
+    gifts: createInitialPartnerGiftState()
   };
+}
+
+function createInitialPartnerGiftState() {
+  return { ownedIds: [], equippedOutfitId: "", autoOutfit: false };
+}
+
+function normalizePartnerGiftState(value) {
+  const ownedIds = [...new Set((Array.isArray(value?.ownedIds) ? value.ownedIds : [])
+    .map(id => String(id || "").trim())
+    .filter(id => /^G_\d{4}$/.test(id)))];
+  const requestedOutfitId = String(value?.equippedOutfitId || "").trim();
+  const equippedOutfitId = Object.hasOwn(OUTFIT_GIFT_FAMILIES, requestedOutfitId) && ownedIds.includes(requestedOutfitId)
+    ? requestedOutfitId
+    : "";
+  return { ownedIds, equippedOutfitId, autoOutfit: Boolean(value?.autoOutfit) };
+}
+
+function partnerMaximumMoodFromGifts(gifts = account?.partner?.gifts) {
+  const ownedIds = normalizePartnerGiftState(gifts).ownedIds;
+  return Math.min(150, 100 + (ownedIds.filter(id => MAX_MOOD_GIFT_IDS.has(id)).length * 10));
 }
 
 function createInitialPartnerStatusStreaks() {
@@ -7695,6 +8014,7 @@ function createInitialTutorialProgress() {
     earlyTutorialBranchReached: false,
     talkCardTutorialPending: false,
     sootheTutorialPending: false,
+    giftTutorialPending: false,
     gatePassTutorialPending: false,
     portTutorialPending: false
   };
@@ -7754,6 +8074,7 @@ function createInitialFeatureUnlocks(unlocked = false) {
     information: Boolean(unlocked),
     guildContribution: Boolean(unlocked),
     partnerSnack: Boolean(unlocked),
+    partnerGift: Boolean(unlocked),
     guildAccess: Boolean(unlocked)
   };
 }
@@ -8221,8 +8542,10 @@ function normalizePartnerState(value, legacyMoodAdjustment = 0) {
   const maxSpirit = companionSpiritMaximum(companionRank);
   const effects = Array.isArray(value?.effects) ? value.effects.map(effect => String(effect).trim()).filter(Boolean) : [];
   const moodFloor = effects.includes("N_S_036") ? 51 : 0;
+  const gifts = normalizePartnerGiftState(value?.gifts);
+  const maximumMood = partnerMaximumMoodFromGifts(gifts);
   return {
-    mood: clampNumber(Number(value?.mood), moodFloor, 100, clampNumber(initial.mood + (Number(legacyMoodAdjustment) || 0), moodFloor, 100, initial.mood)),
+    mood: clampNumber(Number(value?.mood), moodFloor, maximumMood, clampNumber(initial.mood + (Number(legacyMoodAdjustment) || 0), moodFloor, maximumMood, initial.mood)),
     sweet: clampNumber(Number(value?.sweet), 0, 100, initial.sweet),
     salty: clampNumber(Number(value?.salty), 0, 100, initial.salty),
     stimulus: clampNumber(Number(value?.stimulus), 0, 100, initial.stimulus),
@@ -8249,7 +8572,8 @@ function normalizePartnerState(value, legacyMoodAdjustment = 0) {
       .map(normalizeActiveBuff)
       .filter(buff => buff.name),
     blessings: [...new Set((Array.isArray(value?.blessings) ? value.blessings : [])
-      .map(id => String(id || "").trim()).filter(Boolean))]
+      .map(id => String(id || "").trim()).filter(Boolean))],
+    gifts
   };
 }
 
@@ -8371,6 +8695,8 @@ function normalizeTutorialProgress(value) {
     earlyTutorialBranchReached: Boolean(value?.earlyTutorialBranchReached),
     talkCardTutorialPending: Boolean(value?.talkCardTutorialPending),
     sootheTutorialPending: Boolean(value?.sootheTutorialPending),
+    giftTutorialPending: Boolean(value?.giftTutorialPending)
+      && !completed.includes(TUTORIAL_IDS.PARTNER_GIFT),
     gatePassTutorialPending: Boolean(value?.gatePassTutorialPending)
       && !completed.includes(TUTORIAL_IDS.GATE_PASS),
     portTutorialPending: Boolean(value?.portTutorialPending)
@@ -8610,7 +8936,12 @@ function changePartnerMood(amount) {
   if (!account) return 0;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const before = account.partner.mood;
-  account.partner.mood = clampNumber(before + (Number(amount) || 0), partnerMoodFloor(account.partner), 100, before);
+  account.partner.mood = clampNumber(
+    before + (Number(amount) || 0),
+    partnerMoodFloor(account.partner),
+    partnerMaximumMoodFromGifts(account.partner.gifts),
+    before
+  );
   account.partnerMoodAdjustment = account.partner.mood - 50;
   syncMoodDrivenPartnerStatuses();
   window.ProjectWMerchantPath?.recordDailySnapshot?.({
@@ -8647,7 +8978,7 @@ function syncMoodDrivenPartnerStatuses() {
   if (!account) return;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   enforcePartnerStatusTutorialGate();
-  const shouldBeAngry = account.partner.mood <= 25;
+  const shouldBeAngry = account.partner.mood <= 25 && !account.partner.effects.includes("N_S_003");
   const progress = normalizeTutorialProgress(account.tutorialProgress);
   if (shouldBeAngry
     && !progress.completed.includes(TUTORIAL_IDS.PARTNER_SOOTHE)
@@ -8679,6 +9010,8 @@ function addPartnerStatus(effectId, options = {}) {
   if (!normalizedId || !canAcquirePartnerStatus(normalizedId)) return false;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const alreadyApplied = account.partner.effects.includes(normalizedId);
+  const blockingGiftId = STATUS_BLOCKING_GIFT_BY_STATUS_ID.get(normalizedId);
+  if (!alreadyApplied && blockingGiftId && hasOwnedPartnerGift(blockingGiftId) && Math.random() < .5) return false;
   if (!alreadyApplied) account.partner.effects.push(normalizedId);
   const timer = partnerStatusTimer(normalizedId, options);
   if (timer) account.partner.statusTimers[normalizedId] = timer;
@@ -8773,14 +9106,27 @@ function ensurePartnerStatusTimers() {
   });
 }
 
-function processPartnerStatusesAfterTimeAdvance() {
-  if (!account) return;
+function seasonalGiftMoodMitigationAvailable() {
+  const giftId = ({ 겨울: "G_0285", 봄: "G_0286", 가을: "G_0286", 여름: "G_0287" })[currentSeason()];
+  return Boolean(giftId && hasOwnedPartnerGift(giftId));
+}
+
+function applyTimedPartnerMoodChange(amount) {
+  let requested = Number(amount) || 0;
+  if (requested < 0 && seasonalGiftMoodMitigationAvailable() && Math.random() < .5) requested = Math.min(0, requested + 1);
+  return changePartnerMood(requested);
+}
+
+function processPartnerStatusesAfterTimeAdvance(options = {}) {
+  if (!account) return 0;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const partner = account.partner;
+  const initialMood = partner.mood;
+  const maximumMood = partnerMaximumMoodFromGifts(partner.gifts);
   const day = normalizeWorldTime(account.worldTime).day;
   const removals = new Set();
   const adjustMood = amount => {
-    partner.mood = clampNumber(partner.mood + (Number(amount) || 0), partnerMoodFloor(partner), 100, partner.mood);
+    partner.mood = clampNumber(partner.mood + (Number(amount) || 0), partnerMoodFloor(partner), maximumMood, partner.mood);
   };
   partner.effects.forEach(effectId => {
     const timer = partner.statusTimers[effectId];
@@ -8813,11 +9159,16 @@ function processPartnerStatusesAfterTimeAdvance() {
     partner.effects = partner.effects.filter(effectId => !removals.has(effectId));
     removals.forEach(effectId => delete partner.statusTimers[effectId]);
   }
+  const requestedMoodChange = partner.mood - initialMood;
+  const evaluationMood = partner.mood;
+  partner.mood = initialMood;
   account.partner = partner;
-  account.partnerMoodAdjustment = partner.mood - 50;
-  if (partner.mood >= 5 && partner.mood <= 25 && Math.random() < .05) addPartnerStatus("N_S_003");
-  if (partner.mood >= 30 && partner.mood <= 50 && Math.random() < .03) addPartnerStatus("N_S_004");
-  syncMoodDrivenPartnerStatuses();
+  if (!options.deferMoodChange) applyTimedPartnerMoodChange(requestedMoodChange);
+  else account.partnerMoodAdjustment = partner.mood - 50;
+  if (evaluationMood >= 5 && evaluationMood <= 25 && Math.random() < .05) addPartnerStatus("N_S_003");
+  if (evaluationMood >= 30 && evaluationMood <= 50 && Math.random() < .03) addPartnerStatus("N_S_004");
+  if (!options.deferMoodChange) syncMoodDrivenPartnerStatuses();
+  return requestedMoodChange;
 }
 
 function rollRoadArrivalPartnerStatuses(placementId) {
@@ -9352,9 +9703,9 @@ function completeTravelStep(travel) {
     weather: completedSegmentConditions.weather,
     season: completedSegmentConditions.season
   });
-  advanceGameTime({ roadSurfaceAlreadyAdvanced: true });
+  const statusMoodChange = advanceGameTime({ roadSurfaceAlreadyAdvanced: true, deferPartnerMoodChange: true });
   window.ProjectWMerchantPath?.advanceTradeJourneyDistance?.(1);
-  applyTravelStepConsequences(travel.positionId, completedSegmentConditions);
+  applyTravelStepConsequences(travel.positionId, completedSegmentConditions, statusMoodChange);
   if (isNodeId(travel.positionId)) {
     window.ProjectWCityEvents.clearRouteEffects(travel.positionId);
     window.ProjectWRouteEvents.clearDestinationEffects(travel.positionId);
@@ -9552,17 +9903,21 @@ function advanceGameTime(options = {}) {
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   if (time.day > previousDay) recoverDailyPartnerGreasiness();
   account.partner.activeBuffs = account.partner.activeBuffs.filter(buff => buff.expiresDay > time.day);
-  processPartnerStatusesAfterTimeAdvance();
+  const statusMoodChange = processPartnerStatusesAfterTimeAdvance({ deferMoodChange: Boolean(options.deferPartnerMoodChange) });
   window.ProjectWRouteEvents.advanceTime();
   if (time.day > previousDay) applyPendingPartnerMorningStatuses();
   const moodBuffChance = partnerMoodBuffChance();
   if (moodBuffChance > 0 && Math.random() < moodBuffChance) changePartnerMood(2);
+  ownedPartnerGiftIds().filter(id => TIMED_MOOD_RECOVERY_GIFT_IDS.has(id)).forEach(() => {
+    if (Math.random() < .1) changePartnerMood(1);
+  });
   advanceWeatherTime();
   window.ProjectWWolfenCompany.advanceTime();
   window.ProjectWInformation.refresh();
   evaluateSeasonFootprints();
   if (time.day > previousDay) void window.ProjectWCityEvents.ensureCurrentDay();
   if (time.day > previousDay) window.ProjectWMerchantPath?.recordDailySnapshot?.({ contractDay: time.day, season: currentSeason() });
+  return statusMoodChange;
 }
 
 function handleCityEventChange(change) {
@@ -9691,7 +10046,7 @@ function advanceRoadSurfaceState() {
   account.journeyEnvironment = environment;
 }
 
-function applyTravelStepConsequences(placementId, conditionsOverride = null) {
+function applyTravelStepConsequences(placementId, conditionsOverride = null, deferredMoodChange = 0) {
   account.horse = normalizeHorseState(account.horse);
   account.wagon = normalizeWagonState(account.wagon);
   const conditions = conditionsOverride || getCurrentRoadConditions(placementId);
@@ -9702,12 +10057,13 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
       * partnerHorseHealthConsumptionMultiplier()
   ));
   const healthLoss = baseHealthLoss + hungerHealthLoss;
-  const hungerLoss = Math.max(0, Math.round((Math.floor(Math.random() * 10) + 6) * partnerHorseHungerConsumptionMultiplier()));
+  const hungerLoss = Math.max(0, Math.round((Math.floor(Math.random() * 10) + 6) * partnerHorseHungerConsumptionMultiplier())
+    - (hasOwnedPartnerGift("G_0298") ? 1 : 0));
 
   account.horse.health = Math.max(0, account.horse.health - healthLoss);
   account.horse.hunger = Math.max(0, account.horse.hunger - hungerLoss);
   if (!isNodeId(placementId)) {
-    applyTravelMoodChange(conditions);
+    applyTravelMoodChange(conditions, deferredMoodChange);
     const load = stepLoad;
     const conditionChanceMultiplier = wagonEffectChanceMultiplier(account.wagon);
     const overloadEffectMultiplier = wagonOverweightEffectMultiplier(load.overweightPercent);
@@ -9728,6 +10084,7 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
     if (Math.random() < partnerWagonDamageReductionChance()) wagonDamage = Math.max(0, wagonDamage - 1);
     account.wagon.condition = Math.max(0, account.wagon.condition - wagonDamage);
   } else {
+    applyTimedPartnerMoodChange(deferredMoodChange);
     account.partnerWeatherStreak = createInitialPartnerWeatherStreak();
     account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
     account.partner.statusStreaks.rain = 0;
@@ -9776,7 +10133,7 @@ function applyTravelStepConsequences(placementId, conditionsOverride = null) {
   evaluateJourneyFootprints(conditions, becameHalfBroken);
 }
 
-function applyTravelMoodChange(conditions) {
+function applyTravelMoodChange(conditions, additionalMoodChange = 0) {
   if (!account) return 0;
   account.partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
   const weather = String(conditions?.weather || "");
@@ -9829,8 +10186,8 @@ function applyTravelMoodChange(conditions) {
     environmentChange -= 1;
   }
   if (partnerHasStatus(account.partner, "즐거운 연회") && terrainChange < 0) terrainChange += 1;
-  const requestedChange = weatherChange + environmentChange + terrainChange;
-  const appliedChange = changePartnerMood(requestedChange);
+  const requestedChange = weatherChange + environmentChange + terrainChange + (Number(additionalMoodChange) || 0);
+  const appliedChange = applyTimedPartnerMoodChange(requestedChange);
   account.lastTravelMoodChange = {
     weather,
     weatherChange,
@@ -10818,10 +11175,7 @@ function getNahanaEventMarketGift({ settlementId = "", facilityType = "" } = {})
   if (state.activeId !== "N_E_005" || state.stage !== 3 || state.context.giftPurchased
     || state.context.settlementId !== String(settlementId || "")) return null;
   return {
-    id: "EVENT_N_E_005_GIFT",
-    name: "깃털 자수 손수건",
-    value: 40,
-    description: "돌아오길 바라는 마음을 담아 깃털 자수를 놓은 깨끗한 손수건입니다."
+    id: NAHANA_EVENT_GIFT_ID
   };
 }
 
@@ -14836,6 +15190,21 @@ function maybeStartPendingSootheTutorial() {
   return true;
 }
 
+function maybeStartPendingGiftTutorial() {
+  if (!account) return false;
+  const progress = normalizeTutorialProgress(account.tutorialProgress);
+  if (!progress.giftTutorialPending || !shouldStartTutorial(TUTORIAL_IDS.PARTNER_GIFT)) return false;
+  if (!isFeatureUnlocked("partnerGift") || !hasOwnedPartnerGift(NAHANA_EVENT_GIFT_ID)) return false;
+  if (narrativePresentationBlocked({ ignoreGiftTutorialPending: true })) return false;
+  if (currentScene !== "partner") showScene("partner", 1, true);
+  closePartnerGiftPanel();
+  if (!startTutorial(TUTORIAL_IDS.PARTNER_GIFT)) return false;
+  account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
+  account.tutorialProgress.giftTutorialPending = false;
+  persistAccount();
+  return true;
+}
+
 function maybeStartPendingGatePassTutorial() {
   if (!account) return false;
   const progress = normalizeTutorialProgress(account.tutorialProgress);
@@ -14901,7 +15270,9 @@ function narrativePresentationBlocked(options = {}) {
     || advancedTutorialRuntime || (tutorialLayer && !tutorialLayer.hidden)
     || (advancedTutorialLayer && !advancedTutorialLayer.hidden)) return true;
   const progress = normalizeTutorialProgress(account.tutorialProgress);
-  if (progress.activeId || (progress.talkCardTutorialPending && !options.ignoreTalkCardTutorialPending)) return true;
+  if (progress.activeId
+    || (progress.talkCardTutorialPending && !options.ignoreTalkCardTutorialPending)
+    || (progress.giftTutorialPending && !options.ignoreGiftTutorialPending)) return true;
   return !dialogModal.hidden || !walletModal.hidden || !informationModal.hidden
     || (gateBulletinModal && !gateBulletinModal.hidden)
     || (portModal && !portModal.hidden)
@@ -14918,6 +15289,7 @@ function continuePendingNarrativePresentation() {
     && !narrativePresentationBlocked({ ignoreTalkCardTutorialPending: true })
     && maybeStartFirstCampTutorial()) return true;
   if (maybeStartPendingSootheTutorial()) return true;
+  if (maybeStartPendingGiftTutorial()) return true;
   if (maybeStartPendingTalkCardTutorial()) return true;
   if (portModal && !portModal.hidden) {
     if (maybeStartPendingPortTutorial()) return true;
@@ -15018,6 +15390,13 @@ function setTutorialStep(step) {
     window.ProjectWMerchantPath?.close?.();
     if (currentScene !== "cargo") showScene("cargo", 1, true);
   }
+  if (tutorialRuntime.id === TUTORIAL_IDS.PARTNER_GIFT && normalizedStep >= 1) {
+    window.setTimeout(() => {
+      document.querySelector(`[data-partner-gift-id='${NAHANA_EVENT_GIFT_ID}']`)
+        ?.scrollIntoView({ block: "nearest" });
+      scheduleTutorialPosition();
+    }, 0);
+  }
   account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
   account.tutorialProgress.step = normalizedStep;
   persistAccount();
@@ -15041,7 +15420,9 @@ function completeTutorial(tutorialId = tutorialRuntime?.id) {
   else if (eventState.pendingTutorialId) window.setTimeout(() => void startPendingNahanaEventTutorial(), 0);
   else schedulePendingNarrativePresentation();
   if (currentScene === "partner" && tutorialId !== TUTORIAL_IDS.TALK_CARD) {
-    window.setTimeout(maybeStartEarlyPartnerTutorial, 0);
+    window.setTimeout(() => {
+      if (!maybeStartPendingGiftTutorial()) maybeStartEarlyPartnerTutorial();
+    }, 0);
   }
   const modalOpen = !walletModal.hidden || !informationModal.hidden || (gateBulletinModal && !gateBulletinModal.hidden) || (portModal && !portModal.hidden) || !merchantPathModal.hidden || !memorialModal.hidden
     || !tradeModal.hidden || !mealModal.hidden || !innModal.hidden || !serviceModal.hidden
@@ -15265,6 +15646,11 @@ function tutorialStepConfiguration(tutorialId, step) {
     [TUTORIAL_IDS.PARTNER_SOOTHE]: [
       ["화난 나하나 달래기", "나하나가 화난 상태라면 간식 주기 버튼이 달래기로 바뀝니다.\n달래기에 성공하면 기분이 1~2 회복됩니다.", "#partner-snack-open", false, { padding: 12 }],
       ["오늘은 거절할 수도 있습니다", "달래기를 거절하면 오늘은 더 시도할 수 없습니다.\n다음 날에도 화난 상태라면 다시 달랠 수 있습니다.", "#partner-snack-open", false, { padding: 12 }]
+    ],
+    [TUTORIAL_IDS.PARTNER_GIFT]: [
+      ["선물 기능 해금", "나하나와의 이벤트를 마쳐 선물 기능이 열렸습니다.\n선물 버튼을 눌러 보유 선물과 의상을 확인하세요.", "#partner-gift-open", true, { padding: 12 }],
+      ["첫 선물", "이벤트에서 구입한 자수 손수건이 보유 선물 목록에 들어왔습니다.\n선물은 화물칸을 차지하지 않으며 보유하는 것만으로 효과가 적용됩니다.", `[data-partner-gift-id='${NAHANA_EVENT_GIFT_ID}']`, false, { padding: 10 }],
+      ["선물 효과", "선물마다 나하나와 여정에 서로 다른 효과를 제공합니다.\n효과 설명은 정확한 수치 대신 어떤 도움을 주는지 알려줍니다.", "#partner-gift-list", false, { padding: 10 }]
     ],
     [TUTORIAL_IDS.GATE_OVERVIEW]: [
       ["관문", "관문은 국경과 주요 길목을 관리하는 거점입니다. 지나가는 수입품을 취급하고, 경제 소식과 통관 정보를 얻기 좋습니다.", "#settlement-facilities", false, { padding: 12 }],
@@ -15922,7 +16308,11 @@ function showScene(next, direction, animate) {
     scheduleTravelStep();
   }
   handleTutorialSceneChanged(next);
-  if (next === "partner") window.setTimeout(maybeStartEarlyPartnerTutorial, 0);
+  if (next === "partner") {
+    window.setTimeout(() => {
+      if (!maybeStartPendingGiftTutorial()) maybeStartEarlyPartnerTutorial();
+    }, 0);
+  }
   if (next === "road") scheduleSettlementMainViewInformationVerification();
   updatePartnerEventUi();
   refreshAdvancedTutorialLaunchers();

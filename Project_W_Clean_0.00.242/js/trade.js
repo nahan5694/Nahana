@@ -73,13 +73,14 @@
   const METROPOLIS_MARKET_SUPPLY_IDS = new Set(["G_0284"]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
   const MERCHANT_WALLET_SCHEMA_VERSION = 3;
-  const MERCHANT_STOCK_SCHEMA_VERSION = 13;
+  const MERCHANT_STOCK_SCHEMA_VERSION = 14;
   const PRODUCTION_CLEARANCE_CHANCE = .1;
   const PRODUCTION_DURABILITY_DAMAGE_MAX = new Map([["상회", 10], ["교역소", 15], ["시장", 20]]);
   const PRODUCTION_CLEARANCE_CONDITION_MIN = .4;
   const PRODUCTION_CLEARANCE_CONDITION_MAX = .75;
   const LOGISTICS_SPECIALTY_DURABILITY_DAMAGE_FACTOR = .5;
-  const NAHANA_EVENT_GIFT_ITEM_ID = "EVENT_N_E_005_GIFT";
+  const NAHANA_EVENT_GIFT_ITEM_ID = "G_0308";
+  const LEGACY_NAHANA_EVENT_GIFT_ITEM_ID = "EVENT_N_E_005_GIFT";
   const MERCHANT_CURRENCY_COUNTS = {
     상회: [8, 10],
     교역소: [7, 10],
@@ -130,7 +131,7 @@
   };
   const IDENTICAL_STOCK_THRESHOLD = new Map([["대도시", 12], ["도시", 8], ["마을", 4], ["관문", 8]]);
   const MERCHANT_COMMENT_FACILITIES = new Set(["시장", "좌판", "교역소", "상회"]);
-  const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", "G_0280", "G_0281", "G_0282", "G_0283", "G_0284", NAHANA_EVENT_GIFT_ITEM_ID]);
+  const MERCHANT_COMMENT_EXCLUDED_IDS = new Set(["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276", "G_0278", "G_0279", "G_0280", "G_0281", "G_0282", "G_0283", "G_0284", NAHANA_EVENT_GIFT_ITEM_ID, LEGACY_NAHANA_EVENT_GIFT_ITEM_ID]);
   const MERCHANT_COMMENT_MISREAD_DIALOGUES = ["DL_G_001", "DL_G_002", "DL_G_003", "DL_G_004", "DL_G_005", "DL_G_006"];
   const MERCHANT_COMMENT_ACCURACY_BY_TIER = new Map([[1, .95], [2, .9], [3, .85], [4, .8]]);
   const MERCHANT_COMMENT_BAD_DURABILITY_RATIO = .4;
@@ -162,6 +163,9 @@
   let getWorldSeed = () => "legacy-world";
   let getFoodUsage = () => ({ day: 1, snackUsed: false });
   let getPartnerMood = () => 50;
+  let getCompanionRank = () => 1;
+  let getOwnedGiftIds = () => [];
+  let completePermanentGiftPurchases = () => Promise.resolve();
   let getMerchantCommentBonus = () => 0;
   let getMerchantCommentMisreadChance = () => null;
   let getCompanyScoreMultiplier = () => 1;
@@ -210,6 +214,11 @@
     getWorldSeed = typeof options.getWorldSeed === "function" ? options.getWorldSeed : getWorldSeed;
     getFoodUsage = typeof options.getFoodUsage === "function" ? options.getFoodUsage : getFoodUsage;
     getPartnerMood = typeof options.getPartnerMood === "function" ? options.getPartnerMood : getPartnerMood;
+    getCompanionRank = typeof options.getCompanionRank === "function" ? options.getCompanionRank : getCompanionRank;
+    getOwnedGiftIds = typeof options.getOwnedGiftIds === "function" ? options.getOwnedGiftIds : getOwnedGiftIds;
+    completePermanentGiftPurchases = typeof options.completePermanentGiftPurchases === "function"
+      ? options.completePermanentGiftPurchases
+      : completePermanentGiftPurchases;
     getMerchantCommentBonus = typeof options.getMerchantCommentBonus === "function" ? options.getMerchantCommentBonus : getMerchantCommentBonus;
     getMerchantCommentMisreadChance = typeof options.getMerchantCommentMisreadChance === "function"
       ? options.getMerchantCommentMisreadChance
@@ -1030,6 +1039,7 @@
       currentTick
     });
     let changed = catchUpMerchantRefreshes([prepared], currentTick) || prepared.changed;
+    changed = reconcilePermanentGiftStock(prepared) || changed;
     changed = applyMerchantStockDeterioration(prepared, worldTime.day) || changed;
     changed = applySpecialExportStockLock(prepared, worldTime) || changed;
     if (changed && persist) persistState();
@@ -1083,6 +1093,7 @@
     }
     if (needsDeteriorationMigration && !needsSnapshotReset) merchant.stockDeteriorationDay = worldTime.day;
     if (ensureRegionalCampSupplies({ merchantKey, merchant, settlement, facilityType, definitions })) changed = true;
+    if (reconcilePermanentGiftStock({ merchantKey, merchant, settlement, facilityType, definitions })) changed = true;
     state.merchants[merchantKey] = merchant;
     return {
       merchantKey,
@@ -1258,7 +1269,7 @@
       originProductKind: ["specialty", "famous"].includes(String(lot.originProductKind || ""))
         ? String(lot.originProductKind)
         : "",
-      sourceType: ["production", "logistics", "import", "resale", "supply", "event"].includes(lot.sourceType) ? lot.sourceType : "import",
+      sourceType: ["production", "logistics", "import", "resale", "supply", "event", "gift"].includes(lot.sourceType) ? lot.sourceType : "import",
       importMarkup: clamp(Number(lot.importMarkup) || 0, 0, 15),
       durability: Number.isFinite(Number(lot.durability)) ? Number(lot.durability) : null,
       displayOrder: Number(lot.displayOrder) || 0,
@@ -1407,6 +1418,66 @@
     return [...new Set([...regionalSupplies, ...metropolisMarketSupplies])];
   }
 
+  function isPermanentGiftDefinition(definition) {
+    return String(definition?.category || "").replaceAll(" ", "") === "선물";
+  }
+
+  function settlementHasFestival(settlement) {
+    const festivalIds = new Set(["C_E_121", "C_E_122", "C_E_123"]);
+    return (window.ProjectWCityEvents?.getSettlementEvents?.(settlement) || [])
+      .some(event => festivalIds.has(String(event?.id || event?.eventId || "")));
+  }
+
+  function permanentGiftMatchesShop(definition, settlement, facilityType) {
+    const seller = String(definition?.giftSellerSettlement || "").trim();
+    const sellerFacility = String(definition?.giftSellerFacility || "").trim();
+    if (!seller || sellerFacility !== String(facilityType || "").trim()) return false;
+    if (seller === "축제 진행중인 도시") return settlementHasFestival(settlement);
+    return seller === String(settlement?.name || "").trim();
+  }
+
+  function reconcilePermanentGiftStock({ merchantKey, merchant, settlement, facilityType, definitions }) {
+    const ownedIds = new Set((getOwnedGiftIds() || []).map(String));
+    const eligible = Math.max(1, Math.trunc(Number(getCompanionRank()) || 1)) >= 21
+      ? definitions.filter(definition => isPermanentGiftDefinition(definition)
+        && !ownedIds.has(definition.id)
+        && permanentGiftMatchesShop(definition, settlement, facilityType))
+      : [];
+    const eligibleIds = new Set(eligible.map(definition => definition.id));
+    let changed = false;
+    const before = merchant.stockLots.length;
+    merchant.stockLots = merchant.stockLots.filter(lot => {
+      const definition = definitions.find(entry => entry.id === lot.itemId);
+      return !isPermanentGiftDefinition(definition)
+        || (eligibleIds.has(lot.itemId) && !ownedIds.has(lot.itemId) && Number(lot.quantity) > 0);
+    });
+    if (merchant.stockLots.length !== before) changed = true;
+    const represented = new Set(merchant.stockLots.map(lot => lot.itemId));
+    eligible.forEach(definition => {
+      if (represented.has(definition.id)) return;
+      const rng = seededRandom(`${merchantKey}|permanent-gift|${definition.id}`);
+      const lot = createStockLot({
+        lotId: `${merchantKey}|gift|${definition.id}`,
+        definition,
+        facilityType,
+        sourceType: "gift",
+        quantity: 1,
+        baseQuantity: 1,
+        origin: settlement,
+        destination: settlement,
+        specialty: false,
+        originProductKind: "",
+        rng
+      });
+      lot.durability = INDESTRUCTIBLE_DURABILITY;
+      lot.displayOrder = -100 + merchant.stockLots.length;
+      merchant.stockLots.push(lot);
+      represented.add(definition.id);
+      changed = true;
+    });
+    return changed;
+  }
+
   function generateMerchantStock({ merchantKey, settlement, facilityType, definitions, worldData, refreshSerial, rng }) {
     const isGateStall = facilityType === "좌판";
     const isCurrencyExchange = facilityType === "환전상";
@@ -1461,6 +1532,7 @@
         ? randomInteger(rng, 8, 12)
         : Math.ceil(regularImportCount * portImportMultiplier);
     const importCandidates = definitions.filter(definition => {
+      if (isPermanentGiftDefinition(definition)) return false;
       if (productionNameSet.has(definition.name1) || logisticsNameSet.has(definition.name1)) return false;
       return producingNodes(definition, worldData.nodes).length > 0;
     });
@@ -2191,29 +2263,15 @@
 
   function syncNahanaEventGiftLot() {
     if (!current) return;
-    current.merchant.stockLots = current.merchant.stockLots.filter(lot => lot.itemId !== NAHANA_EVENT_GIFT_ITEM_ID);
-    current.definitionsById.delete(NAHANA_EVENT_GIFT_ITEM_ID);
+    current.merchant.stockLots = current.merchant.stockLots.filter(lot => ![NAHANA_EVENT_GIFT_ITEM_ID, LEGACY_NAHANA_EVENT_GIFT_ITEM_ID].includes(lot.itemId));
+    current.definitionsById.delete(LEGACY_NAHANA_EVENT_GIFT_ITEM_ID);
     const gift = window.ProjectWNahanaEvents?.getMarketGift?.({
       settlementId: current.settlement?.id || "",
       facilityType: current.facilityType
     });
     if (!gift || current.facilityType !== "시장") return;
-    const definition = {
-      id: NAHANA_EVENT_GIFT_ITEM_ID,
-      displayName: String(gift.name || "깃털 자수 손수건"),
-      name1: String(gift.name || "깃털 자수 손수건"),
-      name2: String(gift.name || "깃털 자수 손수건"),
-      name3: String(gift.name || "깃털 자수 손수건"),
-      category: "기념품",
-      subcategory: "수공예품",
-      rarity: 1,
-      slotCount: 0,
-      weight: 0,
-      durability: INDESTRUCTIBLE_DURABILITY,
-      baseValue: Math.max(1, Math.round(Number(gift.value) || 40)),
-      description: "돌아올 곳을 기원하는 깃털 자수가 놓인 깨끗한 손수건입니다."
-    };
-    current.definitionsById.set(definition.id, definition);
+    const definition = current.definitionsById.get(String(gift.id || NAHANA_EVENT_GIFT_ITEM_ID));
+    if (!definition || !isPermanentGiftDefinition(definition)) return;
     current.merchant.stockLots.unshift({
       lotId: `${current.merchantKey}|nahana-event-gift`,
       itemId: definition.id,
@@ -2564,7 +2622,7 @@
   }
 
   function sourceTypeLabel(sourceType) {
-    return ({ production: "생산물", logistics: "고정물류", import: "수입품", resale: "상인 재매입품", supply: "지역 공급품", event: "특별한 선물" })[sourceType] || "분류 없음";
+    return ({ production: "생산물", logistics: "고정물류", import: "수입품", resale: "상인 재매입품", supply: "지역 공급품", event: "특별한 선물", gift: "영구 선물" })[sourceType] || "분류 없음";
   }
 
   function createPlayerCatalogEntries() {
@@ -2639,8 +2697,9 @@
       ? proposal.merchant.goods.get(entry.lotId) || 0
       : proposal.player.goods.get(key) || 0;
     const eventGift = entry.itemId === NAHANA_EVENT_GIFT_ITEM_ID;
+    const permanentGift = isPermanentGiftDefinition(entry.definition);
     const marketPurchaseBlocked = isMarketPurchaseBlocked(owner, entry.definition);
-    const slotCount = eventGift ? 0 : Math.max(1, Math.trunc(Number(entry.definition.slotCount) || 1));
+    const slotCount = eventGift || permanentGift ? 0 : Math.max(1, Math.trunc(Number(entry.definition.slotCount) || 1));
     const knowledge = knowledgeProfile(entry.definition, {
       ...entry,
       qualityValueDirection: owner === "merchant" ? "merchantSell" : "playerSell"
@@ -2650,7 +2709,7 @@
     stack.className = `trade-item-stack ${categoryClass} ${slotCount > 1 ? "is-multi-slot" : ""}`;
     stack.dataset.tradeItemId = String(entry.itemId || "");
     if (owner === "merchant") stack.dataset.tradeLotId = String(entry.lotId || "");
-    stack.classList.toggle("is-nahana-event-gift", eventGift);
+    stack.classList.toggle("is-nahana-event-gift", eventGift || permanentGift);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "trade-item-card";
@@ -2672,7 +2731,7 @@
     const name = document.createElement("strong");
     name.textContent = knowledge.name;
     nameRow.append(name);
-    const outletBadge = owner === "merchant" ? createMerchantOutletBadge(entry) : null;
+    const outletBadge = owner === "merchant" && !permanentGift ? createMerchantOutletBadge(entry) : null;
     if (outletBadge) nameRow.append(outletBadge);
     if (specialExportSoldOut) {
       const exportBadge = document.createElement("span");
@@ -2694,7 +2753,9 @@
     origin.textContent = originDisplayLabel(entry);
     const metaText = document.createElement("span");
     metaText.className = "trade-item-load-badge";
-    metaText.textContent = `${slotCount}칸 · 무게${formatNumber(entry.definition.weight)}`;
+    metaText.textContent = permanentGift
+      ? "영구 보유 · 화물칸 없음"
+      : `${slotCount}칸 · 무게${formatNumber(entry.definition.weight)}`;
     const durability = document.createElement("span");
     const maximumDurability = Math.max(0, Number(entry.definition.durability) || 0);
     const currentDurability = Number.isFinite(Number(entry.durability)) ? Number(entry.durability) : maximumDurability;
@@ -2830,6 +2891,7 @@
   }
 
   function isNonTradeCategory(category) {
+    if (String(category || "").replaceAll(" ", "") === "선물") return true;
     if (window.ProjectWMerchantPath?.isExcludedCategory) {
       return window.ProjectWMerchantPath.isExcludedCategory(category);
     }
@@ -2899,7 +2961,8 @@
     const cacheKey = String(lot?.lotId || "");
     if (cacheKey && cache?.merchantValuations.has(cacheKey)) return cache.merchantValuations.get(cacheKey);
     const baseValue = Number(definition.baseValue) || 0;
-    if (lot?.itemId === NAHANA_EVENT_GIFT_ITEM_ID) {
+    const permanentGift = isPermanentGiftDefinition(definition);
+    if (lot?.itemId === NAHANA_EVENT_GIFT_ITEM_ID || permanentGift) {
       const valuation = {
         value: Math.max(1, Math.round(baseValue)),
         baseValue,
@@ -2912,7 +2975,7 @@
         durabilityPercent: 100,
         totalAdjustment: 0,
         preDurabilityValue: baseValue,
-        breakdown: ["이벤트 선물 · 고정 가치"]
+        breakdown: [`${permanentGift ? "영구 선물" : "이벤트 선물"} · 고정 가치`]
       };
       if (cacheKey) cache?.merchantValuations.set(cacheKey, valuation);
       return valuation;
@@ -3907,7 +3970,8 @@
       remove: [...removals].map(([instanceId, quantity]) => ({ instanceId, quantity })),
       add: [...proposal.merchant.goods].flatMap(([lotId, quantity]) => {
         const lot = merchantLot(lotId);
-        if (lot?.itemId === NAHANA_EVENT_GIFT_ITEM_ID) return [];
+        const definition = lot ? current.definitionsById.get(lot.itemId) : null;
+        if (lot?.itemId === NAHANA_EVENT_GIFT_ITEM_ID || isPermanentGiftDefinition(definition)) return [];
         return lot ? [{
           itemId: lot.itemId,
           quantity,
@@ -4059,6 +4123,19 @@
     title.textContent = name;
     const detail = document.createElement("small");
     if (kind === "goods" && definition) {
+      if (isPermanentGiftDefinition(definition)) {
+        detail.textContent = `영구 선물 · 가치 ${formatNumber(unitValue * quantity)}`;
+        copy.append(title, detail);
+        const controls = document.createElement("span");
+        controls.className = "trade-stepper";
+        controls.append(
+          stepButton("−", owner, kind, key, -1),
+          stepButton("＋", owner, kind, key, 1)
+        );
+        row.append(copy, controls);
+        attachGoodsTooltip(row, owner, { ...(entry || {}), definition, itemId: definition.id, quantity }, quantity);
+        return row;
+      }
       const impact = offerCargoImpact(owner, key, quantity);
       if (owner === "player") {
         const purchaseTotal = Math.max(0, Math.round((Number(entry?.purchaseValue) || Number(definition.baseValue) || 0) * quantity));
@@ -4107,6 +4184,7 @@
     const cacheKey = `${owner}|${String(key || "")}|${Math.max(0, Number(quantity) || 0)}`;
     if (cache?.cargoImpacts.has(cacheKey)) return cache.cargoImpacts.get(cacheKey);
     const entry = tradeEntry(owner, key);
+    if (isPermanentGiftDefinition(entry?.definition)) return { slots: 0, weight: 0 };
     const exchange = owner === "player"
       ? { remove: [{ instanceId: playerInstanceId(key), quantity }] }
       : { add: [{
@@ -4800,11 +4878,16 @@
     const purchasedNahanaGift = [...proposal.merchant.goods].some(([lotId, quantity]) => {
       return quantity > 0 && merchantLot(lotId)?.itemId === NAHANA_EVENT_GIFT_ITEM_ID;
     });
+    const purchasedPermanentGiftIds = [...proposal.merchant.goods].flatMap(([lotId, quantity]) => {
+      const lot = merchantLot(lotId);
+      const definition = lot ? current.definitionsById.get(lot.itemId) : null;
+      return quantity > 0 && isPermanentGiftDefinition(definition) ? [lot.itemId] : [];
+    });
     proposal.merchant.goods.forEach((quantity, lotId) => {
       const lot = merchantLot(lotId);
       const definition = lot ? current.definitionsById.get(lot.itemId) : null;
       if (!lot || !definition) return;
-      if (lot.itemId === NAHANA_EVENT_GIFT_ITEM_ID) return;
+      if (lot.itemId === NAHANA_EVENT_GIFT_ITEM_ID || isPermanentGiftDefinition(definition)) return;
       const journeyId = window.ProjectWMerchantPath?.createJourneyId?.(lot.itemId) || `JOURNEY_${lot.itemId}_${Date.now()}_${lotId}`;
       const purchaseValuation = merchantSellValuation(lot, definition);
       const bargainedPurchaseValue = Math.max(0, Math.round(purchaseValuation.value * (1 - (purchaseBargainPercent / 100))));
@@ -4931,6 +5014,13 @@
         facilityType: current.facilityType
       });
     }
+    if (purchasedPermanentGiftIds.length) {
+      void completePermanentGiftPurchases(purchasedPermanentGiftIds, {
+        settlementId: current.settlement?.id || "",
+        settlementName: current.settlement?.name || "",
+        facilityType: current.facilityType
+      });
+    }
     proposal = createProposal();
     if (!current.currencyOnly) completeBargainTrade(bargainContext());
     render();
@@ -4990,10 +5080,10 @@
   }
 
   function knowledgeProfile(definition, metadata = {}) {
-    if (definition?.id === NAHANA_EVENT_GIFT_ITEM_ID) {
+    if (definition?.id === NAHANA_EVENT_GIFT_ITEM_ID || isPermanentGiftDefinition(definition)) {
       return {
         level: 7,
-        name: String(definition.displayName || "깃털 자수 손수건"),
+        name: String(definition.displayName || definition.name1 || "선물"),
         showRarity: false,
         showDurability: false,
         showQuality: false,
