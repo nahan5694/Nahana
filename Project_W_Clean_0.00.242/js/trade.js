@@ -72,7 +72,7 @@
   const REGIONAL_FACILITY_RESTRICTED_SUPPLY_IDS = new Set(["G_0281", "G_0282", "G_0283"]);
   const METROPOLIS_MARKET_SUPPLY_IDS = new Set(["G_0284"]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
-  const MERCHANT_WALLET_SCHEMA_VERSION = 2;
+  const MERCHANT_WALLET_SCHEMA_VERSION = 3;
   const MERCHANT_STOCK_SCHEMA_VERSION = 13;
   const PRODUCTION_CLEARANCE_CHANCE = .1;
   const PRODUCTION_DURABILITY_DAMAGE_MAX = new Map([["상회", 10], ["교역소", 15], ["시장", 20]]);
@@ -87,6 +87,8 @@
     환전상: [9, 10],
     시장: [4, 7]
   };
+  const MERCHANT_WALLET_VALUE_MULTIPLIER = { 상회: 4, 교역소: 2 };
+  const MARKET_SILVER_VALUE_RATIO = .3;
   const FOREIGN_CURRENCY_AFFINITY = { 상회: 2.2, 교역소: 1.8, 좌판: 1.8, 환전상: 2.8, 시장: .7 };
   const QUALITY_WEIGHTS = {
     상회: [10, 50, 30, 10],
@@ -1076,7 +1078,7 @@
       changed = true;
     } else if (needsWalletMigration) {
       const walletRng = seededRandom(`${merchantKey}|wallet|${merchant.refreshSerial || 0}`);
-      merchant.wallet = createMerchantWallet(settlement, facilityType, currencies, walletRng);
+      merchant.wallet = migrateMerchantWallet(merchant.wallet, settlement, facilityType, currencies, walletRng);
       merchant.walletSchemaVersion = MERCHANT_WALLET_SCHEMA_VERSION;
     }
     if (needsDeteriorationMigration && !needsSnapshotReset) merchant.stockDeteriorationDay = worldTime.day;
@@ -1883,6 +1885,17 @@
   }
 
   function createMerchantWallet(settlement, facilityType, currencies, rng = Math.random) {
+    const wallet = createBaseMerchantWallet(settlement, facilityType, currencies, rng);
+    if (facilityType === "시장") return rebalanceMarketWallet(wallet, settlement, currencies, rng);
+    const multiplier = Math.max(1, Number(MERCHANT_WALLET_VALUE_MULTIPLIER[facilityType]) || 1);
+    if (multiplier === 1) return wallet;
+    Object.keys(wallet).forEach(currencyId => {
+      wallet[currencyId] = Math.max(0, Math.trunc(Number(wallet[currencyId]) || 0) * multiplier);
+    });
+    return wallet;
+  }
+
+  function createBaseMerchantWallet(settlement, facilityType, currencies, rng = Math.random) {
     const settlementCategory = String(settlement?.category || "");
     const settlementRegion = String(settlement?.region || "").trim();
     const wealth = Math.max(1,
@@ -1910,6 +1923,81 @@
       ));
     });
     return wallet;
+  }
+
+  function migrateMerchantWallet(storedWallet, settlement, facilityType, currencies, rng = Math.random) {
+    if (!storedWallet || typeof storedWallet !== "object") {
+      return createMerchantWallet(settlement, facilityType, currencies, rng);
+    }
+    const wallet = Object.fromEntries(currencies.map(currency => [
+      currency.id,
+      Math.max(0, Math.trunc(Number(storedWallet[currency.id]) || 0))
+    ]));
+    if (facilityType === "시장") return rebalanceMarketWallet(wallet, settlement, currencies, rng);
+    const multiplier = Math.max(1, Number(MERCHANT_WALLET_VALUE_MULTIPLIER[facilityType]) || 1);
+    if (multiplier === 1) return wallet;
+    Object.keys(wallet).forEach(currencyId => {
+      wallet[currencyId] *= multiplier;
+    });
+    return wallet;
+  }
+
+  function rebalanceMarketWallet(sourceWallet, settlement, currencies, rng = Math.random) {
+    const settlementRegion = String(settlement?.region || "").trim();
+    const wallet = Object.fromEntries(currencies.map(currency => [currency.id, 0]));
+    const totalValue = currencies.reduce((sum, currency) => sum
+      + (Math.max(0, Math.trunc(Number(sourceWallet?.[currency.id]) || 0))
+        * merchantWalletCurrencyValue(currency, settlementRegion)), 0);
+    if (totalValue <= 0) return wallet;
+
+    const silverTarget = Math.max(0, Math.round(totalValue * MARKET_SILVER_VALUE_RATIO));
+    const copperTarget = Math.max(0, totalValue - silverTarget);
+    const selected = currencies.filter(currency => Number(sourceWallet?.[currency.id]) > 0 && currency.type !== "금화");
+    const selectedSilver = selected.filter(currency => currency.type === "은화");
+    const selectedCopper = selected.filter(currency => currency.type === "동화");
+    ensureMarketCurrencySelection(selectedSilver, currencies, "은화", settlementRegion, rng);
+    ensureMarketCurrencySelection(selectedCopper, currencies, "동화", settlementRegion, rng);
+    allocateMarketCurrencyValue(wallet, selectedSilver, silverTarget, settlementRegion, rng);
+    allocateMarketCurrencyValue(wallet, selectedCopper, copperTarget, settlementRegion, rng);
+    return wallet;
+  }
+
+  function ensureMarketCurrencySelection(selected, currencies, type, settlementRegion, rng) {
+    if (selected.length) return;
+    const candidates = currencies.filter(currency => currency.type === type);
+    const choice = weightedChoice(candidates, currency => {
+      const circulation = currencyCirculation(currency);
+      return isCurrencyMainRegion(currency, settlementRegion) ? 3 + circulation : circulation;
+    }, rng);
+    if (choice) selected.push(choice);
+  }
+
+  function allocateMarketCurrencyValue(wallet, selected, targetValue, settlementRegion, rng) {
+    if (!selected.length || targetValue <= 0) return;
+    const weighted = selected.map(currency => ({
+      currency,
+      weight: (isCurrencyMainRegion(currency, settlementRegion) ? 3 + currencyCirculation(currency) : currencyCirculation(currency))
+        * randomRange(rng, .85, 1.15)
+    }));
+    const weightTotal = weighted.reduce((sum, entry) => sum + entry.weight, 0) || 1;
+    weighted.forEach(entry => {
+      const unitValue = merchantWalletCurrencyValue(entry.currency, settlementRegion);
+      const share = targetValue * entry.weight / weightTotal;
+      wallet[entry.currency.id] = Math.max(1, Math.round(share / unitValue));
+    });
+    const smallest = [...selected].sort((left, right) =>
+      merchantWalletCurrencyValue(left, settlementRegion) - merchantWalletCurrencyValue(right, settlementRegion))[0];
+    const actualValue = selected.reduce((sum, currency) => sum
+      + (wallet[currency.id] * merchantWalletCurrencyValue(currency, settlementRegion)), 0);
+    const smallestValue = merchantWalletCurrencyValue(smallest, settlementRegion);
+    wallet[smallest.id] = Math.max(1, wallet[smallest.id] + Math.round((targetValue - actualValue) / smallestValue));
+  }
+
+  function merchantWalletCurrencyValue(currency, region) {
+    const liveValue = Number(window.ProjectWWallet?.getCurrencyValue?.(currency, region));
+    return Math.max(1, Math.round(Number.isFinite(liveValue) && liveValue > 0
+      ? liveValue
+      : Number(currency?.baseValue) || 1));
   }
 
   function merchantCurrencyBaseline(type, wealth) {
