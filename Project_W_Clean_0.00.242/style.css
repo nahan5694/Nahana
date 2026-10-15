@@ -2349,6 +2349,7 @@ h1, p { margin-top: 0; }
 .settlement-facility-group h3 { margin: 0; color: #755335; font-size: .68rem; font-weight: 900; letter-spacing: .04em; }
 .settlement-facility-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .settlement-facility-list button {
+  position: relative;
   display: grid;
   grid-template-rows: auto auto;
   align-content: center;
@@ -2363,12 +2364,33 @@ h1, p { margin-top: 0; }
   text-align: left;
   box-shadow: inset 0 0 0 1px #fff3d184;
 }
+.settlement-facility-list button.has-unowned-gift {
+  padding-right: 38px;
+  box-shadow: inset 0 0 0 1px #fff3d184, 0 0 0 1px #b9415470, 0 0 12px #e4697a42;
+}
+.settlement-facility-list button .settlement-facility-gift-heart {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 9px;
+  color: #b82f49;
+  font-size: 1.08rem;
+  line-height: 1;
+  text-shadow: 0 1px 0 #fff0dc, 0 0 7px #e85f78a8;
+  pointer-events: none;
+  animation: settlement-gift-heart 1.7s ease-in-out infinite;
+}
+@keyframes settlement-gift-heart {
+  0%, 100% { transform: scale(1); }
+  45% { transform: scale(1.13); }
+}
 .settlement-facility-list button:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .settlement-facility-list button strong { font-size: .94rem; }
 .settlement-facility-list button span { color: #77583a; font-size: .67rem; font-weight: 800; }
 .settlement-facility-list button:disabled { opacity: .54; filter: grayscale(.28); cursor: default; transform: none; }
 .settlement-facility-list button.is-closed-facility { background: linear-gradient(120deg, #dfd2b8, #b9a481); border-left-color: #70685b; }
 .settlement-facility-list button.is-closed-facility span { color: #665f54; }
+.settlement-facility-list button.is-closed-facility .settlement-facility-gift-heart { color: #b82f49; }
 .settlement-facility-list button.is-company-facility { grid-template: auto / 46px minmax(0, 1fr); align-items: center; }
 .settlement-company-icon { width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 2px 2px #4b2d194f); }
 .settlement-facility-copy { display: grid; gap: 5px; min-width: 0; }
@@ -11618,9 +11640,12 @@ button.inn-maintenance-option.is-selected { border-color: #76502c; background: l
 .partner-gift-outfit strong { font-size: .62rem; }
 .partner-gift-outfit span { color: #76573a; font-size: .51rem; font-weight: 800; }
 .partner-gift-outfit.is-active { border-color: #5f7967; box-shadow: inset 0 0 0 2px #63836d5c; background: linear-gradient(#e4eedb, #bfd0af); }
+.partner-gift-outfit.is-unknown { place-items: center; text-align: center; }
 .partner-gift-list { display: grid; align-content: start; gap: 6px; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #8e6943 #ead5ae; }
 .partner-gift-card { display: grid; gap: 4px; padding: 8px 9px; border: 1px solid #89705266; border-left: 4px solid #85725d; background: #ded2bfbd; opacity: .75; }
 .partner-gift-card.is-owned { border-left-color: #a4692f; background: linear-gradient(100deg, #fff0cc, #e1bf83); opacity: 1; }
+.partner-gift-card.is-unknown { place-items: center; min-height: 52px; }
+.partner-gift-unknown { color: #675643; font-size: .72rem; letter-spacing: .12em; }
 .partner-gift-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .partner-gift-card header strong { color: #412c1b; font-size: .67rem; }
 .partner-gift-card header span { padding: 2px 5px; border: 1px solid #80613f70; background: #f8e7c4; color: #745236; font-size: .49rem; font-weight: 900; }

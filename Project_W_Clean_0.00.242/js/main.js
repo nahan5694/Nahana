@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.354";
+const GAME_VERSION = "0.00.355";
 const ACCOUNT_SCHEMA_VERSION = 56;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -1667,6 +1667,7 @@ async function enterGame() {
       updateRoadConditionUi();
       updatePartnerUi();
       renderCampSetup();
+      refreshSettlementGiftFacilityIndicators(currentSettlementPlacement());
       return result;
     });
     const walletPromise = window.ProjectWWallet.load();
@@ -4961,15 +4962,18 @@ function renderPartnerGiftPanel() {
       button.type = "button";
       button.dataset.partnerOutfitId = definition.id;
       button.className = "partner-gift-outfit";
-      button.disabled = !owned.has(definition.id);
+      const isOwned = owned.has(definition.id);
+      button.disabled = !isOwned;
+      button.classList.toggle("is-unknown", !isOwned);
       button.classList.toggle("is-active", equippedId === definition.id);
       const name = document.createElement("strong");
-      name.textContent = definition.displayName || definition.name3 || definition.id;
-      const detail = document.createElement("span");
-      detail.textContent = owned.has(definition.id)
-        ? `${({ G_0285: "북부", G_0286: "중부", G_0287: "남부" })[definition.id]} 자동 환복 의상`
-        : "아직 구입하지 않음";
-      button.append(name, detail);
+      name.textContent = isOwned ? (definition.displayName || definition.name3 || definition.id) : "???";
+      button.append(name);
+      if (isOwned) {
+        const detail = document.createElement("span");
+        detail.textContent = `${({ G_0285: "북부", G_0286: "중부", G_0287: "남부" })[definition.id]} 자동 환복 의상`;
+        button.append(detail);
+      }
       return button;
     });
     partnerGiftOutfitList.replaceChildren(defaultButton, ...outfitButtons);
@@ -4979,12 +4983,21 @@ function renderPartnerGiftPanel() {
       const card = document.createElement("article");
       card.className = "partner-gift-card";
       card.dataset.partnerGiftId = definition.id;
-      card.classList.toggle("is-owned", owned.has(definition.id));
+      const isOwned = owned.has(definition.id);
+      card.classList.toggle("is-owned", isOwned);
+      card.classList.toggle("is-unknown", !isOwned);
+      if (!isOwned) {
+        const unknown = document.createElement("strong");
+        unknown.className = "partner-gift-unknown";
+        unknown.textContent = "???";
+        card.append(unknown);
+        return card;
+      }
       const header = document.createElement("header");
       const name = document.createElement("strong");
       name.textContent = definition.displayName || definition.name3 || definition.id;
       const badge = document.createElement("span");
-      badge.textContent = owned.has(definition.id) ? "보유" : "미보유";
+      badge.textContent = "보유";
       header.append(name, badge);
       const effect = document.createElement("p");
       renderFormattedText(effect, partnerGiftEffectDescription(definition));
@@ -5070,6 +5083,7 @@ async function completePermanentGiftPurchases(giftIds = []) {
   account.partnerMoodAdjustment = account.partner.mood - 50;
   persistAccount();
   updatePartnerUi();
+  refreshSettlementGiftFacilityIndicators(currentSettlementPlacement());
   if (!partnerGiftPanel?.hidden) renderPartnerGiftPanel();
   const purchasedDefinitions = partnerGiftDefinitions().filter(definition => purchased.includes(definition.id));
   const reaction = purchasedDefinitions.map(definition => String(definition.reaction || "").trim()).filter(Boolean).join("<br>");
@@ -10839,6 +10853,7 @@ function applySettlementSceneContext(travel) {
 function renderSettlementFacilities(placement, fallbackName = "거점") {
   const category = placement?.category || "";
   const facilities = settlementFacilitiesFor(placement);
+  const giftFacilityTypes = settlementUnownedGiftFacilityTypes(placement);
   renderSettlementDailyStatus(placement, facilities);
   renderSettlementGatePass();
   renderSettlementTutorialPrompts(placement);
@@ -10913,6 +10928,7 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
     } else {
       button.append(name, description);
     }
+    setSettlementFacilityGiftIndicator(button, giftFacilityTypes.has(facility.type));
     return button;
   };
   const groups = [
@@ -10932,6 +10948,34 @@ function renderSettlementFacilities(placement, fallbackName = "거점") {
   }));
   window.ProjectWCityEvents.mountButton(settlementFacilityList, placement);
   settlementFacilities.hidden = false;
+}
+
+function settlementUnownedGiftFacilityTypes(placement) {
+  return new Set(window.ProjectWTrade?.getUnownedGiftFacilityTypes?.(placement) || []);
+}
+
+function setSettlementFacilityGiftIndicator(button, visible) {
+  if (!button) return;
+  button.classList.toggle("has-unowned-gift", Boolean(visible));
+  const existing = button.querySelector(".settlement-facility-gift-heart");
+  if (!visible) {
+    existing?.remove();
+    return;
+  }
+  if (existing) return;
+  const heart = document.createElement("span");
+  heart.className = "settlement-facility-gift-heart";
+  heart.textContent = "♥";
+  heart.setAttribute("aria-label", "구입하지 않은 선물 있음");
+  button.append(heart);
+}
+
+function refreshSettlementGiftFacilityIndicators(placement = currentSettlementPlacement()) {
+  if (!placement || !settlementFacilityList) return;
+  const giftFacilityTypes = settlementUnownedGiftFacilityTypes(placement);
+  settlementFacilityList.querySelectorAll("button[data-facility-type]").forEach(button => {
+    setSettlementFacilityGiftIndicator(button, giftFacilityTypes.has(button.dataset.facilityType || ""));
+  });
 }
 
 function renderSettlementGatePass() {

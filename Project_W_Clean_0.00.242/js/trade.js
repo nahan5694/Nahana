@@ -99,9 +99,10 @@
   };
   const QUALITY_NAMES = ["저품질", "통상품질", "고품질", "명품"];
   const CATALOG_CATEGORY_ORDER = new Map([
-    ["야영물품", 0],
-    ["여행물품", 1],
-    ["여행식량", 2]
+    ["선물", 0],
+    ["야영물품", 1],
+    ["여행물품", 2],
+    ["여행식량", 3]
   ]);
   const QUALITY_SELL_RANGES = {
     저품질: [-30, -15], 통상품질: [-15, 15], 고품질: [15, 30], 명품: [25, 75]
@@ -1434,6 +1435,30 @@
     if (!seller || sellerFacility !== String(facilityType || "").trim()) return false;
     if (seller === "축제 진행중인 도시") return settlementHasFestival(settlement);
     return seller === String(settlement?.name || "").trim();
+  }
+
+  function getUnownedGiftFacilityTypes(settlement) {
+    if (!settlement?.id) return [];
+    const ownedIds = new Set((getOwnedGiftIds() || []).map(String));
+    const facilityTypes = new Set();
+    const definitions = window.ProjectWCargo?.getItemDefinitions?.() || [];
+    if (Math.max(1, Math.trunc(Number(getCompanionRank()) || 1)) >= 21) {
+      definitions
+        .filter(definition => isPermanentGiftDefinition(definition)
+          && !ownedIds.has(String(definition.id || "")))
+        .forEach(definition => {
+          const facilityType = String(definition.giftSellerFacility || "").trim();
+          if (facilityType && permanentGiftMatchesShop(definition, settlement, facilityType)) {
+            facilityTypes.add(facilityType);
+          }
+        });
+    }
+    const eventGift = window.ProjectWNahanaEvents?.getMarketGift?.({
+      settlementId: settlement.id,
+      facilityType: "시장"
+    });
+    if (eventGift && !ownedIds.has(String(eventGift.id || ""))) facilityTypes.add("시장");
+    return [...facilityTypes];
   }
 
   function reconcilePermanentGiftStock({ merchantKey, merchant, settlement, facilityType, definitions }) {
@@ -5880,6 +5905,7 @@
     dismissMerchantCommentary,
     reset,
     evaluateCargoAtSettlement,
+    getUnownedGiftFacilityTypes,
     getSpecialExportSchedule,
     getSpecialExportSchedules,
     getInformationSignals,
