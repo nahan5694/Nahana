@@ -73,7 +73,7 @@
   const METROPOLIS_MARKET_SUPPLY_IDS = new Set(["G_0284"]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
   const MERCHANT_WALLET_SCHEMA_VERSION = 3;
-  const MERCHANT_STOCK_SCHEMA_VERSION = 14;
+  const MERCHANT_STOCK_SCHEMA_VERSION = 15;
   const PRODUCTION_CLEARANCE_CHANCE = .1;
   const PRODUCTION_DURABILITY_DAMAGE_MAX = new Map([["상회", 10], ["교역소", 15], ["시장", 20]]);
   const PRODUCTION_CLEARANCE_CONDITION_MIN = .4;
@@ -108,7 +108,7 @@
     저품질: [-30, -15], 통상품질: [-15, 15], 고품질: [15, 30], 명품: [25, 75]
   };
   const QUALITY_BUY_RANGES = {
-    저품질: [-30, 0], 통상품질: [0, 25], 고품질: [25, 75], 명품: [75, 125]
+    저품질: [-25, -5], 통상품질: [-10, 25], 고품질: [25, 50], 명품: [50, 125]
   };
   const COMPETITION_WEIGHTS = {
     대도시: { production: 3, import: 2 },
@@ -124,6 +124,7 @@
     ["import", .2],
     ["resale", .1]
   ]);
+  const LOCAL_SUBCATEGORY_COMPETITION_ADJUSTMENTS = [0, 3, 8, 12];
   const STOCK_VARIATION_WEIGHTS = {
     대도시: [[-2, 10], [-1, 20], [0, 40], [1, 20], [2, 10]],
     도시: [[-2, 10], [-1, 20], [0, 40], [1, 20], [2, 10]],
@@ -1151,6 +1152,7 @@
     const definitionsById = new Map(entry.definitions.map(definition => [definition.id, definition]));
     for (let day = lastDay + 1; day <= currentDay; day += 1) {
       entry.merchant.stockLots.forEach(lot => {
+        if (Math.max(0, Number(lot.quantity) || 0) <= 0) return;
         const maximum = Math.max(0, Number(definitionsById.get(lot.itemId)?.durability) || 0);
         if (maximum <= 0 || maximum >= INDESTRUCTIBLE_DURABILITY) return;
         const current = Number.isFinite(Number(lot.durability)) ? Number(lot.durability) : maximum;
@@ -1158,7 +1160,7 @@
         const damage = range[0] + Math.floor(rng() * ((range[1] - range[0]) + 1));
         lot.durability = Math.max(0, current - damage);
       });
-      entry.merchant.stockLots = entry.merchant.stockLots.filter(lot => lot.quantity > 0 && Number(lot.durability) > 0);
+      entry.merchant.stockLots = entry.merchant.stockLots.filter(lot => lot.quantity <= 0 || Number(lot.durability) > 0);
     }
     entry.merchant.stockDeteriorationDay = currentDay;
     state.merchants[entry.merchantKey] = entry.merchant;
@@ -1262,6 +1264,7 @@
       baseQuantity: Math.max(1, Math.trunc(Number(lot.baseQuantity) || Number(lot.quantity) || 1)),
       quality: QUALITY_NAMES.includes(lot.quality) ? lot.quality : "통상품질",
       qualityRoll: clamp(Number.isFinite(Number(lot.qualityRoll)) ? Number(lot.qualityRoll) : .5, 0, 1),
+      saleQualityRoll: saleQualityRollForLot(lot),
       originId: String(lot.originId || "MAP_NODE_0036"),
       originName: String(lot.originName || "파르네"),
       originDistance: Number.isFinite(Number(lot.originDistance))
@@ -1278,6 +1281,11 @@
         ? Math.trunc(Number(lot.specialExportWeek))
         : -1
     };
+  }
+
+  function saleQualityRollForLot(lot) {
+    if (Number.isFinite(Number(lot?.saleQualityRoll))) return clamp(Number(lot.saleQualityRoll), 0, 1);
+    return seededRandom(`${String(lot?.lotId || lot?.itemId || "lot")}|sale-quality`)();
   }
 
   function specialExportSettlementEligible(settlement) {
@@ -1710,9 +1718,6 @@
         }
       }
     });
-    for (let index = stockLots.length - 1; index >= 0; index -= 1) {
-      if (stockLots[index].quantity <= 0) stockLots.splice(index, 1);
-    }
     if (pendingRestockEffects.length) {
       const consumedIds = new Set(pendingRestockEffects.map(effect => effect.id));
       state.restockEffects = (state.restockEffects || []).filter(effect => !consumedIds.has(effect.id));
@@ -1720,9 +1725,9 @@
     shuffled(stockLots, rng).forEach((lot, index) => { lot.displayOrder = index; });
     return {
       stockLots,
-      productionItemIds: stockLots.filter(lot => lot.sourceType === "production").map(lot => lot.itemId),
-      logisticsItemIds: stockLots.filter(lot => lot.sourceType === "logistics").map(lot => lot.itemId),
-      importItemIds: stockLots.filter(lot => lot.sourceType === "import").map(lot => lot.itemId),
+      productionItemIds: stockLots.filter(lot => lot.sourceType === "production" && lot.quantity > 0).map(lot => lot.itemId),
+      logisticsItemIds: stockLots.filter(lot => lot.sourceType === "logistics" && lot.quantity > 0).map(lot => lot.itemId),
+      importItemIds: stockLots.filter(lot => lot.sourceType === "import" && lot.quantity > 0).map(lot => lot.itemId),
       unresolvedProducts
     };
   }
@@ -1741,6 +1746,7 @@
       baseQuantity: Math.max(1, Math.trunc(Number(baseQuantity) || Number(quantity) || 1)),
       quality,
       qualityRoll: nonTradeItem ? .5 : rng(),
+      saleQualityRoll: nonTradeItem ? .5 : seededRandom(`${lotId}|sale-quality`)(),
       originId: nonTradeItem ? "" : String(origin?.id || "MAP_NODE_0036"),
       originName: nonTradeItem ? "" : String(origin?.name || "파르네"),
       originDistance: nonTradeItem ? null : originDistance,
@@ -2304,6 +2310,7 @@
       baseQuantity: 1,
       quality: "",
       qualityRoll: .5,
+      saleQualityRoll: .5,
       originId: current.settlement?.id || "",
       originName: current.settlement?.name || "현재 거점",
       sourceType: "event",
@@ -3006,7 +3013,7 @@
       return valuation;
     }
     const nonTradeItem = isNonTradeCategory(definition.category);
-    const qualityAdjustment = nonTradeItem ? 0 : qualityAdjustmentFor(lot, QUALITY_SELL_RANGES);
+    const qualityAdjustment = nonTradeItem ? 0 : qualityAdjustmentFor(lot, QUALITY_SELL_RANGES, "qualityRoll");
     const importMarkup = ["logistics", "import", "resale"].includes(lot.sourceType)
       ? clamp(Number(lot.importMarkup) || 0, 0, 15)
       : 0;
@@ -3054,9 +3061,10 @@
     const cacheKey = String(item?.instanceId || "");
     if (cacheKey && cache?.playerValuations.has(cacheKey)) return cache.playerValuations.get(cacheKey);
     const nonTradeItem = isNonTradeCategory(definition.category);
-    const qualityAdjustment = nonTradeItem ? 0 : qualityAdjustmentFor(item, QUALITY_BUY_RANGES);
+    const qualityAdjustment = nonTradeItem ? 0 : qualityAdjustmentFor(item, QUALITY_BUY_RANGES, "saleQualityRoll");
     const market = regionalMarketValuation(item, definition, "playerSell");
     const identicalItemAdjustment = nonTradeItem ? 0 : identicalStockAdjustment(definition.id);
+    const localSubcategoryCompetitionAdjustment = nonTradeItem ? 0 : localSubcategoryCompetitionAdjustmentFor(definition);
     const facilityAdjustment = nonTradeItem ? 0 : -(FACILITY_BUY_DISCOUNT.get(current?.facilityType) || 0);
     const sameMerchantResaleAdjustment = nonTradeItem
       ? 0
@@ -3070,6 +3078,7 @@
       ? 10
       : 0;
     const identicalItemMultiplier = Math.max(.5, 1 - (identicalItemAdjustment / 100));
+    const localCompetitionMultiplier = Math.max(.5, 1 - (localSubcategoryCompetitionAdjustment / 100));
     const relationshipMultiplier = Math.max(.1, 1 + (relationshipAdjustment / 100));
     const unroundedValue = baseValue
       * Math.max(.1, 1 + (qualityAdjustment / 100))
@@ -3077,6 +3086,7 @@
       * Math.max(.1, 1 + (facilityAdjustment / 100))
       * Math.max(.1, 1 + (sameMerchantResaleAdjustment / 100))
       * identicalItemMultiplier
+      * localCompetitionMultiplier
       * relationshipMultiplier
       * (1 + (originProductSaleAdjustment / 100))
       * durabilityValue.ratio;
@@ -3087,6 +3097,7 @@
       qualityAdjustment,
       ...market,
       identicalItemAdjustment,
+      localSubcategoryCompetitionAdjustment,
       facilityAdjustment,
       sameMerchantResaleAdjustment,
       relationshipAdjustment,
@@ -3101,6 +3112,7 @@
         ...(facilityAdjustment ? [`${current.facilityType} 매입 차감 ${signedPercent(facilityAdjustment)}`] : []),
         ...(sameMerchantResaleAdjustment ? [`같은 상점 되팔기 ${signedPercent(sameMerchantResaleAdjustment)}`] : []),
         ...(identicalItemAdjustment ? [`동일 상품 재고 감가 -${formatNumber(identicalItemAdjustment)}% · 지역 전체 재고와 거래안 반영`] : []),
+        ...(localSubcategoryCompetitionAdjustment ? [`현지 동종 상품 경쟁 -${formatNumber(localSubcategoryCompetitionAdjustment)}%`] : []),
         ...(relationshipAdjustment ? [`상회 관계 ${signedPercent(relationshipAdjustment)}`] : []),
         ...(originProductSaleAdjustment ? [`${productKind === "famous" ? "명산품" : "특산물 원산지 구입"} ${signedPercent(originProductSaleAdjustment)}`] : []),
         `열화 가치 ${formatNumber(durabilityValue.percent)}%`,
@@ -3142,6 +3154,7 @@
       ["시설 거래 조건", valuation?.facilityAdjustment],
       ["같은 상점 되팔기", valuation?.sameMerchantResaleAdjustment],
       ["동일 상품 재고", -(Number(valuation?.identicalItemAdjustment) || 0)],
+      ["현지 동종 상품 경쟁", -(Number(valuation?.localSubcategoryCompetitionAdjustment) || 0)],
       ["상회 관계", valuation?.relationshipAdjustment],
       ["특산·명산품", valuation?.originProductSaleAdjustment],
       ["열화 내구도", Number.isFinite(durabilityAdjustment) ? durabilityAdjustment : 0],
@@ -3183,9 +3196,10 @@
     return `${formatDurability(valuation?.durabilityCurrent, valuation?.durabilityMaximum)} · 가치 ${formatNumber(valuation?.durabilityPercent)}%`;
   }
 
-  function qualityAdjustmentFor(item, ranges) {
+  function qualityAdjustmentFor(item, ranges, rollProperty = "qualityRoll") {
     const range = ranges[item?.quality] || ranges.통상품질;
-    const roll = clamp(Number.isFinite(Number(item?.qualityRoll)) ? Number(item.qualityRoll) : .5, 0, 1);
+    const rollValue = item?.[rollProperty];
+    const roll = clamp(Number.isFinite(Number(rollValue)) ? Number(rollValue) : .5, 0, 1);
     return range[0] + ((range[1] - range[0]) * roll);
   }
 
@@ -3636,6 +3650,21 @@
     return 40 * clamp(stock / Math.max(1, threshold), 0, 1);
   }
 
+  function localSubcategoryCompetitionAdjustmentFor(definition) {
+    const subcategory = String(definition?.subcategory || "").trim();
+    if (!current || !subcategory) return 0;
+    const localProductionNames = new Set(current.settlement?.productionNames || []);
+    const competingKinds = current.definitions.reduce((count, candidate) => {
+      if (!candidate
+        || candidate.id === definition.id
+        || isNonTradeCategory(candidate.category)
+        || String(candidate.subcategory || "").trim() !== subcategory
+        || !localProductionNames.has(candidate.name1)) return count;
+      return count + 1;
+    }, 0);
+    return LOCAL_SUBCATEGORY_COMPETITION_ADJUSTMENTS[Math.min(3, competingKinds)] || 0;
+  }
+
   function latentSubcategorySupplyPressure(subcategory, stockedItemIds, weight) {
     const week = Math.floor((Math.max(1, current.worldTime?.day || 1) - 1) / RESTOCK_INTERVAL_DAYS);
     const localProductionNames = new Set(current.settlement.productionNames || []);
@@ -3785,6 +3814,7 @@
     return {
       quality: entry.quality,
       qualityRoll: entry.qualityRoll,
+      saleQualityRoll: entry.saleQualityRoll,
       qualityValueDirection: owner === "merchant" ? "merchantSell" : "playerSell",
       originId: entry.originId,
       originName: entry.originName,
@@ -4002,6 +4032,7 @@
           quantity,
           quality: lot.quality,
           qualityRoll: lot.qualityRoll,
+          saleQualityRoll: lot.saleQualityRoll,
           originId: lot.originId,
           originName: lot.originName,
           originDistance: lot.originDistance,
@@ -4217,6 +4248,7 @@
         quantity,
         quality: entry?.quality,
         qualityRoll: entry?.qualityRoll,
+        saleQualityRoll: entry?.saleQualityRoll,
         originId: entry?.originId,
         originName: entry?.originName,
         originDistance: entry?.originDistance,
@@ -4982,6 +5014,7 @@
         baseQuantity: Math.max(1, quantity),
         quality: item.quality,
         qualityRoll: item.qualityRoll,
+        saleQualityRoll: item.saleQualityRoll,
         originId: item.originId,
         originName: item.originName,
         originDistance: item.originDistance,
@@ -5496,6 +5529,7 @@
           totalValue: valuation.value * quantity,
           quality: item.quality,
           qualityRoll: item.qualityRoll,
+          saleQualityRoll: item.saleQualityRoll,
           originId: item.originId,
           durability: item.durability,
           durabilityMaximum: definition?.durability,

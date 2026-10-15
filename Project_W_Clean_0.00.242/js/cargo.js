@@ -380,6 +380,7 @@
     return {
       quality: nonTradeItem ? "" : (QUALITY_NAMES.has(overrides.quality) ? overrides.quality : "통상품질"),
       qualityRoll: nonTradeItem ? .5 : clampTradeRoll(overrides.qualityRoll),
+      saleQualityRoll: nonTradeItem ? .5 : independentSaleQualityRoll(overrides, definition),
       qualityValueDirection: overrides.qualityValueDirection === "merchantSell" ? "merchantSell" : "playerSell",
       originId: nonTradeItem ? "" : (String(overrides.originId || DEFAULT_ORIGIN_ID).trim() || DEFAULT_ORIGIN_ID),
       originName: nonTradeItem ? "" : (String(overrides.originName || DEFAULT_ORIGIN_NAME).trim() || DEFAULT_ORIGIN_NAME),
@@ -396,6 +397,7 @@
     const metadata = createDefaultTradeMetadata(item, definition);
     item.quality = metadata.quality;
     item.qualityRoll = metadata.qualityRoll;
+    item.saleQualityRoll = metadata.saleQualityRoll;
     item.qualityValueDirection = metadata.qualityValueDirection;
     item.originId = metadata.originId;
     item.originName = metadata.originName;
@@ -411,9 +413,31 @@
     return Number.isFinite(number) ? Math.min(Math.max(number, 0), 1) : .5;
   }
 
+  function independentSaleQualityRoll(overrides = {}, definition = null) {
+    if (Number.isFinite(Number(overrides.saleQualityRoll))) return clampTradeRoll(overrides.saleQualityRoll);
+    const seedText = [
+      overrides.instanceId || "",
+      overrides.itemId || definition?.id || "",
+      overrides.quality || "통상품질",
+      Number.isFinite(Number(overrides.qualityRoll)) ? Number(overrides.qualityRoll) : .5,
+      "sale-quality"
+    ].join("|");
+    let seed = 2166136261;
+    for (const character of seedText) {
+      seed ^= character.charCodeAt(0);
+      seed = Math.imul(seed, 16777619);
+    }
+    seed += 0x6D2B79F5;
+    let value = seed;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  }
+
   function sameTradeMetadata(left, right) {
     return left.quality === right.quality
       && Math.abs(Number(left.qualityRoll) - Number(right.qualityRoll)) < .000001
+      && Math.abs(Number(left.saleQualityRoll) - Number(right.saleQualityRoll)) < .000001
       && left.originId === right.originId
       && left.originName === right.originName
       && (Number(left.originDistance) || 0) === (Number(right.originDistance) || 0)
@@ -495,6 +519,7 @@
     target.durability = weightedStackValue(target.durability, currentQuantity, incomingDurability, addedQuantity);
     target.purchaseValue = weightedStackValue(target.purchaseValue, currentQuantity, incomingMetadata.purchaseValue, addedQuantity);
     target.qualityRoll = weightedStackValue(target.qualityRoll, currentQuantity, incomingMetadata.qualityRoll, addedQuantity);
+    target.saleQualityRoll = weightedStackValue(target.saleQualityRoll, currentQuantity, incomingMetadata.saleQualityRoll, addedQuantity);
     target.quantity = currentQuantity + addedQuantity;
   }
 
@@ -1235,7 +1260,7 @@
     const definition = itemDefinitions.get(itemId);
     if (!definition || !elements?.tooltip) return;
     const valueFactorKey = JSON.stringify(Array.isArray(metadata.tradeValueFactors) ? metadata.tradeValueFactors : []);
-    const virtualKey = `definition:${itemId}:${quantity}:${metadata.quality || ""}:${metadata.qualityRoll ?? ""}:${metadata.qualityValueDirection || ""}:${metadata.originId || ""}:${metadata.originDistance ?? ""}:${metadata.originProductKind || ""}:${metadata.originPurchaseBonus ? "origin-buy" : "other-buy"}:${metadata.tradeValue ?? ""}:${metadata.hasTradeValue ? "trade" : "purchase"}:${metadata.purchaseValue || ""}:${metadata.durability || ""}:${metadata.hideOrigin ? "hidden" : "shown"}:${valueFactorKey}`;
+    const virtualKey = `definition:${itemId}:${quantity}:${metadata.quality || ""}:${metadata.qualityRoll ?? ""}:${metadata.saleQualityRoll ?? ""}:${metadata.qualityValueDirection || ""}:${metadata.originId || ""}:${metadata.originDistance ?? ""}:${metadata.originProductKind || ""}:${metadata.originPurchaseBonus ? "origin-buy" : "other-buy"}:${metadata.tradeValue ?? ""}:${metadata.hasTradeValue ? "trade" : "purchase"}:${metadata.purchaseValue || ""}:${metadata.durability || ""}:${metadata.hideOrigin ? "hidden" : "shown"}:${valueFactorKey}`;
     if (hoveredInstanceId !== virtualKey) {
       clearItemHighlights();
       hoveredInstanceId = virtualKey;
@@ -2054,8 +2079,8 @@
     return unitValue * Math.max(1, Number(item?.quantity) || 1);
   }
 
-  function reflowItemPlacements() {
-    state.items
+  function reflowItemPlacementsFor(items = []) {
+    items
       .forEach(item => {
         const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
         item.slotType = item.slotType in SLOT_TYPE_LABELS ? item.slotType : "normal";
@@ -2063,7 +2088,7 @@
       });
     Object.keys(SLOT_TYPE_LABELS).forEach(slotType => {
       let nextSlot = 0;
-      state.items.filter(item => item.slotType === slotType)
+      items.filter(item => item.slotType === slotType)
         .sort(compareCargoItems)
         .forEach(item => {
           const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
@@ -2072,6 +2097,36 @@
           nextSlot += item.slotCount;
         });
     });
+  }
+
+  function reflowItemPlacements() {
+    reflowItemPlacementsFor(state.items);
+  }
+
+  function rebalanceTradeCompartments(items = []) {
+    const limits = normalizedCapacityLimits();
+    const unlocks = normalizedCompartmentUnlocks();
+    const used = { secret: 0, protected: 0 };
+    const candidates = [];
+    items.forEach(item => {
+      const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
+      item.slotType = "normal";
+      if (!isNormalOnlyCargoDefinition(definition)) candidates.push(item);
+    });
+    candidates
+      .sort((left, right) => cargoStoredValue(right) - cargoStoredValue(left)
+        || String(left.instanceId).localeCompare(String(right.instanceId)))
+      .forEach(item => {
+        const definition = itemDefinitions.get(item.itemId) || sampleDefinition;
+        const slots = Math.max(1, Number(definition.slotCount) || 1);
+        const destination = ["secret", "protected"].find(type => unlocks[type]
+          && used[type] + slots <= limits[type]);
+        if (!destination) return;
+        item.slotType = destination;
+        used[destination] += slots;
+      });
+    reflowItemPlacementsFor(items);
+    return items;
   }
 
   function reconcileCapacityLimits() {
@@ -2269,7 +2324,6 @@
               const itemDefinition = itemDefinitions.get(item.itemId) || sampleDefinition;
               return sum + itemDefinition.slotCount;
             }, 0);
-          if (!allowOverflow && !canAddCompartmentSlots(remainingItems, targetSlotType, definition.slotCount)) return null;
           sequence += 1;
           remainingItems.push({
             instanceId: `CARGO_TRADE_${Date.now()}_${String(sequence).padStart(3, "0")}`,
@@ -2309,7 +2363,6 @@
           const itemDefinition = itemDefinitions.get(item.itemId) || sampleDefinition;
           return sum + itemDefinition.slotCount;
         }, 0);
-        if (!allowOverflow && !canAddCompartmentSlots(remainingItems, targetSlotType, definition.slotCount)) return null;
         const stackQuantity = Math.min(maxStack, quantity);
         const itemJourneyLots = takeJourneyLots(incomingJourneyLots, stackQuantity);
         sequence += 1;
@@ -2328,6 +2381,8 @@
       }
     }
 
+    if (additions.length) rebalanceTradeCompartments(remainingItems);
+    if (!allowOverflow && !getCapacitySummary(remainingItems).valid) return null;
     return remainingItems;
   }
 

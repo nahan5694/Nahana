@@ -374,6 +374,7 @@
     window.ProjectWCargo.showDefinitionTooltip(item.itemId, item.quantity, event.clientX, event.clientY, {
       quality: item.quality,
       qualityRoll: item.qualityRoll,
+      saleQualityRoll: item.saleQualityRoll,
       originId: item.originId,
       originName: item.originName,
       durability: item.durability,

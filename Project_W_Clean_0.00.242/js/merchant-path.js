@@ -34,10 +34,10 @@
     명품: [25, 75]
   };
   const QUALITY_SALE_RANGES = {
-    저품질: [-30, 0],
-    통상품질: [0, 25],
-    고품질: [25, 75],
-    명품: [75, 125]
+    저품질: [-25, -5],
+    통상품질: [-10, 25],
+    고품질: [25, 50],
+    명품: [50, 125]
   };
   const INFORMATION_ATTEMPT_SKILLS = new Map([
     ["여관", "PED_022"],
@@ -2530,7 +2530,11 @@
       showQualityNumber: !excluded && level >= 5,
       showBargainChanceBonus: !excluded && level >= 7,
       qualityText: excluded ? "" : level >= 5
-        ? qualityWithNumber(quality, metadata.qualityRoll, metadata.qualityValueDirection)
+        ? qualityWithNumber(
+          quality,
+          metadata.qualityValueDirection === "merchantSell" ? metadata.qualityRoll : metadata.saleQualityRoll,
+          metadata.qualityValueDirection
+        )
         : quality
     };
   }

@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.355";
+const GAME_VERSION = "0.00.358";
 const ACCOUNT_SCHEMA_VERSION = 56;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -5089,7 +5089,7 @@ async function completePermanentGiftPurchases(giftIds = []) {
   const reaction = purchasedDefinitions.map(definition => String(definition.reaction || "").trim()).filter(Boolean).join("<br>");
   if (reaction) {
     await loadAssets();
-    showTavernCommentPopup({ speaker: "나하나", text: reaction, imageCategory: "SD", assetId: "Asset_SD_14" });
+    showTavernCommentPopup({ speaker: "나하나", text: reaction, imageCategory: "SD", assetId: "Asset_SD_14", giftReaction: true });
   }
 }
 
@@ -5812,6 +5812,7 @@ function showTavernCommentPopup(page, variables = {}) {
   hideTavernCommentPopup(true);
   tavernCommentPopup.hidden = false;
   tavernCommentPopup.classList.remove("is-visible", "is-leaving");
+  tavernCommentPopup.classList.toggle("is-gift-reaction", Boolean(page?.giftReaction));
   registerSmallPopup(tavernCommentPopup);
   tavernCommentSpeaker.textContent = replaceDialogueVariables(page?.speaker || "나하나", variables);
   renderFormattedText(tavernCommentMessage, replaceDialogueVariables(page?.text, variables));
@@ -5839,7 +5840,7 @@ function hideTavernCommentPopup(immediate = false) {
   if (!tavernCommentPopup || tavernCommentPopup.hidden) return;
   const finish = () => {
     tavernCommentPopup.hidden = true;
-    tavernCommentPopup.classList.remove("is-visible", "is-leaving");
+    tavernCommentPopup.classList.remove("is-visible", "is-leaving", "is-gift-reaction");
     unregisterSmallPopup(tavernCommentPopup);
   };
   if (immediate) {

@@ -582,7 +582,6 @@
       maximumAgeDays: template.maximumAgeDays,
       acquiredDay: today,
       initialAgeDays: template.special === "WOLFEN_TRACK"
-        || template.special === "SPECIAL_EXPORT_SCHEDULE"
         || isWeatherInformationSpecial(template.special)
         ? 0
         : rollInitialInformationAge(peddlerBonuses.sourceLevel, template.maximumAgeDays),
