@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.350";
+const GAME_VERSION = "0.00.351";
 const ACCOUNT_SCHEMA_VERSION = 54;
 const STORAGE_KEY = "project_w_account_v1";
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
@@ -6070,6 +6070,8 @@ async function resolveNahanaEventCondition(conditionNumber) {
   account.nahanaEvents = state;
   persistAccount();
   updatePartnerEventUi();
+  hideSettlementExitTooltip();
+  updateRoadControls();
   await applyNahanaEventStageEffects(state.activeId, state.stage);
   return true;
 }
@@ -6266,6 +6268,8 @@ function completeNahanaEvent(eventId) {
   persistAccount();
   closePartnerEventPanel();
   updatePartnerEventUi();
+  hideSettlementExitTooltip();
+  updateRoadControls();
   window.setTimeout(() => void showPendingNahanaEventReward(), 0);
   return true;
 }
@@ -6403,6 +6407,8 @@ async function handleNahanaEventDialogueCompleted(dialogueId) {
     account.nahanaEvents = normalizeNahanaEventState(state);
     persistAccount();
     updatePartnerEventUi();
+    hideSettlementExitTooltip();
+    updateRoadControls();
     await applyNahanaEventStageEffects(state.activeId, state.stage);
     schedulePendingRoadArrivalContinuation();
     return true;
@@ -10801,6 +10807,8 @@ function handleNahanaEventMealComplete(record = {}) {
   account.nahanaEvents = state;
   persistAccount();
   updatePartnerEventUi();
+  hideSettlementExitTooltip();
+  updateRoadControls();
   return true;
 }
 
