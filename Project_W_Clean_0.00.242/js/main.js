@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.370";
+const GAME_VERSION = "0.00.371";
 const ACCOUNT_SCHEMA_VERSION = 59;
 const STORAGE_KEY = window.ProjectWSaveSlots?.key("project_w_account_v1") || "project_w_account_v1";
 const ORIGIN_PROFILES = Object.freeze({
@@ -9938,14 +9938,19 @@ function pauseTravelClockAtArrival(reason) {
 function resumeTravelClock(reason) {
   const key = String(reason || "ui");
   if (!travelPauseReasons.delete(key) || travelPauseReasons.size) return;
-  if (account?.travel?.moving) {
-    account.travel.progressUpdatedAt = Date.now();
+  const travel = account?.travel;
+  if (travel?.moving) {
+    travel.progressUpdatedAt = Date.now();
     persistAccount();
     syncTravelExperience();
     scheduleTravelStep();
-  } else if (account?.travel?.turningBack) {
+  } else if (travel?.turningBack) {
     syncTravelExperience();
     scheduleTravelStep();
+  } else if (sailingVoyageReadyToFinish(travel)) {
+    persistAccount();
+    syncTravelExperience();
+    scheduleSailingArrival(travel);
   }
   schedulePendingNarrativePresentation();
 }
@@ -9970,7 +9975,7 @@ function prepareTravelExperience() {
   }
   persistAccount();
   syncTravelExperience();
-  if (currentTravel?.mode === "sailing" && currentTravel.sailingCompletedDots >= currentTravel.sailingTotalDots) {
+  if (sailingVoyageReadyToFinish(currentTravel)) {
     scheduleSailingArrival(currentTravel);
     return;
   }
@@ -10054,6 +10059,11 @@ function reconcileSailingProgress(travel, reschedule = true) {
   if (!travel || travel !== account?.travel || travel.mode !== "sailing") return;
   const now = Date.now();
   let changed = false;
+  if (sailingVoyageReadyToFinish(travel)) {
+    syncTravelExperience();
+    if (reschedule) scheduleSailingArrival(travel);
+    return;
+  }
   // 항해 대화 카드를 읽는 동안에는 항해점 판정과 도착 판정을 함께 멈춘다.
   if (travel.moving && (isTravelClockPaused() || activeTalkCardId)) {
     travel.progressUpdatedAt = now;
@@ -10099,6 +10109,13 @@ function advanceSailingDay() {
   for (let step = 0; step < TIME_PHASES.length; step += 1) {
     advanceGameTime({ skipCargoTimeDeterioration: true, skipRoadSurfaceAdvance: true });
   }
+}
+
+function sailingVoyageReadyToFinish(travel = account?.travel) {
+  if (!travel || travel !== account?.travel || travel.mode !== "sailing" || travel.moving) return false;
+  const totalDots = Math.max(0, Math.trunc(Number(travel.sailingTotalDots) || 0));
+  const completedDots = Math.max(0, Math.trunc(Number(travel.sailingCompletedDots) || 0));
+  return totalDots > 0 && completedDots >= totalDots;
 }
 
 async function finishSailingVoyage(travel = account?.travel) {
@@ -10159,7 +10176,7 @@ async function finishSailingVoyage(travel = account?.travel) {
 
 function scheduleSailingArrival(travel = account?.travel) {
   window.clearTimeout(sailingArrivalWaitTimer);
-  if (!travel || travel !== account?.travel || travel.mode !== "sailing" || sailingArrivalInProgress) return;
+  if (!sailingVoyageReadyToFinish(travel) || sailingArrivalInProgress) return;
   if (narrativePresentationBlocked()) {
     sailingArrivalWaitTimer = window.setTimeout(() => scheduleSailingArrival(travel), 250);
     return;
