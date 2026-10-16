@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.371";
+const GAME_VERSION = "0.00.372";
 const ACCOUNT_SCHEMA_VERSION = 59;
 const STORAGE_KEY = window.ProjectWSaveSlots?.key("project_w_account_v1") || "project_w_account_v1";
 const ORIGIN_PROFILES = Object.freeze({

@@ -72,7 +72,7 @@
   const REGIONAL_FACILITY_RESTRICTED_SUPPLY_IDS = new Set(["G_0281", "G_0282", "G_0283"]);
   const METROPOLIS_MARKET_SUPPLY_IDS = new Set(["G_0284"]);
   const PEACETIME_WEAPON_DEMAND_CAP = new Map([["마을", 2], ["도시", 4], ["대도시", 6], ["관문", 7]]);
-  const MERCHANT_WALLET_SCHEMA_VERSION = 3;
+  const MERCHANT_WALLET_SCHEMA_VERSION = 4;
   const MERCHANT_STOCK_SCHEMA_VERSION = 15;
   const PRODUCTION_CLEARANCE_CHANCE = .1;
   const PRODUCTION_DURABILITY_DAMAGE_MAX = new Map([["상회", 10], ["교역소", 15], ["시장", 20]]);
@@ -1155,7 +1155,14 @@
       changed = true;
     } else if (needsWalletMigration) {
       const walletRng = seededRandom(`${merchantKey}|wallet|${merchant.refreshSerial || 0}`);
-      merchant.wallet = migrateMerchantWallet(merchant.wallet, settlement, facilityType, currencies, walletRng);
+      merchant.wallet = migrateMerchantWallet(
+        merchant.wallet,
+        settlement,
+        facilityType,
+        currencies,
+        walletRng,
+        merchant.walletSchemaVersion
+      );
       merchant.walletSchemaVersion = MERCHANT_WALLET_SCHEMA_VERSION;
     }
     if (needsDeteriorationMigration && !needsSnapshotReset) merchant.stockDeteriorationDay = worldTime.day;
@@ -1244,6 +1251,7 @@
       refreshSerial,
       rng
     });
+    const canPreserveWallet = preserveWallet && merchantWalletHasBalance(merchant.wallet, currencies);
     return {
       ...merchant,
       stockLots: generated.stockLots,
@@ -1251,7 +1259,7 @@
       logisticsItemIds: generated.logisticsItemIds,
       importItemIds: generated.importItemIds,
       unresolvedProducts: generated.unresolvedProducts,
-      wallet: preserveWallet ? merchant.wallet : createMerchantWallet(settlement, facilityType, currencies, walletRng),
+      wallet: canPreserveWallet ? merchant.wallet : createMerchantWallet(settlement, facilityType, currencies, walletRng),
       walletSchemaVersion: MERCHANT_WALLET_SCHEMA_VERSION,
       stockSchemaVersion: MERCHANT_STOCK_SCHEMA_VERSION,
       regionalCampSupplyIds: generated.stockLots
@@ -2063,6 +2071,11 @@
     return wallet;
   }
 
+  function merchantWalletHasBalance(wallet, currencies) {
+    if (!wallet || typeof wallet !== "object" || !Array.isArray(currencies) || !currencies.length) return false;
+    return currencies.some(currency => Math.max(0, Math.trunc(Number(wallet[currency.id]) || 0)) > 0);
+  }
+
   function createBaseMerchantWallet(settlement, facilityType, currencies, rng = Math.random) {
     const settlementCategory = String(settlement?.category || "");
     const settlementRegion = String(settlement?.region || "").trim();
@@ -2093,7 +2106,7 @@
     return wallet;
   }
 
-  function migrateMerchantWallet(storedWallet, settlement, facilityType, currencies, rng = Math.random) {
+  function migrateMerchantWallet(storedWallet, settlement, facilityType, currencies, rng = Math.random, storedSchemaVersion = 0) {
     if (!storedWallet || typeof storedWallet !== "object") {
       return createMerchantWallet(settlement, facilityType, currencies, rng);
     }
@@ -2101,6 +2114,12 @@
       currency.id,
       Math.max(0, Math.trunc(Number(storedWallet[currency.id]) || 0))
     ]));
+    if (!merchantWalletHasBalance(wallet, currencies)) {
+      return createMerchantWallet(settlement, facilityType, currencies, rng);
+    }
+    // 3버전부터 시설별 총 가치 배율과 시장의 은화·동화 분배가 적용되었다.
+    // 이후 스키마 보정에서는 정상 지갑에 배율을 다시 곱하지 않는다.
+    if (Math.max(0, Math.trunc(Number(storedSchemaVersion) || 0)) >= 3) return wallet;
     if (facilityType === "시장") return rebalanceMarketWallet(wallet, settlement, currencies, rng);
     const multiplier = Math.max(1, Number(MERCHANT_WALLET_VALUE_MULTIPLIER[facilityType]) || 1);
     if (multiplier === 1) return wallet;
