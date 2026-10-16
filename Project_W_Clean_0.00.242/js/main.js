@@ -1,6 +1,21 @@
-const GAME_VERSION = "0.00.361";
-const ACCOUNT_SCHEMA_VERSION = 56;
-const STORAGE_KEY = "project_w_account_v1";
+const GAME_VERSION = "0.00.370";
+const ACCOUNT_SCHEMA_VERSION = 59;
+const STORAGE_KEY = window.ProjectWSaveSlots?.key("project_w_account_v1") || "project_w_account_v1";
+const ORIGIN_PROFILES = Object.freeze({
+  food: Object.freeze({ name: "식품상인", knowledge: Object.freeze({ 식료품: 2, 가죽: 1, 조미료: 1 }) }),
+  textile: Object.freeze({ name: "직물상인", knowledge: Object.freeze({ 직물: 2, 섬유: 1, 염료: 1 }) }),
+  general: Object.freeze({ name: "잡화상인", knowledge: Object.freeze({ 잡화: 2, 공업품: 1, 부산물: 1 }) })
+});
+const DEFAULT_DIFFICULTY = Object.freeze({
+  disabledEncounters: Object.freeze({ bandit: false, mercenary: false, wolfen: false }),
+  startingCapital: "recommended",
+  startingKnowledge: "recommended",
+  score: 0
+});
+const DIFFICULTY_CAPITAL_SCORES = Object.freeze({ low: 1, recommended: 0, high: -1, "very-high": -2 });
+const DIFFICULTY_KNOWLEDGE_SCORES = Object.freeze({ recommended: 0, high: -1, "very-high": -2 });
+const DIFFICULTY_CAPITAL_TARGETS = Object.freeze({ low: 1_000, high: 3_000, "very-high": 4_000 });
+const DIFFICULTY_ENCOUNTER_EVENT_IDS = Object.freeze({ bandit: "R_E_005", mercenary: "R_E_006", wolfen: "R_E_007" });
 const ASSETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1354829592&single=true&output=csv";
 const NAHANA_STATUS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=138394243&single=true&output=csv";
 const NAHANA_BUFF_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1856378851&single=true&output=csv";
@@ -666,6 +681,7 @@ const INITIAL_WALLET = Object.freeze({
   Cur_009: 54,
   Cur_010: 72
 });
+const INITIAL_WALLET_BASE_VALUES = Object.freeze({ Cur_003: 50, Cur_005: 35, Cur_008: 5, Cur_009: 3, Cur_010: 1 });
 const CAMP_ENVIRONMENT_COMFORT = new Map([
   ["온난", 0],
   ["추위", -10],
@@ -834,9 +850,15 @@ const gameScreen = document.querySelector("#game-screen");
 const resumeButton = document.querySelector("#resume-game");
 const newJourneyButton = document.querySelector("#new-journey");
 const titleTutorialSkip = document.querySelector("#title-skip-tutorials");
+const saveSlotSelect = document.querySelector("#save-slot-select");
+const saveSlotSelectKicker = document.querySelector("#save-slot-select-kicker");
+const saveSlotSelectDescription = document.querySelector("#save-slot-select-description");
+const saveSlotList = document.querySelector("#save-slot-list");
+const saveSlotSelectClose = document.querySelector("#save-slot-select-close");
 const newJourneyConfirm = document.querySelector("#new-journey-confirm");
 const newJourneyCancel = document.querySelector("#new-journey-cancel");
 const newJourneyConfirmButton = document.querySelector("#new-journey-confirm-button");
+const newJourneyConfirmMessage = document.querySelector("#new-journey-confirm-message");
 const playerNameButton = document.querySelector("#player-name-button");
 const walletButton = document.querySelector("#wallet-button");
 const merchantPathButton = document.querySelector("#merchant-path-button");
@@ -845,6 +867,8 @@ const informationButton = document.querySelector("#information-button");
 const optionsButton = document.querySelector("#options-button");
 const cards = [...document.querySelectorAll(".scene-card")];
 const gameNotice = document.querySelector("#game-notice");
+const achievementUnlockNotice = document.querySelector("#achievement-unlock-notice");
+const achievementUnlockNoticeTitle = document.querySelector("#achievement-unlock-notice-title");
 const footprintNotice = document.querySelector("#footprint-notice");
 const footprintNoticeTitle = document.querySelector("#footprint-notice-title");
 const bargainResultNotice = document.querySelector("#bargain-result-notice");
@@ -872,6 +896,15 @@ const nameForm = document.querySelector("#name-form");
 const nameInput = document.querySelector("#name-input");
 const nameError = document.querySelector("#name-error");
 const nameCancel = document.querySelector("#name-cancel");
+const originChoice = document.querySelector("#origin-choice");
+const originChoiceButtons = [...document.querySelectorAll("[data-origin-id]")];
+const difficultyChoice = document.querySelector("#difficulty-choice");
+const difficultyEncounterInputs = [...document.querySelectorAll("[data-difficulty-encounter]")];
+const difficultyCapitalInputs = [...document.querySelectorAll("input[name='difficulty-capital']")];
+const difficultyKnowledgeInputs = [...document.querySelectorAll("input[name='difficulty-knowledge']")];
+const difficultyRating = document.querySelector("#difficulty-rating");
+const difficultyBack = document.querySelector("#difficulty-back");
+const difficultyConfirm = document.querySelector("#difficulty-confirm");
 const sceneTransition = document.querySelector("#scene-transition");
 const sceneSituationAsset = document.querySelector("#scene-situation-asset");
 const walletModal = document.querySelector("#wallet-modal");
@@ -1130,6 +1163,10 @@ let nahanaProgressionLoadPromise;
 let nahanaEventLoadPromise;
 let talkCardLoadPromise;
 let noticeTimer;
+let achievementUnlockNoticeTimer;
+let achievementUnlockNoticeHideTimer;
+let achievementUnlockNoticeActive = false;
+const achievementUnlockNoticeQueue = [];
 let bargainResultNoticeTimer;
 let bargainResultNoticeHideTimer;
 let footprintNoticeTimer;
@@ -1152,6 +1189,10 @@ let lastMapFocusPositionId = "";
 let pendingNameContext = "initial";
 let pendingName = "";
 let skipTutorialsForNewJourney = false;
+let pendingOriginId = "";
+let pendingDifficulty = normalizeDifficultySettings(DEFAULT_DIFFICULTY);
+let pendingNewJourneySlot = 0;
+let saveSlotSelectionMode = "resume";
 let activeServiceContext = null;
 let activeServiceView = "home";
 let activePortContext = null;
@@ -1289,6 +1330,11 @@ window.ProjectWMemorial.init({
   },
   notify: showGameNotice
 });
+window.ProjectWAchievements.init({
+  getCharacterSnapshot: achievementCharacterSnapshot,
+  isGameplayActive: () => Boolean(account && gameScreen && !gameScreen.hidden),
+  notify: showGameNotice
+});
 window.ProjectWWallet.init({
   getHoldings: () => account?.wallet ?? {},
   getBillNotes: () => account?.billNotes ?? window.ProjectWBillNotes.createState(),
@@ -1325,7 +1371,7 @@ window.ProjectWCityEvents.init({
       "#dialog-modal", "#tutorial-layer", "#information-acquired-modal", "#entry-tax-modal",
       "#route-event-modal", "#city-events-modal", "#trade-modal", "#meal-modal", "#inn-modal",
       "#service-modal", "#port-modal", "#wallet-modal", "#information-modal", "#merchant-path-modal",
-      "#memorial-modal", "#partner-event-panel"
+      "#memorial-modal", "#achievement-modal", "#partner-event-panel"
     ].map(selector => document.querySelector(selector));
     return Boolean(game && !game.hidden && blockers.every(element => !element || element.hidden));
   }
@@ -1350,6 +1396,7 @@ window.ProjectWRouteEvents.init({
   },
   getContext: () => routeEventContext(),
   canTrigger: tutorialAllowsRoadEventSystems,
+  isEventEnabled: routeEncounterEnabled,
   pauseTravel: pauseTravelClock,
   resumeTravel: resumeTravelClock,
   persist: persistAccount,
@@ -1391,6 +1438,7 @@ window.ProjectWInformation.init({
   getCityEvents: placement => window.ProjectWCityEvents.getSettlementEvents(placement),
   getWeather: placementId => weatherAtPlacement(placementId),
   getWolfenState: () => window.ProjectWWolfenCompany.ensureState(),
+  isWolfenInformationEnabled: () => !normalizeDifficultySettings(account?.difficulty).disabledEncounters.wolfen,
   getCurrencyTrends: () => window.ProjectWWallet.getTrendSnapshot(),
   getInformationSignals: () => window.ProjectWTrade.getInformationSignals(),
   getPeddlerInformationBonuses: () => window.ProjectWMerchantPath.getInformationBonuses(),
@@ -1597,35 +1645,168 @@ loadNahanaEventDefinitions();
 syncAudioState();
 
 resumeButton.addEventListener("click", () => {
-  if (!account) return;
   skipTutorialsForNewJourney = false;
   closeNewJourneyConfirmation();
-  void enterGame();
+  if (window.ProjectWSaveSlots?.isAvailable?.()) {
+    openSaveSlotSelector("resume");
+    return;
+  }
+  if (account) void enterGame();
 });
 
 newJourneyButton.addEventListener("click", () => {
   skipTutorialsForNewJourney = Boolean(titleTutorialSkip?.checked);
   titleNotice.hidden = true;
-  if (account) {
-    newJourneyConfirm.hidden = false;
-    newJourneyConfirmButton.focus();
+  if (window.ProjectWSaveSlots?.isAvailable?.()) {
+    openSaveSlotSelector("new");
+    return;
+  }
+  if (account) showNewJourneyConfirmation(1);
+  else beginNewJourney();
+});
+
+saveSlotSelectClose?.addEventListener("click", closeSaveSlotSelector);
+newJourneyCancel.addEventListener("click", () => {
+  closeNewJourneyConfirmation();
+  if (window.ProjectWSaveSlots?.isAvailable?.() && pendingNewJourneySlot) openSaveSlotSelector("new");
+  pendingNewJourneySlot = 0;
+});
+newJourneyConfirmButton.addEventListener("click", () => {
+  const slot = pendingNewJourneySlot;
+  closeNewJourneyConfirmation();
+  if (window.ProjectWSaveSlots?.isAvailable?.() && slot) startNewJourneyInSlot(slot);
+  else beginNewJourney();
+});
+titleTutorialSkip.addEventListener("change", () => window.ProjectWAudio.playEffect("click"));
+originChoiceButtons.forEach(button => button.addEventListener("click", () => {
+  const originId = String(button.dataset.originId || "");
+  if (!ORIGIN_PROFILES[originId]) return;
+  pendingOriginId = originId;
+  openDifficultyChoice();
+}));
+difficultyEncounterInputs.forEach(input => input.addEventListener("change", updatePendingDifficultyFromControls));
+difficultyCapitalInputs.forEach(input => input.addEventListener("change", updatePendingDifficultyFromControls));
+difficultyKnowledgeInputs.forEach(input => input.addEventListener("change", updatePendingDifficultyFromControls));
+difficultyBack?.addEventListener("click", openOriginChoice);
+difficultyConfirm?.addEventListener("click", () => {
+  updatePendingDifficultyFromControls();
+  openOnboardingChoice();
+});
+
+function openSaveSlotSelector(mode) {
+  if (!saveSlotSelect || !saveSlotList || !window.ProjectWSaveSlots?.isAvailable?.()) return;
+  saveSlotSelectionMode = mode === "new" ? "new" : "resume";
+  saveSlotSelect.classList.toggle("is-new-journey", saveSlotSelectionMode === "new");
+  saveSlotSelect.classList.toggle("is-resume-journey", saveSlotSelectionMode === "resume");
+  pendingNewJourneySlot = 0;
+  saveSlotSelectKicker.textContent = saveSlotSelectionMode === "new" ? "새로운 여정" : "여행 재개";
+  saveSlotSelectDescription.textContent = saveSlotSelectionMode === "new"
+    ? "새 여정을 기록할 슬롯을 선택합니다."
+    : "계속할 여정을 선택합니다.";
+  const buttons = window.ProjectWSaveSlots.summaries().map(summary => createSaveSlotButton(summary, saveSlotSelectionMode));
+  saveSlotList.replaceChildren(...buttons);
+  saveSlotSelect.hidden = false;
+  buttons.find(button => !button.disabled)?.focus();
+}
+
+function createSaveSlotButton(summary, mode) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `save-slot-button ${summary.active ? "is-active" : ""}`;
+  if (mode === "resume" && !summary.occupied) button.disabled = true;
+
+  const number = document.createElement("span");
+  number.className = "save-slot-number";
+  number.textContent = `슬롯 ${summary.slot}`;
+  const identity = document.createElement("span");
+  identity.className = "save-slot-identity";
+  const name = document.createElement("strong");
+  name.textContent = summary.occupied ? summary.name : summary.state === "damaged" ? "손상된 세이브" : "비어 있음";
+  const explanation = document.createElement("small");
+  explanation.textContent = summary.occupied ? "저장된 여정" : mode === "new" ? "새로운 여정 시작" : "재개할 여정이 없습니다";
+  identity.append(name, explanation);
+  const level = document.createElement("span");
+  level.className = "save-slot-level";
+  if (summary.occupied) {
+    const peddler = document.createElement("span");
+    peddler.textContent = `행상인 ${summary.peddlerLevel}레벨`;
+    const companion = document.createElement("span");
+    companion.textContent = `동행 ${summary.companionLevel}레벨`;
+    const day = document.createElement("span");
+    day.textContent = `${summary.day}일차`;
+    const difficulty = document.createElement("span");
+    const difficultyScore = Math.trunc(Number(summary.difficultyScore) || 0);
+    difficulty.className = `save-slot-difficulty ${difficultyScore < 0 ? "is-easier" : difficultyScore > 0 ? "is-harder" : "is-standard"}`;
+    difficulty.textContent = `난이도 ${difficultyScore > 0 ? `+${difficultyScore}` : difficultyScore}`;
+    level.append(peddler, companion, day, difficulty);
+  } else level.textContent = "―";
+  const current = document.createElement("span");
+  current.className = "save-slot-current";
+  current.textContent = mode === "new" ? "새 여정" : summary.active ? "현재 슬롯" : "선택";
+  button.append(number, identity, level, current);
+  button.addEventListener("click", () => selectSaveSlot(summary, mode));
+  return button;
+}
+
+function selectSaveSlot(summary, mode) {
+  if (mode === "resume") {
+    if (!summary.occupied) return;
+    closeSaveSlotSelector();
+    if (summary.active) void enterGame();
+    else switchSaveSlot(summary.slot, "resume");
+    return;
+  }
+  closeSaveSlotSelector();
+  pendingNewJourneySlot = summary.slot;
+  if (summary.occupied || summary.state === "damaged") {
+    showNewJourneyConfirmation(summary.slot);
+    return;
+  }
+  startNewJourneyInSlot(summary.slot);
+}
+
+function switchSaveSlot(slot, action) {
+  window.ProjectWSaveSlots.setPendingAction(action, { skipTutorials: skipTutorialsForNewJourney });
+  if (!window.ProjectWSaveSlots.activate(slot)) {
+    window.ProjectWSaveSlots.setPendingAction("");
+    titleNotice.textContent = "세이브 슬롯을 전환하지 못했습니다. 현재 여정은 그대로 보존되었습니다.";
+    titleNotice.hidden = false;
+    return;
+  }
+  window.location.reload();
+}
+
+function startNewJourneyInSlot(slot) {
+  if (slot !== window.ProjectWSaveSlots.activeSlot()) {
+    switchSaveSlot(slot, "new");
     return;
   }
   beginNewJourney();
-});
+}
 
-newJourneyCancel.addEventListener("click", closeNewJourneyConfirmation);
-newJourneyConfirmButton.addEventListener("click", beginNewJourney);
-titleTutorialSkip.addEventListener("change", () => window.ProjectWAudio.playEffect("click"));
+function showNewJourneyConfirmation(slot) {
+  pendingNewJourneySlot = slot;
+  newJourneyConfirmMessage.textContent = `슬롯 ${slot}의 저장된 진행 상황은 복구할 수 없습니다. 이 슬롯을 초기화하고 새로운 여정을 시작합니다.`;
+  newJourneyConfirm.hidden = false;
+  newJourneyConfirmButton.focus();
+}
+
+function closeSaveSlotSelector() {
+  if (saveSlotSelect) saveSlotSelect.hidden = true;
+  if (!titleScreen.hidden) (saveSlotSelectionMode === "new" ? newJourneyButton : resumeButton).focus();
+}
 
 function closeNewJourneyConfirmation() {
   newJourneyConfirm.hidden = true;
-  newJourneyButton.focus();
+  if (!titleScreen.hidden) newJourneyButton.focus();
 }
 
 function beginNewJourney() {
   skipTutorialsForNewJourney = Boolean(titleTutorialSkip?.checked);
   newJourneyConfirm.hidden = true;
+  pendingNewJourneySlot = 0;
+  pendingOriginId = "";
+  pendingDifficulty = normalizeDifficultySettings(DEFAULT_DIFFICULTY);
   clearSavedJourneyData();
   updateAccountUi();
   void enterGame();
@@ -1645,6 +1826,7 @@ async function enterGame() {
     await showGameLoadingScreen();
     titleScreen.hidden = true;
     gameScreen.hidden = false;
+    window.ProjectWAchievements?.flushPlayTime?.();
     if (account) pauseTravelClock("game-loading");
 
     currentScene = restoreSavedInterface ? savedInterfaceState.scene : "road";
@@ -1728,7 +1910,7 @@ async function enterGame() {
     if (!account) {
       gameScreen.classList.add("is-onboarding");
       setDialogCharacter("Asset_N_01");
-      openOnboardingChoice();
+      openOriginChoice();
     }
 
     await finishGameLoadingScreen();
@@ -2110,6 +2292,21 @@ window.addEventListener("projectw:peddlerchange", event => {
     window.setTimeout(() => showGameNotice(`상인 레벨 상승 · ${level}레벨\n행상포인트 +${levels}`, "level-up"), 0);
   }
 });
+window.addEventListener("projectw:tradecompleted", event => {
+  if (!account) return;
+  const progress = normalizeAchievementProgress(account.achievementProgress);
+  progress.maximumSingleSaleValue = Math.max(progress.maximumSingleSaleValue, Math.floor(Number(event.detail?.singleSaleValue) || 0));
+  progress.maximumReturnRate = Math.max(progress.maximumReturnRate, Number(event.detail?.maximumReturnRate) || 0);
+  account.achievementProgress = progress;
+  persistAccount();
+});
+window.addEventListener("projectw:wagonrepair", event => {
+  if (!account || !event.detail?.repairedFromHalf) return;
+  const progress = normalizeAchievementProgress(account.achievementProgress);
+  progress.repairedHalfWagon = true;
+  account.achievementProgress = progress;
+  persistAccount();
+});
 
 nameForm.addEventListener("submit", event => {
   event.preventDefault();
@@ -2256,7 +2453,102 @@ function scheduleInterfacePersistence() {
 document.addEventListener("click", scheduleInterfacePersistence);
 document.addEventListener("change", scheduleInterfacePersistence);
 
+function openOriginChoice() {
+  pendingOriginId = "";
+  setDialogCharacter("");
+  openDialog({
+    speaker: "상인 오리진",
+    message: "당신은 어떤 행상인입니까?",
+    showCharacter: false,
+    dialogClass: "is-origin-choice",
+    actions: []
+  });
+  originChoice.hidden = false;
+  requestAnimationFrame(() => originChoice.focus({ preventScroll: true }));
+}
+
+function openDifficultyChoice() {
+  if (!ORIGIN_PROFILES[pendingOriginId]) {
+    openOriginChoice();
+    return;
+  }
+  setDialogCharacter("");
+  openDialog({
+    speaker: "난이도 설정",
+    message: "이번 여정의 시작 조건과 위험 요소를 정하세요.",
+    showCharacter: false,
+    dialogClass: "is-difficulty-choice",
+    actions: []
+  });
+  syncDifficultyControls();
+  difficultyChoice.hidden = false;
+  requestAnimationFrame(() => difficultyChoice.focus({ preventScroll: true }));
+}
+
+function normalizeDifficultySettings(value = DEFAULT_DIFFICULTY) {
+  const disabled = value?.disabledEncounters || {};
+  const startingCapital = Object.hasOwn(DIFFICULTY_CAPITAL_SCORES, value?.startingCapital)
+    ? value.startingCapital
+    : "recommended";
+  const startingKnowledge = Object.hasOwn(DIFFICULTY_KNOWLEDGE_SCORES, value?.startingKnowledge)
+    ? value.startingKnowledge
+    : "recommended";
+  const disabledEncounters = {
+    bandit: Boolean(disabled.bandit),
+    mercenary: Boolean(disabled.mercenary),
+    wolfen: Boolean(disabled.wolfen)
+  };
+  const score = (Object.values(disabledEncounters).filter(Boolean).length * -3)
+    + DIFFICULTY_CAPITAL_SCORES[startingCapital]
+    + DIFFICULTY_KNOWLEDGE_SCORES[startingKnowledge];
+  return { disabledEncounters, startingCapital, startingKnowledge, score };
+}
+
+function syncDifficultyControls() {
+  pendingDifficulty = normalizeDifficultySettings(pendingDifficulty);
+  difficultyEncounterInputs.forEach(input => {
+    input.checked = Boolean(pendingDifficulty.disabledEncounters[input.dataset.difficultyEncounter]);
+  });
+  difficultyCapitalInputs.forEach(input => { input.checked = input.value === pendingDifficulty.startingCapital; });
+  difficultyKnowledgeInputs.forEach(input => { input.checked = input.value === pendingDifficulty.startingKnowledge; });
+  renderDifficultyRating();
+}
+
+function updatePendingDifficultyFromControls() {
+  pendingDifficulty = normalizeDifficultySettings({
+    disabledEncounters: Object.fromEntries(difficultyEncounterInputs.map(input => [input.dataset.difficultyEncounter, input.checked])),
+    startingCapital: difficultyCapitalInputs.find(input => input.checked)?.value,
+    startingKnowledge: difficultyKnowledgeInputs.find(input => input.checked)?.value
+  });
+  renderDifficultyRating();
+}
+
+function renderDifficultyRating() {
+  if (!difficultyRating) return;
+  const score = Math.trunc(Number(pendingDifficulty.score) || 0);
+  difficultyRating.classList.toggle("is-easier", score < 0);
+  difficultyRating.classList.toggle("is-harder", score > 0);
+  difficultyRating.classList.toggle("is-standard", score === 0);
+  const value = difficultyRating.querySelector("strong");
+  const description = difficultyRating.querySelector("span");
+  if (value) value.textContent = score > 0 ? `+${score}` : String(score);
+  if (description) description.textContent = score < 0
+    ? "기준 난이도보다 쉽습니다."
+    : score > 0 ? "기준 난이도보다 어렵습니다." : "기준 난이도입니다.";
+}
+
+function routeEncounterEnabled(eventId) {
+  const settings = normalizeDifficultySettings(account?.difficulty || pendingDifficulty);
+  const disabledKey = Object.entries(DIFFICULTY_ENCOUNTER_EVENT_IDS)
+    .find(([, id]) => id === String(eventId || ""))?.[0];
+  return !disabledKey || !settings.disabledEncounters[disabledKey];
+}
+
 function openOnboardingChoice() {
+  if (!ORIGIN_PROFILES[pendingOriginId]) {
+    openOriginChoice();
+    return;
+  }
   setDialogCharacter("Asset_N_01");
   openDialog({
     speaker: "나하나",
@@ -2274,12 +2566,16 @@ function chooseAnonymousName() {
   account = {
     schemaVersion: ACCOUNT_SCHEMA_VERSION,
     gameVersion: GAME_VERSION,
+    characterId: createCharacterId(),
     worldSeed: createWorldSeed(),
+    originId: pendingOriginId,
+    difficulty: normalizeDifficultySettings(pendingDifficulty),
+    achievementProgress: createInitialAchievementProgress(),
     userName: "당신",
     namingChoice: "anonymous",
     nameLocked: false,
     introCompleted: false,
-    wallet: createInitialWallet(),
+    wallet: createInitialWallet(pendingDifficulty.startingCapital),
     billNotes: window.ProjectWBillNotes.createState(),
     currencyMarket: null,
     travel: createInitialTravelState(),
@@ -2321,6 +2617,7 @@ function chooseAnonymousName() {
     updatedAt: now
   };
   window.ProjectWWallet.ensureMarketState(account.worldTime.day);
+  applySelectedOriginKnowledge();
   persistAccount();
   prepareTravelExperience();
   updateAccountUi();
@@ -2378,12 +2675,16 @@ function confirmName() {
     account = {
       schemaVersion: ACCOUNT_SCHEMA_VERSION,
       gameVersion: GAME_VERSION,
+      characterId: createCharacterId(),
       worldSeed: createWorldSeed(),
+      originId: pendingOriginId,
+      difficulty: normalizeDifficultySettings(pendingDifficulty),
+      achievementProgress: createInitialAchievementProgress(),
       userName: pendingName,
       namingChoice: "named",
       nameLocked: true,
       introCompleted: false,
-      wallet: createInitialWallet(),
+      wallet: createInitialWallet(pendingDifficulty.startingCapital),
       billNotes: window.ProjectWBillNotes.createState(),
       currencyMarket: null,
       travel: createInitialTravelState(),
@@ -2425,6 +2726,7 @@ function confirmName() {
       updatedAt: now
     };
     window.ProjectWWallet.ensureMarketState(account.worldTime.day);
+    applySelectedOriginKnowledge();
   } else {
     account = {
       ...account,
@@ -2450,6 +2752,25 @@ function confirmName() {
       onClick: isInitialName ? startIntroSequence : closeDialog
     }]
   });
+}
+
+function applySelectedOriginKnowledge() {
+  const profile = ORIGIN_PROFILES[pendingOriginId];
+  if (!profile) return false;
+  const settings = normalizeDifficultySettings(pendingDifficulty);
+  const increase = settings.startingKnowledge === "recommended" ? 0 : 1;
+  const knowledge = Object.fromEntries(Object.entries(profile.knowledge).map(([category, level]) => [
+    category,
+    Math.min(7, level + increase)
+  ]));
+  if (settings.startingKnowledge === "very-high") {
+    (window.ProjectWCargo?.getItemDefinitions?.() || []).forEach(definition => {
+      const category = String(definition?.category || "").replaceAll(" ", "");
+      if (!category || window.ProjectWMerchantPath?.isExcludedCategory?.(category)) return;
+      knowledge[category] = Math.max(1, knowledge[category] || 0);
+    });
+  }
+  return Boolean(window.ProjectWMerchantPath?.applyOriginKnowledge?.(knowledge));
 }
 
 async function startIntroSequence({ skipTransition = false } = {}) {
@@ -2970,11 +3291,13 @@ function clearSavedJourneyData() {
 }
 
 function resetAccount() {
+  window.ProjectWAchievements?.flushPlayTime?.();
   clearSavedJourneyData();
   skipTutorialsForNewJourney = false;
   if (titleTutorialSkip) titleTutorialSkip.checked = false;
   updateAccountUi();
   gameScreen.hidden = true;
+  window.ProjectWAchievements?.flushPlayTime?.();
   titleScreen.hidden = false;
   syncAudioState();
   titleNotice.textContent = "계정 초기화가 완료되었습니다.";
@@ -2996,7 +3319,7 @@ function openDialog({
 }) {
   pauseTravelClock("dialog");
   dialogModal.hidden = false;
-  dialogCard.classList.remove("is-options-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "is-port-boarding-confirm");
+  dialogCard.classList.remove("is-options-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "is-port-boarding-confirm", "is-origin-choice", "is-difficulty-choice");
   if (dialogClass) dialogCard.classList.add(String(dialogClass));
   if (optionsTabs) optionsTabs.hidden = true;
   optionsSoundPanel.hidden = true;
@@ -3009,6 +3332,8 @@ function openDialog({
   dialogSpeaker.textContent = speaker;
   renderDialogMessage(message);
   nameForm.hidden = true;
+  if (originChoice) originChoice.hidden = true;
+  if (difficultyChoice) difficultyChoice.hidden = true;
   nameError.hidden = true;
   activeDialogueAdvance = typeof advanceAction === "function" ? advanceAction : null;
   dialogueAdvanceLocked = false;
@@ -3143,7 +3468,7 @@ function createDialogButton(action) {
 
 function closeDialog() {
   dialogModal.hidden = true;
-  dialogCard.classList.remove("is-options-dialog", "is-player-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "is-port-boarding-confirm", "without-character");
+  dialogCard.classList.remove("is-options-dialog", "is-player-dialog", "is-event-completion", "is-narration", "is-dialogue-sequence", "is-log-open", "is-turn-back-confirm", "is-port-boarding-confirm", "is-origin-choice", "is-difficulty-choice", "without-character");
   dialogCard.removeAttribute("tabindex");
   activeDialogueAdvance = null;
   dialogueAdvanceLocked = false;
@@ -3165,6 +3490,8 @@ function closeDialog() {
     dialogSkip.onclick = null;
   }
   nameForm.hidden = true;
+  if (originChoice) originChoice.hidden = true;
+  if (difficultyChoice) difficultyChoice.hidden = true;
   resumeTravelClock("dialog");
   refreshAdvancedTutorialLaunchers();
   schedulePendingNarrativePresentation();
@@ -3203,6 +3530,18 @@ function loadAccount() {
     if (!parsed || typeof parsed.userName !== "string" || !parsed.userName.trim()) return null;
     const storedSchemaVersion = Number(parsed.schemaVersion) || 1;
     let migrated = storedSchemaVersion < ACCOUNT_SCHEMA_VERSION;
+    if (typeof parsed.originId !== "string") {
+      parsed.originId = "";
+      migrated = true;
+    }
+    if (!String(parsed.characterId || "").trim()) {
+      parsed.characterId = createCharacterId();
+      migrated = true;
+    }
+    if (!parsed.difficulty || typeof parsed.difficulty !== "object") migrated = true;
+    parsed.difficulty = normalizeDifficultySettings(parsed.difficulty || DEFAULT_DIFFICULTY);
+    if (!parsed.achievementProgress || typeof parsed.achievementProgress !== "object") migrated = true;
+    parsed.achievementProgress = normalizeAchievementProgress(parsed.achievementProgress);
     if (!String(parsed.worldSeed || "").trim()) migrated = true;
     parsed.worldSeed = normalizeWorldSeed(parsed.worldSeed);
     if (storedSchemaVersion < 7 && (!parsed.wallet || !Object.keys(parsed.wallet).length)) {
@@ -3359,11 +3698,13 @@ function persistAccount() {
   try {
     if (account) {
       if (!restoringInterfaceState && !gameScreen?.hidden) captureInterfaceState();
+      recordAchievementWalletCheckpoint();
       account.gameVersion = GAME_VERSION;
       account.schemaVersion = Math.max(ACCOUNT_SCHEMA_VERSION, Number(account.schemaVersion) || 1);
       account.updatedAt = new Date().toISOString();
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(account));
+    window.ProjectWAchievements?.scheduleEvaluate?.();
   } catch (error) {
     console.error(error);
     showGameNotice("브라우저 저장소에 계정을 저장하지 못했습니다.");
@@ -3552,19 +3893,36 @@ async function restoreInterfaceState(savedValue) {
   }
 }
 
-function createInitialWallet() {
-  return { ...INITIAL_WALLET };
+function createInitialWallet(capitalSetting = "recommended") {
+  const target = DIFFICULTY_CAPITAL_TARGETS[capitalSetting];
+  if (!target) return { ...INITIAL_WALLET };
+  const recommendedValue = Object.entries(INITIAL_WALLET).reduce((sum, [currencyId, quantity]) => {
+    return sum + (quantity * (INITIAL_WALLET_BASE_VALUES[currencyId] || 0));
+  }, 0);
+  const scale = target / Math.max(1, recommendedValue);
+  const wallet = Object.fromEntries(Object.entries(INITIAL_WALLET).map(([currencyId, quantity]) => [
+    currencyId,
+    Math.max(0, Math.floor(quantity * scale))
+  ]));
+  const scaledValue = Object.entries(wallet).reduce((sum, [currencyId, quantity]) => {
+    return sum + (quantity * (INITIAL_WALLET_BASE_VALUES[currencyId] || 0));
+  }, 0);
+  wallet.Cur_010 = Math.max(0, Number(wallet.Cur_010) + Math.max(0, target - scaledValue));
+  return wallet;
 }
 
 function updateAccountUi() {
   const anonymous = account?.userName === "당신" && !account?.nameLocked;
+  const hasSavedJourney = window.ProjectWSaveSlots?.isAvailable?.()
+    ? window.ProjectWSaveSlots.hasAnySave()
+    : Boolean(account);
   playerNameButton.textContent = account?.userName === "당신" || !account ? "플레이어" : account.userName;
   playerNameButton.disabled = !anonymous;
   playerNameButton.title = anonymous ? "이름 확정" : account ? "확정된 이름은 변경할 수 없습니다" : "계정이 없습니다";
-  resumeButton.disabled = !account;
-  resumeButton.setAttribute("aria-disabled", String(!account));
-  resumeButton.title = account ? "저장된 여정을 계속합니다" : "저장된 여정이 없습니다";
-  titleScreen.classList.toggle("has-saved-journey", Boolean(account));
+  resumeButton.disabled = !hasSavedJourney;
+  resumeButton.setAttribute("aria-disabled", String(!hasSavedJourney));
+  resumeButton.title = hasSavedJourney ? "저장된 여정을 계속합니다" : "저장된 여정이 없습니다";
+  titleScreen.classList.toggle("has-saved-journey", hasSavedJourney);
   if (memorialButton) memorialButton.disabled = !account;
   updateMerchantPathPointBadge();
   updateGameClock();
@@ -3573,6 +3931,79 @@ function updateAccountUi() {
   window.ProjectWWallet.refresh();
   window.ProjectWInformation.refresh();
   refreshAdvancedTutorialLaunchers();
+}
+
+async function achievementCharacterSnapshot() {
+  if (!account) return null;
+  await Promise.allSettled([
+    window.ProjectWCargo?.load?.(),
+    window.ProjectWWallet?.load?.()
+  ]);
+  const peddler = window.ProjectWMerchantPath?.getPeddlerProfile?.() || {};
+  const partner = normalizePartnerState(account.partner, account.partnerMoodAdjustment);
+  const definitions = window.ProjectWCargo?.getItemDefinitions?.() || [];
+  const knowledgeDefinitions = definitions.filter(definition => {
+    return definition?.id && !window.ProjectWMerchantPath?.isExcludedCategory?.(definition.category);
+  });
+  const giftDefinitions = definitions.filter(definition => {
+    return String(definition?.category || "").replaceAll(" ", "") === "선물";
+  });
+  const ownedGifts = new Set(normalizePartnerGiftState(partner.gifts).ownedIds);
+  const day = normalizeWorldTime(account.worldTime).day;
+  const walletValue = achievementWalletValue() ?? 0;
+  const achievementProgress = normalizeAchievementProgress(account.achievementProgress);
+  if (day === 100) achievementProgress.walletAtDay100 = Math.max(achievementProgress.walletAtDay100 || 0, walletValue);
+  if (day === 200) achievementProgress.walletAtDay200 = Math.max(achievementProgress.walletAtDay200 || 0, walletValue);
+  account.achievementProgress = achievementProgress;
+  const memorialProgress = await window.ProjectWMemorial?.getProgress?.() || {};
+  return {
+    characterId: String(account.characterId || ""),
+    characterName: String(account.userName || "플레이어"),
+    day,
+    peddlerLevel: Math.max(1, Math.trunc(Number(peddler.level) || 1)),
+    companionLevel: partner.companionRank,
+    walletValue,
+    companyScores: Object.fromEntries(["브란트 상회", "첼페니 상회", "인데그루크 상회"].map(name => [
+      name,
+      Math.max(0, Number(window.ProjectWMerchantPath?.getCompanyProfile?.(name)?.score) || 0)
+    ])),
+    guildLevel: guildContributionProfile().level,
+    allGiftsPurchased: giftDefinitions.length > 0 && giftDefinitions.every(definition => ownedGifts.has(definition.id)),
+    allGoodsKnowledgeMaximum: knowledgeDefinitions.length > 0 && knowledgeDefinitions.every(definition => {
+      return Number(window.ProjectWMerchantPath?.getLevel?.(definition.id)) >= 7;
+    }),
+    memorialComplete: {
+      mainDialogue: Boolean(memorialProgress["메인대화"]?.complete),
+      commonSense: Boolean(memorialProgress["상식주입"]?.complete),
+      talkCards: Boolean(memorialProgress["대화카드"]?.complete),
+      events: Boolean(memorialProgress["이벤트"]?.complete),
+      footprints: Boolean(memorialProgress["발자취"]?.complete),
+      tavernFoods: Boolean(memorialProgress["주점 음식"]?.complete),
+      marketSnacks: Boolean(memorialProgress["시장 간식"]?.complete)
+    },
+    progress: achievementProgress
+  };
+}
+
+function achievementWalletValue() {
+  const currencies = window.ProjectWWallet?.getCurrencies?.() || [];
+  if (!currencies.length) return null;
+  return currencies.reduce((sum, currency) => {
+    const quantity = Math.max(0, Math.trunc(Number(account?.wallet?.[currency.id]) || 0));
+    return sum + (quantity * Math.max(0, Number(window.ProjectWWallet.getCurrencyValue(currency)) || 0));
+  }, 0) + Math.max(0, Number(window.ProjectWBillNotes?.totalValue?.(account?.billNotes)) || 0);
+}
+
+function recordAchievementWalletCheckpoint() {
+  if (!account) return;
+  const day = normalizeWorldTime(account.worldTime).day;
+  if (![100, 200].includes(day)) return;
+  const walletValue = achievementWalletValue();
+  if (walletValue == null) return;
+  const progress = normalizeAchievementProgress(account.achievementProgress);
+  const key = day === 100 ? "walletAtDay100" : "walletAtDay200";
+  progress[key] = Math.max(progress[key] || 0, walletValue);
+  account.achievementProgress = progress;
 }
 
 function updateMerchantPathPointBadge(profile = window.ProjectWMerchantPath?.getPeddlerProfile?.()) {
@@ -6078,7 +6509,9 @@ async function applyNahanaEventStageEffects(eventId, stage) {
     return;
   }
   if (eventId === "N_E_004" && stage === 3) {
-    unlockFeature("guildAccess");
+    // 기능 해금은 튜토리얼 진행 여부와 분리한다.
+    // 도움말을 제거한 새 여정에서도 이벤트 조건을 정상적으로 완료할 수 있어야 한다.
+    grantNahanaEventFeatureUnlocks(eventId);
     const state = normalizeNahanaEventState(account.nahanaEvents);
     state.pendingTutorialId = TUTORIAL_IDS.GUILD_CONTRIBUTION;
     account.nahanaEvents = state;
@@ -7799,6 +8232,24 @@ function revealTitleScreen() {
   titleScreen.setAttribute("aria-busy", "false");
   titleLayout?.removeAttribute("inert");
   syncAudioState();
+  if (window.ProjectWSaveSlots && !window.ProjectWSaveSlots.isAvailable()) {
+    titleNotice.textContent = "현재 여정은 보존했지만 세이브 슬롯을 준비하지 못했습니다.";
+    titleNotice.hidden = false;
+  }
+  const pendingSlotAction = window.ProjectWSaveSlots?.consumePendingAction?.() || { action: "", skipTutorials: false };
+  if (pendingSlotAction.action === "resume") {
+    window.setTimeout(() => {
+      if (account) void enterGame();
+      else {
+        titleNotice.textContent = "선택한 슬롯에 재개할 여정이 없습니다.";
+        titleNotice.hidden = false;
+      }
+    }, 0);
+  } else if (pendingSlotAction.action === "new") {
+    skipTutorialsForNewJourney = Boolean(pendingSlotAction.skipTutorials);
+    if (titleTutorialSkip) titleTutorialSkip.checked = skipTutorialsForNewJourney;
+    window.setTimeout(beginNewJourney, 0);
+  }
 }
 
 function loadAssets() {
@@ -7885,6 +8336,36 @@ function resolveDialogueAssetId(page) {
 
 function createInitialWorldTime() {
   return { day: 1, phaseIndex: 0 };
+}
+
+function createCharacterId() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 10);
+  return `CHAR_${timestamp}_${random}`;
+}
+
+function createInitialAchievementProgress() {
+  return {
+    maximumSingleSaleValue: 0,
+    maximumReturnRate: 0,
+    wolfenEncounters: 0,
+    repairedHalfWagon: false,
+    walletAtDay100: null,
+    walletAtDay200: null
+  };
+}
+
+function normalizeAchievementProgress(value = {}) {
+  const walletAtDay100 = value?.walletAtDay100 == null ? null : Math.max(0, Math.floor(Number(value.walletAtDay100) || 0));
+  const walletAtDay200 = value?.walletAtDay200 == null ? null : Math.max(0, Math.floor(Number(value.walletAtDay200) || 0));
+  return {
+    maximumSingleSaleValue: Math.max(0, Math.floor(Number(value?.maximumSingleSaleValue) || 0)),
+    maximumReturnRate: Math.max(0, Number(value?.maximumReturnRate) || 0),
+    wolfenEncounters: Math.max(0, Math.trunc(Number(value?.wolfenEncounters) || 0)),
+    repairedHalfWagon: Boolean(value?.repairedHalfWagon),
+    walletAtDay100,
+    walletAtDay200
+  };
 }
 
 function createWorldSeed() {
@@ -9821,7 +10302,7 @@ async function resolveRouteEventAtCurrentDot(travel) {
   try {
     const context = routeEventContext(travel.positionId);
     let event = null;
-    if (window.ProjectWWolfenCompany.canEncounter(travel.positionId)) {
+    if (routeEncounterEnabled("R_E_007") && window.ProjectWWolfenCompany.canEncounter(travel.positionId)) {
       event = await window.ProjectWRouteEvents.rollForcedAtDot("R_E_007", context, {
         cooldown: window.ProjectWWolfenCompany.ENCOUNTER_COOLDOWN_TIMES,
         source: "wolfen-company"
@@ -9890,6 +10371,11 @@ function handleRouteEventResolved(event) {
   if (["R_E_006", "R_E_007"].includes(event?.id)) {
     unlockFootprint("FOOTPRINT_012");
     queueNahanaSituationEvent("E_010");
+  }
+  if (account && event?.id === "R_E_007") {
+    const progress = normalizeAchievementProgress(account.achievementProgress);
+    progress.wolfenEncounters += 1;
+    account.achievementProgress = progress;
   }
   if (account?.travel?.pendingRoadArrivalContinuation) {
     account.travel.pendingRoadArrivalPhase = "after-route-event";
@@ -13837,6 +14323,8 @@ function chooseDepartureRoute(route) {
   if (route.path[0] === FIRST_TUTORIAL_DESTINATION_ID && eventState.completedIds.includes("N_E_001")) {
     account.tutorialProgress = normalizeTutorialProgress(account.tutorialProgress);
     account.tutorialProgress.earlyTutorialBranchReached = true;
+    // 간식 기능은 안내 튜토리얼과 무관하게 첫 도시 출발 시 해금한다.
+    unlockFeature("partnerSnack");
   }
   const destinationCategory = String(route.node.category || "");
   const anticipationChance = destinationCategory === "대도시" ? .20 : destinationCategory === "도시" ? .10 : 0;
@@ -15494,17 +15982,8 @@ function completeTutorial(tutorialId = tutorialRuntime?.id) {
 function skipActiveTutorial() {
   if (!tutorialRuntime || !account) return;
   const tutorialId = tutorialRuntime.id;
-  if ([3, 4, 5, 6, 7, 10].includes(tutorialId)) {
-    const eventState = normalizeNahanaEventState(account.nahanaEvents);
-    if (eventState.activeId === "N_E_001"
-      || eventState.completedIds.includes("N_E_001")
-      || eventState.pendingRewardId === "N_E_001") {
-      applyNahanaEventReward("N_E_001", eventState);
-      account.nahanaEvents = eventState;
-      unlockFeature("permanentBlessing");
-      persistAccount();
-    }
-  }
+  // 튜토리얼 스킵은 안내 완료만 기록하며 이벤트 보상이나 기능을 조기 지급하지 않는다.
+  // 기능 해금은 각 이벤트의 진행·보상 로직에서 별도로 처리한다.
   if (tutorialId === TUTORIAL_IDS.GUILD_CONTRIBUTION) unlockFeature("guildContribution");
   completeTutorial(tutorialId);
   if (tutorialId === 5 && shouldStartTutorial(6)) window.setTimeout(() => startTutorial(6), 0);
@@ -16156,7 +16635,44 @@ function tutorialAllowsRoadEventSystems() {
   const progress = normalizeTutorialProgress(account?.tutorialProgress);
   return progress.reachedHirenbach;
 }
+function queueAchievementUnlockNotice(title) {
+  const copy = String(title || "").trim();
+  if (!copy) return;
+  if (!achievementUnlockNotice || !achievementUnlockNoticeTitle) {
+    showGameNotice(`업적 달성 · ${copy}`);
+    return;
+  }
+  achievementUnlockNoticeQueue.push(copy);
+  if (!achievementUnlockNoticeActive) showNextAchievementUnlockNotice();
+}
+
+function showNextAchievementUnlockNotice() {
+  if (achievementUnlockNoticeActive || !achievementUnlockNoticeQueue.length) return;
+  achievementUnlockNoticeActive = true;
+  achievementUnlockNoticeTitle.textContent = achievementUnlockNoticeQueue.shift();
+  achievementUnlockNotice.hidden = false;
+  achievementUnlockNotice.classList.remove("is-visible", "is-leaving");
+  void achievementUnlockNotice.offsetWidth;
+  requestAnimationFrame(() => achievementUnlockNotice.classList.add("is-visible"));
+  window.clearTimeout(achievementUnlockNoticeTimer);
+  window.clearTimeout(achievementUnlockNoticeHideTimer);
+  achievementUnlockNoticeTimer = window.setTimeout(() => {
+    achievementUnlockNotice.classList.remove("is-visible");
+    achievementUnlockNotice.classList.add("is-leaving");
+    achievementUnlockNoticeHideTimer = window.setTimeout(() => {
+      achievementUnlockNotice.hidden = true;
+      achievementUnlockNotice.classList.remove("is-leaving");
+      achievementUnlockNoticeActive = false;
+      showNextAchievementUnlockNotice();
+    }, 360);
+  }, 4200);
+}
+
 function showGameNotice(message, tone = "") {
+  if (tone === "achievement") {
+    queueAchievementUnlockNotice(message);
+    return;
+  }
   window.clearTimeout(noticeTimer);
   const copy = String(message || "").trim();
   const deteriorationDiscard = copy.includes("열화내구도") && copy.includes("폐기");

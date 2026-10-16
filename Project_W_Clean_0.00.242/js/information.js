@@ -96,6 +96,7 @@
   let getCityEvents = () => [];
   let getWeather = () => ({ label: "맑음" });
   let getWolfenState = () => ({});
+  let isWolfenInformationEnabled = () => true;
   let getCurrencyTrends = () => [];
   let getInformationSignals = async () => ({ market: [], production: [], logistics: [], specialExports: [] });
   let getPeddlerInformationBonuses = () => ({ successChance: 0, misinformationReduction: 0, sourceLevel: 0 });
@@ -138,6 +139,9 @@
     getCityEvents = typeof options.getCityEvents === "function" ? options.getCityEvents : getCityEvents;
     getWeather = typeof options.getWeather === "function" ? options.getWeather : getWeather;
     getWolfenState = typeof options.getWolfenState === "function" ? options.getWolfenState : getWolfenState;
+    isWolfenInformationEnabled = typeof options.isWolfenInformationEnabled === "function"
+      ? options.isWolfenInformationEnabled
+      : isWolfenInformationEnabled;
     getCurrencyTrends = typeof options.getCurrencyTrends === "function" ? options.getCurrencyTrends : getCurrencyTrends;
     getInformationSignals = typeof options.getInformationSignals === "function" ? options.getInformationSignals : getInformationSignals;
     getPeddlerInformationBonuses = typeof options.getPeddlerInformationBonuses === "function"
@@ -770,7 +774,7 @@
     buildWeatherCandidates({ settlements, routes, cycle, pushVariants });
 
     const wolfenState = getWolfenState() || {};
-    if (!hasValidWolfenTrack(state) && wolfenState.positionId) {
+    if (isWolfenInformationEnabled() && !hasValidWolfenTrack(state) && wolfenState.positionId) {
       const route = routes.find(entry => entry.id === wolfenState.positionId) || {};
       const nearest = nearestSettlement(route, settlements);
       pushVariants(definitionsForSpecial("WOLFEN_TRACK"),

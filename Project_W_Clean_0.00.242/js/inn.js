@@ -902,6 +902,9 @@
       const summary = maintenanceSummary();
       const repairedEffects = new Set(summary.effectEntries.map(entry => entry.effect));
       const wagon = summary.wagon;
+      const repairedFromHalf = maintenanceConditionSelected
+        && wagon.maxCondition > 0
+        && wagon.condition <= wagon.maxCondition * .5;
       const nextWagon = {
         ...wagon,
         condition: maintenanceConditionSelected ? wagon.maxCondition : wagon.condition,
@@ -920,6 +923,7 @@
         repairedCount > 0 ? `상태이상 ${formatNumber(repairedCount)}개 제거` : ""
       ].filter(Boolean).join(" · ");
       notify(`짐마차 정비를 마쳤습니다.${details ? ` ${details}` : ""}`);
+      if (repairedFromHalf) window.dispatchEvent(new CustomEvent("projectw:wagonrepair", { detail: { repairedFromHalf: true } }));
       setView("home");
       return;
     }

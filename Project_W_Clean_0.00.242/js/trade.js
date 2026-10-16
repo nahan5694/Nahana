@@ -1,5 +1,5 @@
 (function exposeTrade() {
-  const STORAGE_KEY = "project_w_trade_v1";
+  const STORAGE_KEY = window.ProjectWSaveSlots?.key("project_w_trade_v1") || "project_w_trade_v1";
   const ADDITIONAL_ITEMS = {
     대도시: ["G_0267", "G_0268", "G_0269", "G_0270", "G_0271", "G_0272", "G_0273", "G_0276"],
     도시: ["G_0267", "G_0268", "G_0269", "G_0271", "G_0272", "G_0276"],
@@ -197,6 +197,7 @@
   let currencyAnalysisReport = null;
   let currencyHoldState = null;
   let suppressedCurrencyClick = null;
+  let currencyQuantityContext = null;
   let informationSignalsRevision = 0;
   let informationSignalsCache = null;
   let currencyAnalysisView = "table";
@@ -263,6 +264,15 @@
       currencyAnalysisTable: document.querySelector("#currency-analysis-table"),
       currencyAnalysisGraph: document.querySelector("#currency-analysis-graph"),
       currencyAnalysisViewButtons: [...document.querySelectorAll("[data-currency-analysis-view]")],
+      currencyQuantityLayer: document.querySelector("#trade-currency-quantity-layer"),
+      currencyQuantityForm: document.querySelector("#trade-currency-quantity-form"),
+      currencyQuantityName: document.querySelector("#trade-currency-quantity-name"),
+      currencyQuantityInput: document.querySelector("#trade-currency-quantity-input"),
+      currencyQuantityAvailable: document.querySelector("#trade-currency-quantity-available"),
+      currencyQuantityValue: document.querySelector("#trade-currency-quantity-value"),
+      currencyQuantityCurrencyTotal: document.querySelector("#trade-currency-quantity-currency-total"),
+      currencyQuantityOfferTotal: document.querySelector("#trade-currency-quantity-offer-total"),
+      currencyQuantityCancel: document.querySelector("#trade-currency-quantity-cancel"),
       companyInformationButton: document.querySelector("#trade-company-information"),
       close: document.querySelector("#trade-close"),
       title: document.querySelector("#trade-title"),
@@ -308,6 +318,12 @@
     elements.currencyAnalysisLayer?.addEventListener("pointerdown", event => {
       if (event.target === elements.currencyAnalysisLayer) closeCurrencyAnalysis();
     });
+    elements.currencyQuantityLayer?.addEventListener("click", event => {
+      if (event.target === elements.currencyQuantityLayer) closeCurrencyQuantity();
+    });
+    elements.currencyQuantityCancel?.addEventListener("click", closeCurrencyQuantity);
+    elements.currencyQuantityInput?.addEventListener("input", updateCurrencyQuantityPreview);
+    elements.currencyQuantityForm?.addEventListener("submit", submitCurrencyQuantity);
     elements.companyInformationButton?.addEventListener("click", handleCompanyInformation);
     elements.close.addEventListener("click", close);
     elements.confirm.addEventListener("click", confirmTrade);
@@ -326,6 +342,7 @@
       if (event.target === elements.modal) close();
     });
     window.addEventListener("pointerup", stopCurrencyHold);
+    window.addEventListener("pointermove", trackCurrencyHold);
     window.addEventListener("pointercancel", stopCurrencyHold);
     window.addEventListener("blur", stopCurrencyHold);
     document.addEventListener("visibilitychange", () => {
@@ -337,6 +354,10 @@
       event.stopImmediatePropagation();
       if (elements.currencyAnalysisLayer && !elements.currencyAnalysisLayer.hidden) {
         closeCurrencyAnalysis();
+        return;
+      }
+      if (elements.currencyQuantityLayer && !elements.currencyQuantityLayer.hidden) {
+        closeCurrencyQuantity();
         return;
       }
       close();
@@ -380,6 +401,7 @@
   function handleTradeModalWheel(event) {
     if (!elements.modal || elements.modal.hidden || event.ctrlKey) return;
     if (elements.currencyAnalysisLayer && !elements.currencyAnalysisLayer.hidden) return;
+    if (elements.currencyQuantityLayer && !elements.currencyQuantityLayer.hidden) return;
     const source = event.target instanceof Element
       ? event.target.closest(".trade-item-list, .trade-currency-list, .trade-offer-list")
       : null;
@@ -405,7 +427,7 @@
   }
 
   function beginCurrencyHold(event) {
-    if (!current?.currencyOnly || event.button !== 0 || event.isPrimary === false) return;
+    if (!current || event.button !== 0 || event.isPrimary === false) return;
     const button = event.target instanceof Element
       ? event.target.closest(".trade-currency-card[data-trade-action='adjust'][data-trade-kind='currencies'][data-trade-delta='1']")
       : null;
@@ -414,34 +436,30 @@
     currencyHoldState = {
       owner: String(button.dataset.tradeOwner || ""),
       key: String(button.dataset.tradeKey || ""),
-      startedAt: performance.now(),
-      repeated: false,
-      timer: window.setTimeout(repeatCurrencyHold, 360)
+      button,
+      startX: event.clientX,
+      startY: event.clientY,
+      opened: false,
+      timer: window.setTimeout(() => {
+        const hold = currencyHoldState;
+        if (!hold || hold.button !== button || elements.modal.hidden) return;
+        hold.opened = openCurrencyQuantity(hold.owner, hold.key);
+      }, 480)
     };
+    button.classList.add("is-holding");
   }
 
-  function repeatCurrencyHold() {
+  function trackCurrencyHold(event) {
     const hold = currencyHoldState;
-    if (!hold || !current?.currencyOnly || elements.modal.hidden) {
-      stopCurrencyHold();
-      return;
-    }
-    const changed = adjustSelection(hold.owner, "currencies", hold.key, 1, { silent: true });
-    if (!changed) {
-      stopCurrencyHold();
-      return;
-    }
-    if (!hold.repeated) window.ProjectWAudio?.playEffect("coin");
-    hold.repeated = true;
-    const elapsed = Math.max(0, performance.now() - hold.startedAt);
-    const nextDelay = Math.max(100, 280 - Math.floor(Math.max(0, elapsed - 360) / 12));
-    hold.timer = window.setTimeout(repeatCurrencyHold, nextDelay);
+    if (!hold || hold.opened) return;
+    if (Math.hypot(event.clientX - hold.startX, event.clientY - hold.startY) > 10) stopCurrencyHold();
   }
 
   function stopCurrencyHold() {
     if (!currencyHoldState) return;
     window.clearTimeout(currencyHoldState.timer);
-    if (currencyHoldState.repeated) {
+    currencyHoldState.button?.classList.remove("is-holding");
+    if (currencyHoldState.opened) {
       suppressedCurrencyClick = {
         owner: currencyHoldState.owner,
         key: currencyHoldState.key,
@@ -449,6 +467,53 @@
       };
     }
     currencyHoldState = null;
+  }
+
+  function openCurrencyQuantity(owner, key) {
+    const currency = current?.currenciesById?.get(key);
+    const selected = selectedQuantity(owner, "currencies", key);
+    const available = availableQuantity(owner, "currencies", key);
+    const remaining = Math.max(0, available - selected);
+    if (!currency || !remaining || !elements.currencyQuantityLayer) return false;
+    window.ProjectWCargo.hideTooltip();
+    currencyQuantityContext = { owner, key, currency, selected, remaining };
+    elements.currencyQuantityName.textContent = `${owner === "player" ? "내" : "상인의"} ${currency.name} · 1개 가치 ${formatNumber(tradeCurrencyValue(currency))}`;
+    elements.currencyQuantityAvailable.textContent = `추가 가능 ${formatNumber(remaining)}개 · 이미 올린 수량 ${formatNumber(selected)}개`;
+    elements.currencyQuantityInput.min = "1";
+    elements.currencyQuantityInput.max = String(remaining);
+    elements.currencyQuantityInput.value = "1";
+    elements.currencyQuantityLayer.hidden = false;
+    updateCurrencyQuantityPreview();
+    requestAnimationFrame(() => elements.currencyQuantityInput.focus());
+    return true;
+  }
+
+  function updateCurrencyQuantityPreview() {
+    if (!currencyQuantityContext) return;
+    const { owner, currency, selected, remaining } = currencyQuantityContext;
+    const count = Math.min(remaining, Math.max(0, Math.trunc(Number(elements.currencyQuantityInput.value) || 0)));
+    const unitValue = tradeCurrencyValue(currency);
+    elements.currencyQuantityValue.textContent = `${formatNumber(count * unitValue)} 가치`;
+    elements.currencyQuantityCurrencyTotal.textContent = `${formatNumber((selected + count) * unitValue)} 가치`;
+    elements.currencyQuantityOfferTotal.textContent = `${formatNumber(offerValue(owner) + (count * unitValue))} 가치`;
+  }
+
+  function submitCurrencyQuantity(event) {
+    event.preventDefault();
+    if (!currencyQuantityContext) return;
+    const { owner, key, remaining } = currencyQuantityContext;
+    const count = Math.min(remaining, Math.max(0, Math.trunc(Number(elements.currencyQuantityInput.value) || 0)));
+    if (!count) {
+      elements.currencyQuantityInput.focus();
+      return;
+    }
+    closeCurrencyQuantity();
+    adjustSelection(owner, "currencies", key, count);
+  }
+
+  function closeCurrencyQuantity() {
+    if (elements.currencyQuantityLayer) elements.currencyQuantityLayer.hidden = true;
+    currencyQuantityContext = null;
   }
 
   async function open(options = {}) {
@@ -5109,6 +5174,14 @@
       companyName: current.companyName || "",
       bargainSuccesses
     });
+    const singleSaleValue = knowledgeTransactions
+      .filter(transaction => transaction.direction === "sell")
+      .reduce((sum, transaction) => sum + (Math.max(0, Number(transaction.unitValue) || 0) * Math.max(0, Number(transaction.quantity) || 0)), 0);
+    const maximumReturnRate = Math.max(0, ...(window.ProjectWMerchantPath?.getPendingTradeReviews?.() || [])
+      .map(review => Number(review?.returnRate) || 0));
+    window.dispatchEvent(new CustomEvent("projectw:tradecompleted", {
+      detail: { singleSaleValue, maximumReturnRate }
+    }));
     const merchantProgress = !current.currencyOnly && merchantProfit > 0
       ? recordMerchantProfit(Math.floor(merchantProfit))
       : null;
@@ -5363,6 +5436,7 @@
   function close() {
     if (!elements.modal || (elements.modal.hidden && !suspendedForMap)) return;
     stopCurrencyHold();
+    closeCurrencyQuantity();
     suspendedForMap = false;
     if (elements.currencyAnalysisLayer) elements.currencyAnalysisLayer.hidden = true;
     dismissMerchantCommentary();

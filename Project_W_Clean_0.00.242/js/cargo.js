@@ -1,5 +1,5 @@
 (function exposeCargoInventory() {
-  const STORAGE_KEY = "project_w_cargo_v1";
+  const STORAGE_KEY = window.ProjectWSaveSlots?.key("project_w_cargo_v1") || "project_w_cargo_v1";
   const GOODS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=2011429512&single=true&output=csv";
   const COLUMN_COUNT = 1;
   const ROW_COUNT = 30;

@@ -1,5 +1,5 @@
 (function exposeMerchantPath() {
-  const STORAGE_KEY = "project_w_merchant_path_v1";
+  const STORAGE_KEY = window.ProjectWSaveSlots?.key("project_w_merchant_path_v1") || "project_w_merchant_path_v1";
   const PEDDLER_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyyCK6mm4FwUdj_pw5jYjvtCLahL1HM8vIibuXGGeaSYMgzBFEkpSRvQKglScB3USEAW3dy8RoMune/pub?gid=1918099078&single=true&output=csv";
   const PEDDLER_MAX_LEVEL = 50;
   const PEDDLER_FIRST_REQUIREMENT = 100;
@@ -13,7 +13,7 @@
   const REVIEW_EXPENSE_TYPES = new Set(["tax", "food", "ferry"]);
   const OUTLET_STATES = ["observed", "production", "excluded"];
   const LEVEL_THRESHOLDS = [0, 10, 20, 40, 80, 160, 320, 640];
-  const EXCLUDED_CATEGORIES = new Set(["여행물품", "야영물품", "여행식량", "야영식량", "여행음식", "야영음식"]);
+  const EXCLUDED_CATEGORIES = new Set(["여행물품", "야영물품", "여행식량", "야영식량", "여행음식", "야영음식", "선물"]);
   const COMPANY_NAMES = ["인데그루크 상회", "브란트 상회", "첼페니 상회"];
   const COMPANY_ASSET_IDS = new Map([
     ["인데그루크 상회", "Asset_merchant_01"],
@@ -2568,6 +2568,36 @@
     return Math.min(7, level);
   }
 
+  function applyOriginKnowledge(levelsByCategory = {}) {
+    const targets = new Map(Object.entries(levelsByCategory).map(([category, level]) => [
+      String(category || "").replaceAll(" ", ""),
+      Math.min(7, Math.max(0, Math.trunc(Number(level) || 0)))
+    ]));
+    if (!targets.size) return false;
+    let changed = false;
+    const cargoDefinitions = window.ProjectWCargo?.getItemDefinitions?.() || [];
+    const sourceDefinitions = cargoDefinitions.length ? cargoDefinitions : definitions;
+    sourceDefinitions.forEach(definition => {
+      const category = String(definition?.category || "").replaceAll(" ", "");
+      const targetLevel = targets.get(category);
+      if (!definition?.id || !targetLevel || isExcludedCategory(category)) return;
+      const previous = state.knowledge[definition.id] || {};
+      const targetXp = LEVEL_THRESHOLDS[targetLevel] || 0;
+      if ((Number(previous.xp) || 0) >= targetXp) return;
+      state.knowledge[definition.id] = {
+        ...previous,
+        xp: targetXp,
+        trades: Math.max(0, Math.trunc(Number(previous.trades) || 0))
+      };
+      changed = true;
+    });
+    if (changed) {
+      persistState();
+      window.dispatchEvent(new CustomEvent("projectw:knowledgechange", { detail: { source: "origin" } }));
+    }
+    return changed;
+  }
+
   function knowledgeDefinitions(source) {
     return (source || []).filter(definition => definition?.id && !isExcludedCategory(definition.category));
   }
@@ -2668,6 +2698,7 @@
     getCompanyProfile,
     getKnowledge,
     getLevel,
+    applyOriginKnowledge,
     getDisplayProfile,
     isExcludedCategory
   };

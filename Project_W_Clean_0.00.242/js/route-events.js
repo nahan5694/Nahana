@@ -13,6 +13,7 @@
   let setState = () => {};
   let getContext = () => ({});
   let canTrigger = () => true;
+  let isEventEnabled = () => true;
   let pauseTravel = () => {};
   let resumeTravel = () => {};
   let persist = () => {};
@@ -50,6 +51,7 @@
     setState = typeof options.setState === "function" ? options.setState : setState;
     getContext = typeof options.getContext === "function" ? options.getContext : getContext;
     canTrigger = typeof options.canTrigger === "function" ? options.canTrigger : canTrigger;
+    isEventEnabled = typeof options.isEventEnabled === "function" ? options.isEventEnabled : isEventEnabled;
     pauseTravel = typeof options.pauseTravel === "function" ? options.pauseTravel : pauseTravel;
     resumeTravel = typeof options.resumeTravel === "function" ? options.resumeTravel : resumeTravel;
     persist = typeof options.persist === "function" ? options.persist : persist;
@@ -285,7 +287,7 @@
     if (!normalized.placementId || normalized.isNode || !canTrigger() || currentState().pending) return null;
     if (!await load()) return null;
     const event = definitionsById.get(text(eventId));
-    if (!event || !isUnlockedForDay(event, normalized.worldDay)) return null;
+    if (!event || !isEventEnabled(event.id) || !isUnlockedForDay(event, normalized.worldDay)) return null;
     try {
       await Promise.all([prepareCurrencyData(), prepareAssetData()]);
     } catch (error) {
@@ -310,7 +312,8 @@
       ? state.forcedEventIds.map(id => definitionsById.get(id)).filter(Boolean)
       : definitions;
     const candidates = pool.flatMap(event => {
-      if ((!forced && (event.id === "R_E_007" || WOLF_EVENT_IDS.includes(event.id) || state.cooldowns[event.id] > 0))
+      if (!isEventEnabled(event.id)
+        || (!forced && (event.id === "R_E_007" || WOLF_EVENT_IDS.includes(event.id) || state.cooldowns[event.id] > 0))
         || !isUnlockedForDay(event, context.worldDay)
         || !matchesConditions(event, context)
         || !specialAvailability(event)) return [];

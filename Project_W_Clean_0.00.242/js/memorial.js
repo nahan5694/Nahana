@@ -37,6 +37,7 @@
   let catalog = [];
   let foodCatalog = [];
   let loading = false;
+  let loadPromise = null;
   let getUnlockedIds = () => [];
   let getUnlockedFootprintIds = () => [];
   let getConsumedFoodIds = () => [];
@@ -113,31 +114,34 @@
   }
 
   async function load() {
-    if (loading) return;
-    loading = true;
-    if (elements.status) elements.status.textContent = "수집한 기록을 정리하고 있습니다.";
-    try {
-      const [dialogueResult, foodResult] = await Promise.allSettled([
-        window.ProjectWDialogue.getDialogueCatalog(),
-        window.ProjectWData.loadCsv(FOOD_DATA_URL)
-      ]);
-      if (dialogueResult.status === "fulfilled") {
-        catalog = dialogueResult.value.entries || [];
-        if (dialogueResult.value.error) notify("Dialogue CSV를 갱신하지 못해 현재 등록된 대화를 사용합니다.");
-      } else {
-        console.error(dialogueResult.reason);
-        catalog = [];
-        notify("메모리얼의 Dialogue 데이터를 불러오지 못했습니다.");
+    if (loadPromise) return loadPromise;
+    loadPromise = (async () => {
+      loading = true;
+      if (elements.status) elements.status.textContent = "수집한 기록을 정리하고 있습니다.";
+      try {
+        const [dialogueResult, foodResult] = await Promise.allSettled([
+          window.ProjectWDialogue.getDialogueCatalog(),
+          window.ProjectWData.loadCsv(FOOD_DATA_URL)
+        ]);
+        if (dialogueResult.status === "fulfilled") {
+          catalog = dialogueResult.value.entries || [];
+          if (dialogueResult.value.error) notify("Dialogue CSV를 갱신하지 못해 현재 등록된 대화를 사용합니다.");
+        } else {
+          console.error(dialogueResult.reason);
+          catalog = [];
+          notify("메모리얼의 Dialogue 데이터를 불러오지 못했습니다.");
+        }
+        if (foodResult.status === "fulfilled") foodCatalog = foodResult.value.map(normalizeFoodEntry).filter(Boolean);
+        else {
+          console.error(foodResult.reason);
+          foodCatalog = [];
+          notify("메모리얼의 Foods 데이터를 불러오지 못했습니다.");
+        }
+      } finally {
+        loading = false;
       }
-      if (foodResult.status === "fulfilled") foodCatalog = foodResult.value.map(normalizeFoodEntry).filter(Boolean);
-      else {
-        console.error(foodResult.reason);
-        foodCatalog = [];
-        notify("메모리얼의 Foods 데이터를 불러오지 못했습니다.");
-      }
-    } finally {
-      loading = false;
-    }
+    })();
+    return loadPromise;
   }
 
   function foodValue(row, header) {
@@ -164,6 +168,21 @@
     if (category === "주점 음식") return foodCatalog.filter(entry => entry.vendors.includes("주점"));
     if (category === "시장 간식") return foodCatalog.filter(entry => entry.vendors.includes("시장"));
     return catalog.filter(entry => entry.category === category);
+  }
+
+  async function getProgress() {
+    await load();
+    const unlockedDialogue = new Set(getUnlockedIds().map(id => String(id || "").trim()).filter(Boolean));
+    const unlockedFootprints = new Set(getUnlockedFootprintIds().map(id => String(id || "").trim()).filter(Boolean));
+    const consumedFoods = new Set(getConsumedFoodIds().map(id => String(id || "").trim()).filter(Boolean));
+    return Object.fromEntries(CATEGORIES.map(category => {
+      const entries = entriesForCategory(category);
+      const unlockedSet = category === "발자취"
+        ? unlockedFootprints
+        : ["주점 음식", "시장 간식"].includes(category) ? consumedFoods : unlockedDialogue;
+      const unlocked = entries.filter(entry => unlockedSet.has(entry.id)).length;
+      return [category, { unlocked, total: entries.length, complete: entries.length > 0 && unlocked >= entries.length }];
+    }));
   }
 
   function render() {
@@ -274,5 +293,5 @@
     return FOOTPRINT_BY_ID.get(String(id || "").trim()) || null;
   }
 
-  window.ProjectWMemorial = { init, open, close, isOpen, refresh: render, getFootprint, getResumeState, restoreResumeState };
+  window.ProjectWMemorial = { init, open, close, isOpen, refresh: render, getFootprint, getProgress, getResumeState, restoreResumeState };
 }());

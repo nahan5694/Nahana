@@ -7,9 +7,11 @@
   <title>Project_W</title>
   <link rel="stylesheet" href="style.css">
   <script defer src="js/static-data.js"></script>
+  <script defer src="js/save-slots.js"></script>
   <script defer src="js/audio.js"></script>
   <script defer src="js/dialogue.js"></script>
   <script defer src="js/memorial.js"></script>
+  <script defer src="js/achievements.js"></script>
   <script defer src="js/map-view.js"></script>
   <script defer src="js/weather.js"></script>
   <script defer src="js/cargo.js"></script>
@@ -61,14 +63,31 @@
           </label>
         </nav>
 
+        <button id="title-achievements" class="title-achievement-button" type="button" aria-label="업적 보기">
+          <span>업적</span>
+          <img data-asset-id="Asset_Main_03" alt="" aria-hidden="true">
+        </button>
+
         <p id="title-notice" class="title-notice" role="status" aria-live="polite" hidden></p>
       </div>
+
+      <section id="save-slot-select" class="title-confirm save-slot-select" role="dialog" aria-modal="true" aria-labelledby="save-slot-select-title" hidden>
+        <div class="title-confirm-card save-slot-select-card">
+          <p id="save-slot-select-kicker" class="title-confirm-kicker">여행 재개</p>
+          <h2 id="save-slot-select-title">세이브 슬롯을 선택하세요.</h2>
+          <p id="save-slot-select-description">계속할 여정을 선택합니다.</p>
+          <div id="save-slot-list" class="save-slot-list"></div>
+          <div class="title-confirm-actions">
+            <button id="save-slot-select-close" class="quiet-button" type="button">돌아가기</button>
+          </div>
+        </div>
+      </section>
 
       <section id="new-journey-confirm" class="title-confirm" role="dialog" aria-modal="true" aria-labelledby="new-journey-confirm-title" hidden>
         <div class="title-confirm-card">
           <p class="title-confirm-kicker">새로운 여정</p>
           <h2 id="new-journey-confirm-title">지금까지의 여정을 지우시겠습니까?</h2>
-          <p>저장된 진행 상황은 복구할 수 없습니다. 새로운 여정을 시작하면 기존 데이터가 교체됩니다.</p>
+          <p id="new-journey-confirm-message">저장된 진행 상황은 복구할 수 없습니다. 새로운 여정을 시작하면 기존 데이터가 교체됩니다.</p>
           <div class="title-confirm-actions">
             <button id="new-journey-cancel" class="quiet-button" type="button">취소</button>
             <button id="new-journey-confirm-button" class="primary-button" type="button">새로운 여정 시작</button>
@@ -77,7 +96,27 @@
       </section>
 
       <div class="title-loading-curtain" aria-hidden="true"></div>
-      <p class="version-tag">VERSION <span id="game-version">0.00.361</span></p>
+      <p class="version-tag">VERSION <span id="game-version">0.00.370</span></p>
+    </section>
+
+    <section id="achievement-modal" class="achievement-modal-layer" role="dialog" aria-modal="true" aria-labelledby="achievement-title" hidden>
+      <div class="achievement-modal-card">
+        <header class="achievement-modal-header">
+          <div>
+            <small>모든 여정의 기록</small>
+            <h2 id="achievement-title">업적</h2>
+          </div>
+          <button id="achievement-close" type="button">닫기</button>
+        </header>
+        <div class="achievement-summary" aria-label="전체 플레이 기록">
+          <article><small>전체 플레이 시간</small><strong id="achievement-play-time">0시간 0분</strong></article>
+          <article><small>최고 행상인 레벨</small><strong id="achievement-highest-peddler">1</strong></article>
+          <article><small>최고 동행 레벨</small><strong id="achievement-highest-companion">1</strong></article>
+          <article><small>달성 업적</small><strong id="achievement-total-count">0 / 0</strong></article>
+        </div>
+        <p id="achievement-status" class="achievement-status" role="status">업적 기록을 불러오고 있습니다.</p>
+        <div id="achievement-grid" class="achievement-grid"></div>
+      </div>
     </section>
 
     <section id="game-loading-screen" class="game-loading-screen" aria-label="여행 준비 중" aria-busy="true" hidden>
@@ -103,6 +142,11 @@
             <span class="memorial-button-mark" aria-hidden="true"></span>
             <span>메모리얼</span>
           </button>
+          <button id="achievement-button" class="toolbar-button achievement-button" type="button" aria-haspopup="dialog">
+            <span aria-hidden="true">◆</span>
+            <span>업적</span>
+            <strong id="achievement-button-count">0</strong>
+          </button>
           <button id="information-button" class="toolbar-button information-button" type="button" aria-haspopup="dialog">
             <span class="information-button-mark" aria-hidden="true">🏷️</span>
             <span>정보</span>
@@ -119,7 +163,7 @@
             <span id="game-clock-weather" class="toolbar-weather">맑음</span>
             <span id="game-clock-phase" class="toolbar-phase">아침</span>
           </span>
-          <span class="toolbar-version">VERSION 0.00.361</span>
+          <span class="toolbar-version">VERSION 0.00.370</span>
           <button id="options-button" class="toolbar-icon-button" type="button" aria-label="옵션" title="옵션">⚙</button>
         </div>
       </header>
@@ -554,6 +598,11 @@
 
     <p id="game-notice" class="game-notice" role="status" aria-live="polite" hidden></p>
 
+    <aside id="achievement-unlock-notice" class="achievement-unlock-notice" role="status" aria-live="assertive" aria-atomic="true" hidden>
+      <span aria-hidden="true">✦ 업적 달성</span>
+      <strong id="achievement-unlock-notice-title"></strong>
+    </aside>
+
     <div id="screen-advanced-tutorial" class="advanced-tutorial-launcher advanced-tutorial-type-b" data-advanced-launcher="screen" hidden>
       <div class="advanced-tutorial-menu" role="menu" aria-label="화면 심화 튜토리얼" hidden></div>
       <button class="advanced-tutorial-toggle" type="button" aria-expanded="false" aria-label="심화 안내 열기">
@@ -761,6 +810,27 @@
           </section>
         </div>
       </section>
+      <div id="trade-currency-quantity-layer" class="trade-currency-quantity-layer" role="dialog" aria-modal="true" aria-labelledby="trade-currency-quantity-title" hidden>
+        <form id="trade-currency-quantity-form" class="trade-currency-quantity-window">
+          <header>
+            <span>화폐 수량 입력</span>
+            <h3 id="trade-currency-quantity-title">화폐를 얼마나 올릴까요?</h3>
+          </header>
+          <p id="trade-currency-quantity-name" class="trade-currency-quantity-name"></p>
+          <label for="trade-currency-quantity-input">추가할 수량</label>
+          <input id="trade-currency-quantity-input" type="number" inputmode="numeric" min="1" step="1" required>
+          <p id="trade-currency-quantity-available" class="trade-currency-quantity-available"></p>
+          <dl class="trade-currency-quantity-values">
+            <div><dt>입력 수량의 가치</dt><dd id="trade-currency-quantity-value">0</dd></div>
+            <div><dt>이 화폐의 합계 가치</dt><dd id="trade-currency-quantity-currency-total">0</dd></div>
+            <div><dt>올린 것의 전체 가치</dt><dd id="trade-currency-quantity-offer-total">0</dd></div>
+          </dl>
+          <footer>
+            <button id="trade-currency-quantity-cancel" type="button">취소</button>
+            <button class="is-primary" type="submit">수량 올리기</button>
+          </footer>
+        </form>
+      </div>
       <aside id="merchant-comment-popup" class="partner-common-sense-popup merchant-comment-popup" data-small-popup-anchor="upper" aria-live="polite" aria-labelledby="merchant-comment-speaker" hidden>
         <div class="partner-common-sense-portrait" aria-hidden="true">
           <img id="merchant-comment-character" alt="나하나 SD 캐릭터" hidden>
@@ -1543,6 +1613,49 @@
               <button type="submit">적용</button>
             </form>
             <p id="options-code-status" class="options-code-status" role="status">등록된 코드가 없습니다.</p>
+          </section>
+          <section id="origin-choice" class="origin-choice" aria-label="상인 오리진 선택" tabindex="-1" hidden>
+            <button type="button" data-origin-id="food">
+              <strong>식품상인</strong>
+              <span>식료품 <b>전문</b></span>
+              <small>가죽 · 조미료 숙련</small>
+            </button>
+            <button type="button" data-origin-id="textile">
+              <strong>직물상인</strong>
+              <span>직물 <b>전문</b></span>
+              <small>섬유 · 염료 숙련</small>
+            </button>
+            <button type="button" data-origin-id="general">
+              <strong>잡화상인</strong>
+              <span>잡화 <b>전문</b></span>
+              <small>공업품 · 부산물 숙련</small>
+            </button>
+          </section>
+          <section id="difficulty-choice" class="difficulty-choice" aria-label="여정 난이도 설정" tabindex="-1" hidden>
+            <fieldset>
+              <legend>위험 조우</legend>
+              <label><input type="checkbox" data-difficulty-encounter="bandit"><span><strong>불한당 제외</strong><small>길에서 불한당이 등장하지 않습니다.</small></span><b>-3</b></label>
+              <label><input type="checkbox" data-difficulty-encounter="mercenary"><span><strong>용병 제외</strong><small>길에서 용병이 등장하지 않습니다.</small></span><b>-3</b></label>
+              <label><input type="checkbox" data-difficulty-encounter="wolfen"><span><strong>울펜 제외</strong><small>울펜 조우와 관련 정보를 제거합니다.</small></span><b>-3</b></label>
+            </fieldset>
+            <fieldset>
+              <legend>초기 자본금</legend>
+              <label><input type="radio" name="difficulty-capital" value="low"><span><strong>적음</strong><small>약 1,000 가치</small></span><b>+1</b></label>
+              <label><input type="radio" name="difficulty-capital" value="recommended" checked><span><strong>권장</strong><small>현재 기본 자본</small></span><b>0</b></label>
+              <label><input type="radio" name="difficulty-capital" value="high"><span><strong>많음</strong><small>약 3,000 가치</small></span><b>-1</b></label>
+              <label><input type="radio" name="difficulty-capital" value="very-high"><span><strong>매우 많음</strong><small>약 4,000 가치</small></span><b>-2</b></label>
+            </fieldset>
+            <fieldset>
+              <legend>초기 지식 수준</legend>
+              <label><input type="radio" name="difficulty-knowledge" value="recommended" checked><span><strong>권장</strong><small>오리진 기본 지식</small></span><b>0</b></label>
+              <label><input type="radio" name="difficulty-knowledge" value="high"><span><strong>높음</strong><small>전문과 숙련 지식 +1</small></span><b>-1</b></label>
+              <label><input type="radio" name="difficulty-knowledge" value="very-high"><span><strong>매우 높음</strong><small>전문·숙련 +1, 나머지 전체 +1</small></span><b>-2</b></label>
+            </fieldset>
+            <footer>
+              <button id="difficulty-back" class="dialog-button dialog-button-secondary" type="button">돌아가기</button>
+              <div id="difficulty-rating" class="difficulty-rating is-standard"><small>종합 난이도</small><strong>0</strong><span>기준 난이도입니다.</span></div>
+              <button id="difficulty-confirm" class="dialog-button dialog-button-primary" type="button">확정하기</button>
+            </footer>
           </section>
           <div id="dialog-actions" class="dialog-actions"></div>
           <form id="name-form" class="name-form" hidden>
