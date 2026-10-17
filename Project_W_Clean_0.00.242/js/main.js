@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.00.372";
+const GAME_VERSION = "0.00.374";
 const ACCOUNT_SCHEMA_VERSION = 59;
 const STORAGE_KEY = window.ProjectWSaveSlots?.key("project_w_account_v1") || "project_w_account_v1";
 const ORIGIN_PROFILES = Object.freeze({
@@ -1276,6 +1276,7 @@ let lastPartnerTouchReactionAt = 0;
 let lastPartnerTouchDialogueId = "";
 let partnerTouchDataWarningShown = false;
 let partnerTouchCharacterAssetId = "";
+let partnerHighMoodDefaultAssetId = "";
 const partnerCharacterHitMapCache = new Map();
 
 window.ProjectWAudio.init({
@@ -4015,10 +4016,18 @@ function updateMerchantPathPointBadge(profile = window.ProjectWMerchantPath?.get
 }
 
 function partnerMoodPresentation(mood) {
-  const value = clampNumber(Number(mood), 0, 100, 50);
+  const value = clampNumber(Number(mood), 0, 150, 50);
   if (value <= 24) return { label: "화남", assetId: "Asset_N_14" };
   if (value <= 49) return { label: "불만", assetId: "Asset_N_05" };
   if (value <= 74) return { label: "통상", assetId: "Asset_N_01" };
+  if (value >= 101) {
+    const candidates = ["Asset_N_01", "Asset_N_03", "Asset_N_04"];
+    if (!candidates.includes(partnerHighMoodDefaultAssetId)) {
+      partnerHighMoodDefaultAssetId = candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    return { label: "좋은 상태", assetId: partnerHighMoodDefaultAssetId };
+  }
+  partnerHighMoodDefaultAssetId = "";
   return { label: "좋은 상태", assetId: "Asset_N_01" };
 }
 
@@ -12903,6 +12912,7 @@ function informationOpportunity(type, placement = currentSettlementPlacement(), 
 function updateInformationButton(button, type, placement = currentSettlementPlacement(), options = {}) {
   if (!button) return;
   const opportunity = informationOpportunity(type, placement, options);
+  const isAvailable = !opportunity.locked && opportunity.remaining > 0;
   const copy = button.querySelector("span");
   const timeCost = ["상업조합", "상회"].includes(type) ? "타임 소모 없음" : "1타임";
   button.dataset.informationAttemptCount = String(opportunity.remaining);
@@ -12913,6 +12923,7 @@ function updateInformationButton(button, type, placement = currentSettlementPlac
     : `${timeCost} · 남은 ${opportunity.remaining}회 모두 시도 · ${opportunity.resetInDays}일 후 초기화`;
   button.disabled = opportunity.remaining <= 0;
   button.classList.toggle("is-limit-exhausted", opportunity.remaining <= 0);
+  button.classList.toggle("is-information-available", type === "상회" && isAvailable);
   const blockedReason = opportunity.locked
     ? opportunity.lockReason || "아직 정보 수집 기능이 해금되지 않았습니다."
     : opportunity.remaining <= 0 ? "이번 3일 주기의 정보 수집 기회를 모두 사용했습니다." : "";

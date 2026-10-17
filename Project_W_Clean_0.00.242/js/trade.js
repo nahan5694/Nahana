@@ -124,6 +124,13 @@
     ["import", .2],
     ["resale", .1]
   ]);
+  const IDENTICAL_STOCK_PENALTY_RATIOS = new Map([
+    ["production", 1],
+    ["logistics", .6],
+    ["import", .3],
+    ["resale", .1],
+    ["event", .3]
+  ]);
   const LOCAL_SUBCATEGORY_COMPETITION_ADJUSTMENTS = [0, 3, 8, 12];
   const STOCK_VARIATION_WEIGHTS = {
     대도시: [[-2, 10], [-1, 20], [0, 40], [1, 20], [2, 10]],
@@ -2238,7 +2245,7 @@
       settlementStockLots: null,
       settlementAllStockLots: null,
       stockQuantityByItem: new Map(),
-      weightedStockQuantityByItem: new Map(),
+      identicalStockProfileByItem: new Map(),
       subcategorySupply: new Map(),
       weeklySupply: new Map(),
       merchantValuations: new Map(),
@@ -3207,20 +3214,26 @@
     return valuation;
   }
 
-  function merchantExperienceForCargoSale(item, quantity, saleValue, bargainAdjustmentPercent = 0) {
+  function merchantRewardForCargoSale(item, quantity, saleValue, bargainAdjustmentPercent = 0) {
     const soldQuantity = Math.max(0, Math.trunc(Number(quantity) || 0));
-    if (!item || soldQuantity <= 0) return 0;
+    if (!item || soldQuantity <= 0) return { experience: 0, performanceValue: 0 };
     const purchaseUnitValue = Math.max(0, Number(item.purchaseValue) || Number(item.definition?.baseValue) || 0);
     const saleUnitValue = Math.max(0, Math.floor(
       (Number(saleValue) || 0) * (1 + (Math.max(0, Number(bargainAdjustmentPercent) || 0) / 100))
     ));
     const unitProfit = saleUnitValue - purchaseUnitValue;
-    if (unitProfit <= 0) return 0;
+    if (unitProfit <= 0) return { experience: 0, performanceValue: 0 };
     const absoluteProfit = Math.abs(unitProfit);
     const profitRate = (absoluteProfit / Math.max(1, purchaseUnitValue)) * 100;
-    const profitRateMultiplier = clamp(1 + ((profitRate - 20) / 100), 0.8, 2);
+    const rewardedProfitRate = Math.min(200, profitRate);
+    const profitRateMultiplier = clamp(1 + ((rewardedProfitRate - 20) / 60), 0.8, 2);
+    const profitRateBonus = soldQuantity * Math.max(0, rewardedProfitRate - 20) * 0.2;
+    const performanceValue = Math.floor((absoluteProfit * soldQuantity * profitRateMultiplier) + profitRateBonus);
     const famousProductMultiplier = originProductKindFor(item, item.definition) === "famous" ? 1.33 : 1;
-    return Math.floor(absoluteProfit * soldQuantity * profitRateMultiplier * famousProductMultiplier);
+    return {
+      experience: Math.floor(performanceValue * famousProductMultiplier),
+      performanceValue
+    };
   }
 
   function tradeReviewFactors(valuation, direction, bargainAdjustmentPercent = 0) {
@@ -3728,10 +3741,7 @@
 
   function identicalStockAdjustment(itemId) {
     if (!current || !itemId) return 0;
-    const stock = citywideWeightedStockQuantity(itemId);
-    if (stock <= 0) return 0;
-    const threshold = IDENTICAL_STOCK_THRESHOLD.get(current.settlement.category) || 8;
-    return 40 * clamp(stock / Math.max(1, threshold), 0, 1);
+    return citywideIdenticalStockProfile(itemId).adjustment;
   }
 
   function localSubcategoryCompetitionAdjustmentFor(definition) {
@@ -3786,17 +3796,43 @@
     return result;
   }
 
-  function citywideWeightedStockQuantity(itemId) {
+  function citywideIdenticalStockProfile(itemId) {
     const cache = activeTradeComputationCache();
     const cacheKey = String(itemId || "");
-    if (cache?.weightedStockQuantityByItem.has(cacheKey)) return cache.weightedStockQuantityByItem.get(cacheKey);
-    const result = settlementStockLots().filter(lot => lot.itemId === itemId)
-      .reduce((sum, lot) => {
-        const weight = STOCK_PRESSURE_WEIGHTS.get(lot.sourceType) || 0;
-        return sum + (Math.max(0, Number(lot.quantity) || 0) * weight);
-      }, 0);
-    cache?.weightedStockQuantityByItem.set(cacheKey, result);
+    if (cache?.identicalStockProfileByItem.has(cacheKey)) return cache.identicalStockProfileByItem.get(cacheKey);
+    const quantities = {};
+    settlementStockLots().filter(lot => lot.itemId === itemId).forEach(lot => {
+      const sourceType = String(lot.sourceType || "");
+      if (!IDENTICAL_STOCK_PENALTY_RATIOS.has(sourceType)) return;
+      quantities[sourceType] = (quantities[sourceType] || 0) + Math.max(0, Number(lot.quantity) || 0);
+    });
+    const threshold = IDENTICAL_STOCK_THRESHOLD.get(current?.settlement?.category) || 8;
+    let adjustment = 0;
+    IDENTICAL_STOCK_PENALTY_RATIOS.forEach((penaltyRatio, sourceType) => {
+      const quantity = Math.max(0, Number(quantities[sourceType]) || 0);
+      adjustment += 40 * penaltyRatio * clamp(quantity / Math.max(1, threshold), 0, 1);
+    });
+    const result = {
+      quantities,
+      adjustment: Math.round(clamp(adjustment, 0, 40) * 10) / 10
+    };
+    cache?.identicalStockProfileByItem.set(cacheKey, result);
     return result;
+  }
+
+  function identicalStockSourceSummary(itemId) {
+    const quantities = citywideIdenticalStockProfile(itemId).quantities;
+    const labels = [
+      ["production", "생산"],
+      ["logistics", "고정물류"],
+      ["import", "수입"],
+      ["resale", "재판매"],
+      ["event", "임시입고"]
+    ];
+    return labels
+      .filter(([sourceType]) => Math.max(0, Number(quantities[sourceType]) || 0) > 0)
+      .map(([sourceType, label]) => `${label} ${formatNumber(quantities[sourceType])}`)
+      .join(" · ");
   }
 
   function settlementMerchantEntries() {
@@ -3955,7 +3991,7 @@
       addFactor(
         "도시 총재고",
         (stockMultiplier - 1) * 100,
-        `동일 상품 ${formatNumber(citywideStockQuantity(definition.id))}개 · 유효 재고 ${formatNumber(citywideWeightedStockQuantity(definition.id))}`
+        `동일 상품 ${formatNumber(citywideStockQuantity(definition.id))}개 · ${identicalStockSourceSummary(definition.id)} · 감가 ${formatNumber(valuation.identicalItemAdjustment)}%`
       );
     }
     if (knowledge.showQuality) addFactor("품질", valuation.qualityAdjustment, knowledge.qualityText);
@@ -5064,6 +5100,7 @@
     const saleOffsets = new Map();
     const bargainSuccesses = Math.max(0, Math.trunc(Number(getBargainProfile(bargainContext())?.successes) || 0));
     let merchantProfit = 0;
+    let companyProfitRewardValue = 0;
     let soldCargoQuantity = 0;
     let soldInformationQuantity = 0;
     const knowledgeTransactions = [];
@@ -5107,7 +5144,9 @@
       const bargainBenefitValue = saleValue * saleBargainPercent / 100;
       const instanceId = playerInstanceId(tradeKey);
       const offset = saleOffsets.get(instanceId) || 0;
-      merchantProfit += merchantExperienceForCargoSale(item, quantity, saleValue, saleBargainPercent);
+      const saleReward = merchantRewardForCargoSale(item, quantity, saleValue, saleBargainPercent);
+      merchantProfit += saleReward.experience;
+      companyProfitRewardValue += saleReward.performanceValue;
       soldCargoQuantity += quantity;
       knowledgeTransactions.push({
         direction: "sell",
@@ -5207,7 +5246,9 @@
     const companyTrade = current.facilityType === "상회" && (knowledgeTransactions.length || soldInformationIds.length)
       ? window.ProjectWMerchantPath?.recordCompanyTrade({
         name: current.companyName,
-        paidValue: playerPaidValue * Math.max(1, Number(getCompanyScoreMultiplier()) || 1)
+        paidValue: playerPaidValue,
+        profitRewardValue: companyProfitRewardValue,
+        multiplier: Math.max(1, Number(getCompanyScoreMultiplier()) || 1)
       })
       : null;
     if (purchasedNahanaGift) {

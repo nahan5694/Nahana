@@ -1477,9 +1477,17 @@
     return empty;
   }
 
-  function recordCompanyTrade({ name, paidValue } = {}) {
+  function recordCompanyTrade({ name, paidValue, profitRewardValue, multiplier } = {}) {
     const companyName = String(name || "").trim();
-    const earnedScore = Math.floor(Math.max(0, Number(paidValue) || 0) * .01);
+    const scoreMultiplier = Math.max(1, Number(multiplier) || 1);
+    const scoreBasis = (
+      Math.max(0, Number(paidValue) || 0)
+      + Math.max(0, Number(profitRewardValue) || 0)
+    ) * scoreMultiplier;
+    const earnedScore = Math.max(
+      Math.max(0, Number(profitRewardValue) || 0) > 0 ? 1 : 0,
+      Math.floor(scoreBasis * .01)
+    );
     if (!COMPANY_NAMES.includes(companyName) || earnedScore <= 0) {
       return { earnedScore: 0, profile: getCompanyProfile(companyName) };
     }

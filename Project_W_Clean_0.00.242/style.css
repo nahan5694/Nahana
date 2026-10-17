@@ -14491,6 +14491,30 @@ body:has(#dialog-modal:not([hidden])) .advanced-tutorial-launcher { display: non
 .window-side-actions .trade-map-side-button { background: linear-gradient(145deg, #e8e2c8, #ae9a68); }
 .window-side-actions .trade-odd-jobs-button { background: linear-gradient(145deg, #e3ebcf, #a8b56d); }
 .window-side-actions .trade-odd-jobs-button span { color: #526036; }
+.window-side-actions .trade-company-information-button.is-information-available:not(:disabled) {
+  border-color: #477d91;
+  border-right-color: #2d6f88;
+  background: linear-gradient(145deg, #e8f8fd, #8dcce3);
+  color: #174c62;
+  animation: company-information-available-glow 1.65s ease-in-out infinite;
+}
+.window-side-actions .trade-company-information-button.is-information-available:not(:disabled) span {
+  color: #2c6479;
+}
+@keyframes company-information-available-glow {
+  0%, 100% {
+    box-shadow: inset 0 0 0 2px #effcffbd, 0 7px 20px #2a81975e, 0 0 0 1px #8edcf058;
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px #fff, 0 9px 28px #39b5d6a8, 0 0 14px 3px #7fe7ff8c;
+    filter: brightness(1.08);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .window-side-actions .trade-company-information-button.is-information-available:not(:disabled) {
+    animation: none;
+  }
+}
 
 @media (max-width: 1700px) {
   .window-side-actions .trade-map-side-button,
